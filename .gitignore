@@ -211,3 +211,5 @@ __marimo__/
 /.idea/modules.xml
 /.idea/inspectionProfiles/profiles_settings.xml
 /.idea/vcs.xml
+/componentsv2/components_v_2_guide.md
+/componentsv2/create_ad.py
