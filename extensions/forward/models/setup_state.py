@@ -2,7 +2,7 @@
 Data models for setup wizard state management.
 """
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import discord
 
 
@@ -13,8 +13,8 @@ class SetupState:
         self.guild_id = guild_id
         self.user_id = user_id
         self.step = "welcome"  # Current step in setup
-        self.started_at = datetime.utcnow()
-        self.last_activity = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
+        self.last_activity = datetime.now(timezone.utc)
 
         # Setup data being collected
         self.master_log_channel: Optional[int] = None
@@ -63,11 +63,11 @@ class SetupState:
 
     def update_activity(self):
         """Update the last activity timestamp."""
-        self.last_activity = datetime.utcnow()
+        self.last_activity = datetime.now(timezone.utc)
 
     def is_expired(self, timeout_minutes: int = 30) -> bool:
         """Check if the setup session has expired due to inactivity."""
-        return (datetime.utcnow() - self.last_activity).total_seconds() > (timeout_minutes * 60)
+        return (datetime.now(timezone.utc) - self.last_activity).total_seconds() > (timeout_minutes * 60)
 
     def get_progress(self) -> float:
         """Get setup completion progress (0.0 to 1.0)."""
