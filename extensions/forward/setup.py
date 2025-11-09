@@ -754,28 +754,18 @@ class ForwardCog(commands.Cog):
             f"Button interaction received: {custom_id} from user {interaction.user.id} in guild {interaction.guild_id}")
 
         try:
+            # Defer the interaction immediately to prevent timeout
+            if not interaction.response.is_done():
+                await interaction.response.defer()
+
             session = await state_manager.get_session(str(interaction.guild_id))
             if not session:
                 self.logger.warning(f"No session found for guild {interaction.guild_id}")
-                try:
-                    if interaction.response.is_done():
-                        await interaction.followup.send(
-                            "❌ Setup session expired or not found. Please run `/setup` again.",
-                            ephemeral=True
-                        )
-                    else:
-                        await interaction.response.send_message(
-                            "❌ Setup session expired or not found. Please run `/setup` again.",
-                            ephemeral=True
-                        )
-                except discord.HTTPException as e:
-                    if "already been acknowledged" in str(e).lower():
-                        await interaction.followup.send(
-                            "❌ Setup session expired or not found. Please run `/setup` again.",
-                            ephemeral=True
-                        )
-                    else:
-                        raise e
+                # Use followup.send since the interaction has been deferred
+                await interaction.followup.send(
+                    "❌ Setup session expired or not found. Please run `/setup` again.",
+                    ephemeral=True
+                )
                 return
 
             session.update_activity()
@@ -888,14 +878,21 @@ class ForwardCog(commands.Cog):
         select menu was used and delegates to the appropriate handler.
         """
         try:
+            # Defer the interaction immediately to prevent timeout
+            if not interaction.response.is_done():
+                await interaction.response.defer()
+
             session = await state_manager.get_session(str(interaction.guild_id))
             if not session:
-                await interaction.response.send_message("Setup session expired. Please run `/setup` again.", ephemeral=True)
+                await interaction.followup.send("Setup session expired. Please run `/setup` again.", ephemeral=True)
                 return
 
             custom_id = interaction.data.get('custom_id')
             values = interaction.data.get('values', [])
             if not values:
+                # If no values, just acknowledge the deferral and return, or send an ephemeral message
+                # For now, let's just return if deferred, as no action is needed.
+                # If not deferred, this would be an issue, but we're deferring at the start.
                 return
 
             # --- Log Channel Selection ---
@@ -906,10 +903,13 @@ class ForwardCog(commands.Cog):
                     await state_manager.update_session(interaction.guild_id, {"master_log_channel_id": channel_id})
                     # Persist the change to the database
                     await self.guild_manager.update_guild_settings(str(interaction.guild_id), {"master_log_channel_id": channel_id})
-                    await interaction.response.send_message(f"✅ Log channel set to {interaction.guild.get_channel(channel_id).mention}", ephemeral=True)
+                    # Use followup.send for ephemeral messages after deferring
+                    await interaction.followup.send(f"✅ Log channel set to {interaction.guild.get_channel(channel_id).mention}", ephemeral=True)
+                    # Now call the next step, which will edit the original message
                     await self.show_first_rule_step(interaction, session)
                 else:
-                    await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+                    # Use followup.send for ephemeral messages after deferring
+                    await interaction.followup.send(f"❌ {message}", ephemeral=True)
 
             # --- Rule Channel Selection ---
             elif custom_id == "rule_source_select":
@@ -920,10 +920,12 @@ class ForwardCog(commands.Cog):
         except Exception as e:
             self.logger.error(f"Error handling select menu: {e}", exc_info=True)
             try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ An error occurred. Please try again.", ephemeral=True)
-                else:
+                # If an error occurs, and interaction was deferred, send a followup.
+                # If it wasn't deferred (e.g., error before defer), then try send_message.
+                if interaction.response.is_done(): # Means it was deferred or already responded to
                     await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("❌ An error occurred. Please try again.", ephemeral=True)
             except discord.HTTPException:
                 self.logger.error("Failed to send error followup for select menu.")
 
