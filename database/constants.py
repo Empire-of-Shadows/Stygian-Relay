@@ -49,5 +49,7 @@ DEFAULT_GUILD_SETTINGS_TEMPLATE = {
         "max_rules": 3,
         "daily_messages": 100,
         "rule_creation_enabled": True
+    },
+    "rules": {
     }
 }

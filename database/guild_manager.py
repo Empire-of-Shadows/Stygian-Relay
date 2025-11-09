@@ -214,36 +214,32 @@ class GuildManager:
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         return await collection.count_documents({})
 
-    async def create_forwarding_rule(self, rule_data: Dict[str, Any]) -> str:
-        """Create a new forwarding rule."""
-        collection = self.db.get_collection("discord_forwarding_bot", "forwarding_rules")
-
-        rule_data["created_at"] = datetime.now(timezone.utc)
-        rule_data["updated_at"] = datetime.now(timezone.utc)
-
-        result = await collection.insert_one(rule_data)
-        return str(result.inserted_id)
-
     async def get_guild_forwarding_rules(self, guild_id: str) -> List[Dict[str, Any]]:
         """Get all forwarding rules for a guild."""
-        collection = self.db.get_collection("discord_forwarding_bot", "forwarding_rules")
-
-        cursor = collection.find({"guild_id": guild_id, "is_active": True})
-        return await cursor.to_list(length=None)
+        guild_settings = await self.get_guild_settings(guild_id)
+        return guild_settings.get("forwarding_rules", [])
 
     async def get_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific forwarding rule by ID."""
-        collection = self.db.get_collection("discord_forwarding_bot", "forwarding_rules")
-        return await collection.find_one({"_id": rule_id})
+        collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+        result = await collection.find_one({"forwarding_rules.rule_id": rule_id})
+        if result:
+            for rule in result.get("forwarding_rules", []):
+                if rule.get("rule_id") == rule_id:
+                    return rule
+        return None
 
     async def update_forwarding_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
         """Update a forwarding rule."""
-        collection = self.db.get_collection("discord_forwarding_bot", "forwarding_rules")
-
+        collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
+
+        # Construct the update query
+        update_fields = {f"forwarding_rules.$.{key}": value for key, value in updates.items()}
+
         result = await collection.update_one(
-            {"_id": rule_id},
-            {"$set": updates}
+            {"forwarding_rules.rule_id": rule_id},
+            {"$set": update_fields}
         )
 
         return result.modified_count > 0
@@ -321,27 +317,52 @@ class GuildManager:
             bool: True if successful, False otherwise
         """
         from logger.logger_setup import get_logger
+        import uuid
         logger = get_logger("GuildManager", level=20, json_format=False, colored_console=True)
 
         try:
             logger.info(f"Adding forwarding rule '{rule_name}' for guild {guild_id}")
 
             rule_data = {
-                "guild_id": str(guild_id),
+                "rule_id": str(uuid.uuid4()),
                 "rule_name": rule_name,
                 "source_channel_id": source_channel_id,
                 "destination_channel_id": destination_channel_id,
                 "is_active": enabled,
                 "settings": settings or {},
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
             }
 
-            rule_id = await self.create_forwarding_rule(rule_data)
+            collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+            result = await collection.update_one(
+                {"_id": str(guild_id)},
+                {
+                    "$push": {"forwarding_rules": rule_data},
+                    "$set": {"updated_at": datetime.now(timezone.utc)}
+                }
+            )
 
-            if rule_id:
-                logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id} with id {rule_id}")
+            if result.modified_count > 0:
+                logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id}")
                 return True
             else:
-                logger.warning(f"Rule creation returned no ID for guild {guild_id}")
+                # This could happen if the guild document doesn't exist.
+                # Let's try to create it first.
+                guild_settings = await self.get_guild_settings(str(guild_id))
+                if guild_settings:
+                    result = await collection.update_one(
+                        {"_id": str(guild_id)},
+                        {
+                            "$push": {"forwarding_rules": rule_data},
+                            "$set": {"updated_at": datetime.now(timezone.utc)}
+                        }
+                    )
+                    if result.modified_count > 0:
+                        logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id} after creating settings.")
+                        return True
+
+                logger.warning(f"No changes made when adding rule for guild {guild_id}")
                 return False
 
         except Exception as e:

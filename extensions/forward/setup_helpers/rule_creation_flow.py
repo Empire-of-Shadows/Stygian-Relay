@@ -263,7 +263,7 @@ class RuleCreationFlow:
 
             # Prepare rule data for database
             rule_data = {
-                "rule_name": rule.get("rule_name"),
+                "rule_name": rule.get("name"),
                 "source_channel_id": rule.get("source_channel_id"),
                 "destination_channel_id": rule.get("destination_channel_id"),
                 "enabled": rule.get("enabled", True),
