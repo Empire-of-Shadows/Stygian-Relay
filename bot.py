@@ -2,30 +2,26 @@ import discord
 from discord.ext import commands
 import asyncio
 
-# Import the new database manager
 from database import db_core, guild_manager, ensure_database_connection, get_guild_settings
 
-# Global variable to store error_notifier reference
 error_notifier = None
 
 
 def set_error_notifier(notifier):
-    """Set the error notifier instance from main.py"""
+    """Sets the global error notifier instance from main.py."""
     global error_notifier
     error_notifier = notifier
 
 
 async def get_prefix(bot, message):
-    """Get the command prefix for a guild."""
+    """A callable to dynamically retrieve the command prefix for a guild."""
     if not message.guild:
         return commands.when_mentioned_or("!")(bot, message)
 
     try:
-        # Ensure database connection
         if not await ensure_database_connection():
             return commands.when_mentioned_or("!")(bot, message)
 
-        # Get guild settings
         settings = await get_guild_settings(str(message.guild.id))
         prefix = settings.get("command_prefix", "!")
         return commands.when_mentioned_or(prefix)(bot, message)
@@ -35,13 +31,12 @@ async def get_prefix(bot, message):
         return commands.when_mentioned_or("!")(bot, message)
 
 
-# Define intents
+# Define intents required by the bot
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True  # If you need member events
-intents.guilds = True  # For guild join/leave events
+intents.members = True
+intents.guilds = True
 
-# Create a bot instance
 bot = commands.AutoShardedBot(
     command_prefix=get_prefix,
     intents=intents,
@@ -57,14 +52,11 @@ async def on_ready():
     print(f'📊 Connected to {len(bot.guilds)} guilds')
     print('------')
 
-    # Connect to the database
     try:
         if not db_core.is_healthy():
             success = await db_core.initialize()
             if success:
                 print('✅ Database connection established')
-
-                # Initialize default settings for all current guilds
                 await initialize_existing_guilds()
             else:
                 print('❌ Failed to connect to database')
@@ -96,11 +88,9 @@ async def on_guild_join(guild):
     print(f'🤖 Bot joined guild: {guild.name} (ID: {guild.id})')
 
     try:
-        # Auto-setup the new guild in database
         settings = await guild_manager.setup_new_guild(str(guild.id), guild.name)
         print(f'✅ Auto-configured guild: {guild.name}')
 
-        # Send welcome message if enabled
         await send_welcome_message(guild, settings)
 
     except Exception as e:
@@ -113,7 +103,6 @@ async def on_guild_remove(guild):
     print(f'👋 Bot left guild: {guild.name} (ID: {guild.id})')
 
     try:
-        # Clean up guild data from database
         success = await guild_manager.remove_guild_data(str(guild.id), guild.name)
         if success:
             print(f'✅ Removed data for guild: {guild.name}')
@@ -125,21 +114,18 @@ async def on_guild_remove(guild):
 
 
 async def send_welcome_message(guild, settings):
-    """Send a welcome message to the new guild."""
+    """Sends a welcome message to a new guild if enabled."""
     try:
-        # Get bot settings to check if welcome messages are enabled
         bot_settings_collection = db_core.get_collection("discord_forwarding_bot", "bot_settings")
         bot_settings = await bot_settings_collection.find_one({"_id": "global_config"})
 
         if not bot_settings or not bot_settings.get("welcome_message_enabled", True):
             return
 
-        # Find a suitable channel to send welcome message
-        system_channel = guild.system_channel
-        if system_channel and system_channel.permissions_for(guild.me).send_messages:
-            channel = system_channel
-        else:
-            # Try to find any text channel with send permissions
+        # Find a suitable channel to send the welcome message.
+        # Prioritize the system channel, but fall back to the first available text channel.
+        channel = guild.system_channel
+        if not (channel and channel.permissions_for(guild.me).send_messages):
             for text_channel in guild.text_channels:
                 if text_channel.permissions_for(guild.me).send_messages:
                     channel = text_channel
@@ -148,25 +134,21 @@ async def send_welcome_message(guild, settings):
                 print(f"⚠️ No suitable channel found for welcome message in {guild.name}")
                 return
 
-        # Create welcome embed
         embed = discord.Embed(
-            title="🤖 Message Forwarding Bot",
+            title="🤖 Stygian Relay",
             description="Thanks for adding me to your server! I can forward messages between channels with advanced filtering.",
             color=discord.Color.green()
         )
-
         embed.add_field(
             name="Getting Started",
             value="Use `/setup` to configure your first forwarding rule or `/help` to see all commands.",
             inline=False
         )
-
         embed.add_field(
             name="Key Features",
             value="• Cross-channel message forwarding\n• Advanced content filtering\n• Media and link support\n• Premium features available",
             inline=False
         )
-
         embed.set_footer(text="Use /help for more information")
 
         await channel.send(embed=embed)
@@ -181,7 +163,6 @@ async def close():
     """Called when the bot is shutting down."""
     print('🔄 Bot is shutting down. Cleaning up...')
 
-    # Disconnect from the database
     try:
         if db_core.is_healthy():
             await db_core.close()
@@ -189,7 +170,6 @@ async def close():
     except Exception as e:
         print(f'❌ Error closing database connection: {e}')
 
-    # Shutdown error notifier if available
     if error_notifier:
         try:
             await error_notifier.shutdown()
@@ -204,11 +184,10 @@ async def close():
 async def on_command_error(ctx, error):
     """Global error handler for commands."""
     if isinstance(error, commands.CommandNotFound):
-        return  # Ignore command not found errors
+        return
 
     print(f'❌ Command error in {ctx.guild.name if ctx.guild else "DM"}: {error}')
 
-    # Send error message to user
     if isinstance(error, commands.BotMissingPermissions):
         await ctx.send("❌ I don't have the required permissions to execute this command.")
     elif isinstance(error, commands.MissingPermissions):
@@ -218,7 +197,6 @@ async def on_command_error(ctx, error):
     else:
         await ctx.send("❌ An error occurred while executing this command.")
 
-        # Notify error notifier if available
         if error_notifier:
             try:
                 await error_notifier.notify_error(
@@ -230,18 +208,13 @@ async def on_command_error(ctx, error):
                 print(f'❌ Failed to notify error: {e}')
 
 
-# Example command to test database functionality
 @bot.command(name="ping")
 async def ping_command(ctx):
-    """Check bot latency and database connection."""
-    # Calculate latency
+    """Checks bot latency and database connection status."""
     latency = round(bot.latency * 1000)
-
-    # Check database health
     db_healthy = db_core.is_healthy()
     db_status = "✅ Connected" if db_healthy else "❌ Disconnected"
 
-    # Get guild settings
     try:
         settings = await get_guild_settings(str(ctx.guild.id))
         prefix = settings.get("command_prefix", "!")
@@ -254,7 +227,6 @@ async def ping_command(ctx):
         title="🏓 Pong!",
         color=discord.Color.blue()
     )
-
     embed.add_field(name="Bot Latency", value=f"{latency}ms", inline=True)
     embed.add_field(name="Database", value=db_status, inline=True)
     embed.add_field(name="Guild Settings", value=guild_status, inline=True)
@@ -268,14 +240,12 @@ async def ping_command(ctx):
 @bot.command(name="sync")
 @commands.is_owner()
 async def sync_commands(ctx):
-    """Sync slash commands globally. Owner only command."""
+    """Syncs slash commands globally. Owner only."""
     try:
-        # Sync commands globally
         synced = await bot.tree.sync()
         await ctx.send(f"✅ Successfully synced {len(synced)} slash commands globally!")
         print(f"Synced {len(synced)} slash commands globally")
 
-        # Log the synced commands
         if synced:
             command_names = [cmd.name for cmd in synced]
             print(f"Synced commands: {', '.join(command_names)}")
@@ -284,6 +254,6 @@ async def sync_commands(ctx):
         await ctx.send(f"❌ Failed to sync commands: {e}")
         print(f"Failed to sync commands: {e}")
 
-# Export the bot instance for use in main.py
+
 def get_bot():
     return bot

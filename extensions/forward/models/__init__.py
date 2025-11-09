@@ -1,10 +1,8 @@
 """
 Data models for the forward extension.
 """
-from .setup_state import SetupState, SetupStep, SETUP_STEPS
+from .setup_state import SetupState
 
 __all__ = [
-    'SetupState',
-    'SetupStep',
-    'SETUP_STEPS'
+    'SetupState'
 ]

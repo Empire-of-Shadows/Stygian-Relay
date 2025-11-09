@@ -1,4 +1,4 @@
-# Discord Message Forwarding Bot
+# Stygian Relay
 
 A powerful and customizable Discord bot for forwarding messages between channels with advanced filtering and logging capabilities. This bot is currently a work in progress.
 

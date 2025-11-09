@@ -1,12 +1,12 @@
-"""
-Constants and configuration for database operations.
-"""
-
 # Global database mapping storage
+# This dictionary stores the database name for each bot instance.
 DATABASE_MAPPINGS = {}
+
+# This dictionary stores the collection name for each data type.
 COLLECTION_REGISTRY = {}
 
 # Required collections for the Discord Forwarding Bot
+# These collections are essential for the bot's operation and will be created if they don't exist.
 REQUIRED_COLLECTIONS = {
     'guild_settings',
     'message_logs',
@@ -18,6 +18,7 @@ REQUIRED_COLLECTIONS = {
 }
 
 # Default bot settings
+# These settings are used to configure the bot's global behavior.
 DEFAULT_BOT_SETTINGS = {
     "_id": "global_config",
     "max_rules_per_guild": 3,
@@ -33,6 +34,7 @@ DEFAULT_BOT_SETTINGS = {
 }
 
 # Default guild settings template
+# This template is used to create the settings for a new guild.
 DEFAULT_GUILD_SETTINGS_TEMPLATE = {
     "master_log_channel_id": None,
     "is_enabled": True,

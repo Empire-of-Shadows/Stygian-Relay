@@ -1,6 +1,3 @@
-"""
-Manages persistent buttons for the setup wizard.
-"""
 from typing import List, Optional, Dict, Any
 import discord
 
@@ -18,7 +15,10 @@ class ButtonManager:
         self.button_callbacks = {}
 
     def create_button_row(self, buttons: List[Dict[str, Any]]) -> discord.ui.View:
-        """Create a row of buttons with callbacks."""
+        """
+        Create a row of buttons with callbacks.
+        This method is the primary way to create a view with buttons.
+        """
         view = discord.ui.View(timeout=1800)  # 30 minute timeout
 
         for button_config in buttons:
@@ -41,7 +41,11 @@ class ButtonManager:
         return view
 
     def _create_button_callback(self, custom_id: str):
-        """Create a callback function for a button."""
+        """
+        Create a callback function for a button.
+        This method is used to create a callback that can be assigned to a
+        button.
+        """
 
         async def button_callback(interaction: discord.Interaction):
             callback = self.button_callbacks.get(custom_id)
@@ -52,7 +56,10 @@ class ButtonManager:
         return button_callback
 
     def get_welcome_buttons(self) -> discord.ui.View:
-        """Get buttons for the welcome step."""
+        """
+        Get buttons for the welcome step.
+        This view is shown to the user when they start the setup wizard.
+        """
         buttons = [
             {
                 "label": "Start Setup",
@@ -76,7 +83,10 @@ class ButtonManager:
         return self.create_button_row(buttons)
 
     def get_yes_no_buttons(self) -> discord.ui.View:
-        """Get standard Yes/No buttons."""
+        """
+        Get standard Yes/No buttons.
+        This view is used for simple yes/no questions.
+        """
         buttons = [
             {
                 "label": "Yes",
@@ -100,7 +110,10 @@ class ButtonManager:
         return self.create_button_row(buttons)
 
     def get_navigation_buttons(self, include_back: bool = True, include_skip: bool = False) -> discord.ui.View:
-        """Get navigation buttons for setup steps."""
+        """
+        Get navigation buttons for setup steps.
+        This view is used for navigating between steps in the setup wizard.
+        """
         buttons = []
 
         if include_back:
@@ -136,7 +149,10 @@ class ButtonManager:
         return self.create_button_row(buttons)
 
     def get_channel_select_buttons(self) -> discord.ui.View:
-        """Get buttons for channel selection steps."""
+        """
+        Get buttons for channel selection steps.
+        This view is used when the user needs to select a channel.
+        """
         buttons = [
             {
                 "label": "Select Channel",

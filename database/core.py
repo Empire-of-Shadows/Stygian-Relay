@@ -1,6 +1,3 @@
-"""
-Core database connection and management functionality.
-"""
 import os
 import asyncio
 import signal
@@ -45,16 +42,16 @@ class DatabaseCore:
         Initialize DatabaseCore with connection settings.
         """
         # Connection settings
-        self.connection_timeout = connection_timeout
-        self.server_selection_timeout = server_selection_timeout
-        self.max_pool_size = max_pool_size
-        self.min_pool_size = min_pool_size
-        self.max_idle_time = max_idle_time
-        self.retry_writes = retry_writes
-        self.retry_reads = retry_reads
-        self.heartbeat_frequency = heartbeat_frequency
-        self.health_check_interval = health_check_interval
-        self.auto_discover = auto_discover
+        self.connection_timeout = connection_timeout  # Max time in ms to wait for a connection
+        self.server_selection_timeout = server_selection_timeout  # Max time in ms to find a suitable server
+        self.max_pool_size = max_pool_size  # Max number of concurrent connections
+        self.min_pool_size = min_pool_size  # Min number of concurrent connections
+        self.max_idle_time = max_idle_time  # Max time in ms a connection can be idle
+        self.retry_writes = retry_writes  # Retry write operations on network errors
+        self.retry_reads = retry_reads  # Retry read operations on network errors
+        self.heartbeat_frequency = heartbeat_frequency  # Frequency of server heartbeats in ms
+        self.health_check_interval = health_check_interval  # Interval for health checks in seconds
+        self.auto_discover = auto_discover  # Auto-discover and map all databases
 
         # Connection state
         self.db_client: Optional[AsyncIOMotorClient] = None
@@ -676,7 +673,10 @@ class DatabaseCore:
             return result
 
     async def ensure_database_structure(self):
-        """Ensure the complete database structure exists for the bot."""
+        """
+        Ensure the complete database structure exists for the bot.
+        This method creates the main database and all required collections if they don't exist.
+        """
         logger.info("🏗️ Ensuring complete database structure...")
 
         if not self.db_client:

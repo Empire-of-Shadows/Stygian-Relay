@@ -1,12 +1,14 @@
-"""
-Custom exceptions for database operations.
-"""
-
 class DatabaseConnectionError(Exception):
-    """Custom exception for database connection issues"""
+    """
+    Raised when there is an issue with the database connection.
+    This could be due to a network error, authentication failure, or other connection-related issues.
+    """
     pass
 
 
 class DatabaseOperationError(Exception):
-    """Custom exception for database operation issues"""
+    """
+    Raised when a database operation fails.
+    This could be due to a query error, constraint violation, or other operation-related issues.
+    """
     pass

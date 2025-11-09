@@ -1,8 +1,6 @@
-"""
-Guild management and event handling for the Discord Forwarding Bot.
-"""
 import os
 import asyncio
+import uuid
 from typing import Dict, Any, List, Callable, Optional
 from datetime import datetime, timezone
 from logger.logger_setup import get_logger
@@ -14,11 +12,13 @@ logger = get_logger("GuildManager", level=20, json_format=False, colored_console
 
 class GuildManager:
     """
-    Manages guild settings, auto-setup, and event handling for the Discord bot.
+    Manages all database operations related to guilds, including settings,
+    rules, and logging. It also provides an observer pattern for guild events.
     """
 
     def __init__(self, database_core):
         self.db = database_core
+        # Observer pattern listeners: other parts of the bot can subscribe to these events.
         self._guild_join_listeners: List[Callable] = []
         self._guild_leave_listeners: List[Callable] = []
 
@@ -30,22 +30,27 @@ class GuildManager:
         }
 
     def add_guild_join_listener(self, callback: Callable):
-        """Add a listener for guild join events."""
+        """
+        Add a listener for guild join events.
+        The callback will be called with the guild_id and guild_name as arguments.
+        """
         self._guild_join_listeners.append(callback)
         logger.debug(f"Added guild join listener: {callback.__name__}")
 
     def add_guild_leave_listener(self, callback: Callable):
-        """Add a listener for guild leave events."""
+        """
+        Add a listener for guild leave events.
+        The callback will be called with the guild_id and guild_name as arguments.
+        """
         self._guild_leave_listeners.append(callback)
         logger.debug(f"Added guild leave listener: {callback.__name__}")
 
     async def _notify_guild_join(self, guild_id: str, guild_name: str):
-        """Notify all guild join listeners."""
+        """Internal method to notify all registered listeners about a guild join."""
         if not self._guild_join_listeners:
             return
 
         logger.info(f"Notifying {len(self._guild_join_listeners)} listeners about guild join: {guild_name} ({guild_id})")
-
         for listener in self._guild_join_listeners:
             try:
                 if asyncio.iscoroutinefunction(listener):
@@ -56,12 +61,11 @@ class GuildManager:
                 logger.error(f"Error in guild join listener {listener.__name__}: {e}")
 
     async def _notify_guild_leave(self, guild_id: str, guild_name: str):
-        """Notify all guild leave listeners."""
+        """Internal method to notify all registered listeners about a guild leave."""
         if not self._guild_leave_listeners:
             return
 
         logger.info(f"Notifying {len(self._guild_leave_listeners)} listeners about guild leave: {guild_name} ({guild_id})")
-
         for listener in self._guild_leave_listeners:
             try:
                 if asyncio.iscoroutinefunction(listener):
@@ -72,9 +76,12 @@ class GuildManager:
                 logger.error(f"Error in guild leave listener {listener.__name__}: {e}")
 
     async def initialize_default_settings(self):
-        """Initialize default bot settings if they don't exist."""
+        """
+        Ensures the global bot settings document exists in the database.
+        If it doesn't exist, it's created. If it exists but is missing fields
+        from the default template, it's updated.
+        """
         logger.info("⚙️ Initializing default bot settings...")
-
         bot_settings = self.db.get_collection("discord_forwarding_bot", "bot_settings")
 
         default_settings = DEFAULT_BOT_SETTINGS.copy()
@@ -88,11 +95,8 @@ class GuildManager:
             await bot_settings.insert_one(default_settings)
             logger.info("✅ Default bot settings initialized")
         else:
-            update_fields = {}
-            for key, value in default_settings.items():
-                if key not in existing:
-                    update_fields[key] = value
-
+            # Check for and add any missing fields from the default settings.
+            update_fields = {key: value for key, value in default_settings.items() if key not in existing}
             if update_fields:
                 await bot_settings.update_one(
                     {"_id": "global_config"},
@@ -104,24 +108,16 @@ class GuildManager:
 
     async def setup_new_guild(self, guild_id: str, guild_name: str) -> Dict[str, Any]:
         """
-        Automatically set up default settings for a new guild.
+        Sets up default settings for a new guild. If the guild already exists,
+        it updates the name and ensures it's marked as auto-setup complete.
         """
         logger.info(f"🏰 Setting up default settings for new guild: {guild_name} ({guild_id})")
-
         try:
-            default_settings = DEFAULT_GUILD_SETTINGS_TEMPLATE.copy()
-            default_settings["_id"] = guild_id
-            default_settings["guild_name"] = guild_name
-            default_settings["auto_setup_complete"] = True
-            default_settings["setup_date"] = datetime.now(timezone.utc)
-            default_settings["created_at"] = datetime.now(timezone.utc)
-            default_settings["updated_at"] = datetime.now(timezone.utc)
-
             collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-
             existing = await collection.find_one({"_id": guild_id})
+
             if existing:
-                logger.info(f"ℹ️ Guild {guild_name} already exists in database, updating...")
+                logger.info(f"ℹ️ Guild {guild_name} already exists in database, ensuring it is up-to-date...")
                 await collection.update_one(
                     {"_id": guild_id},
                     {"$set": {
@@ -132,14 +128,20 @@ class GuildManager:
                 )
                 return await collection.find_one({"_id": guild_id})
             else:
+                default_settings = DEFAULT_GUILD_SETTINGS_TEMPLATE.copy()
+                default_settings.update({
+                    "_id": guild_id,
+                    "guild_name": guild_name,
+                    "auto_setup_complete": True,
+                    "setup_date": datetime.now(timezone.utc),
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc)
+                })
                 await collection.insert_one(default_settings)
                 self.metrics["guilds_auto_configured"] += 1
                 logger.info(f"✅ Successfully set up default settings for guild: {guild_name}")
-
                 await self._notify_guild_join(guild_id, guild_name)
-
                 return default_settings
-
         except Exception as e:
             self.metrics["setup_errors"] += 1
             logger.error(f"❌ Failed to set up guild {guild_name}: {e}")
@@ -147,71 +149,60 @@ class GuildManager:
 
     async def remove_guild_data(self, guild_id: str, guild_name: str) -> bool:
         """
-        Remove all data for a guild that the bot left.
+        Removes all data associated with a guild from the database.
+        This includes guild settings and user permissions.
         """
         logger.info(f"🗑️ Removing data for guild: {guild_name} ({guild_id})")
-
         try:
             db = self.db.db_client["discord_forwarding_bot"]
-
-            guild_settings = db["guild_settings"]
-            await guild_settings.delete_one({"_id": guild_id})
-
-            user_permissions = db["user_permissions"]
-            await user_permissions.delete_many({"guild_id": guild_id})
-
+            await db["guild_settings"].delete_one({"_id": guild_id})
+            await db["user_permissions"].delete_many({"guild_id": guild_id})
             await self._notify_guild_leave(guild_id, guild_name)
-
             self.metrics["guilds_removed"] += 1
             logger.info(f"✅ Successfully removed data for guild: {guild_name}")
             return True
-
         except Exception as e:
             logger.error(f"❌ Failed to remove guild data for {guild_name}: {e}")
             return False
 
     async def get_guild_settings(self, guild_id: str) -> Dict[str, Any]:
-        """Get guild settings or create default if not exists."""
+        """
+        Get guild settings or create default if not exists.
+        This is the primary method for accessing guild settings.
+        """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-
         settings = await collection.find_one({"_id": guild_id})
         if not settings:
             logger.info(f"Guild {guild_id} not found, creating default settings...")
             return await self.setup_new_guild(guild_id, "Unknown Guild")
-
         return settings
 
     async def update_guild_settings(self, guild_id: str, updates: Dict[str, Any]) -> bool:
-        """Update guild settings."""
+        """
+        Update top-level fields in a guild's settings document.
+        This is used for general settings updates.
+        """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-
         updates["updated_at"] = datetime.now(timezone.utc)
         result = await collection.update_one(
             {"_id": guild_id},
             {"$set": updates}
         )
-
         return result.modified_count > 0
 
     async def get_all_guilds(self) -> List[Dict[str, Any]]:
-        """
-        Get all guilds that have settings in the database.
-        """
+        """Get all guilds that have settings in the database."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         cursor = collection.find({})
         return await cursor.to_list(length=None)
 
     async def get_all_rules(self, guild_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all forwarding rules for a specific guild.
-        """
+        """Get all forwarding rules for a specific guild."""
         logger.debug(f"Fetching all forwarding rules for guild {guild_id}")
         return await self.get_guild_rules(str(guild_id))
 
     async def get_guild_count(self) -> int:
-        """
-        Get total number of guilds in the database.
-        """
+        """Get total number of guilds in the database."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         return await collection.count_documents({})
 
@@ -221,7 +212,7 @@ class GuildManager:
         return guild_settings.get("rules", [])
 
     async def get_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
-        """Get a specific forwarding rule by ID."""
+        """Get a specific forwarding rule by its unique ID."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         result = await collection.find_one({"rules.rule_id": rule_id})
         if result:
@@ -231,28 +222,29 @@ class GuildManager:
         return None
 
     async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
-        """Update a rule."""
+        """
+        Updates fields of a specific rule within a guild's `rules` array.
+        """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
 
-        # Construct the update query
+        # This uses the '$' positional operator to update the specific element
+        # in the 'rules' array that was matched by the query filter.
         update_fields = {f"rules.$.{key}": value for key, value in updates.items()}
 
         result = await collection.update_one(
             {"rules.rule_id": rule_id},
             {"$set": update_fields}
         )
-
         return result.modified_count > 0
 
     async def delete_rule(self, rule_id: str) -> bool:
-        """Soft delete a rule."""
+        """Soft deletes a rule by setting its `is_active` flag to False."""
         return await self.update_rule(rule_id, {"is_active": False})
 
     async def log_forwarded_message(self, log_data: Dict[str, Any]):
-        """Log a forwarded message for tracking."""
+        """Log a forwarded message for tracking and rate-limiting."""
         collection = self.db.get_collection("discord_forwarding_bot", "message_logs")
-
         log_data["forwarded_at"] = datetime.now(timezone.utc)
         await collection.insert_one(log_data)
 
@@ -260,33 +252,32 @@ class GuildManager:
         """Get number of messages forwarded today for a guild."""
         if date is None:
             date = datetime.now(timezone.utc)
-
-        start_of_day = datetime(date.year, date.month, date.day)
+        start_of_day = datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
 
         collection = self.db.get_collection("discord_forwarding_bot", "message_logs")
-
         count = await collection.count_documents({
             "guild_id": guild_id,
             "forwarded_at": {"$gte": start_of_day},
             "success": True
         })
-
         return count
 
     async def is_premium_guild(self, guild_id: str) -> bool:
-        """Check if a guild has premium subscription."""
+        """Check if a guild has an active premium subscription."""
         collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
-
         premium = await collection.find_one({
             "guild_id": guild_id,
             "is_active": True,
             "expires_at": {"$gt": datetime.now(timezone.utc)}
         })
-
         return premium is not None
 
     async def get_guild_limits(self, guild_id: str) -> Dict[str, Any]:
-        """Get guild limits based on premium status."""
+        """
+        Get guild limits based on premium status.
+        This method checks the bot's global settings and the guild's premium status
+        to determine the limits for the guild.
+        """
         bot_settings = await self.db.get_collection("discord_forwarding_bot", "bot_settings").find_one({"_id": "global_config"})
         is_premium = await self.is_premium_guild(guild_id)
 
@@ -304,26 +295,11 @@ class GuildManager:
                                   destination_channel_id: int, enabled: bool = True,
                                   settings: dict = None) -> bool:
         """
-        Add a new rule for a guild.
-
-        Args:
-            guild_id: The guild ID
-            rule_name: Name of the rule
-            source_channel_id: Channel to watch
-            destination_channel_id: Channel to forward to
-            enabled: Whether the rule is enabled
-            settings: Additional rule settings
-
-        Returns:
-            bool: True if successful, False otherwise
+        Adds a new forwarding rule to a guild's settings. If the guild document
+        does not exist, it will be created first.
         """
-        from logger.logger_setup import get_logger
-        import uuid
-        logger = get_logger("GuildManager", level=20, json_format=False, colored_console=True)
-
         try:
             logger.info(f"Adding forwarding rule '{rule_name}' for guild {guild_id}")
-
             rule_data = {
                 "rule_id": str(uuid.uuid4()),
                 "rule_name": rule_name,
@@ -338,34 +314,27 @@ class GuildManager:
             collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
             result = await collection.update_one(
                 {"_id": str(guild_id)},
-                {
-                    "$push": {"rules": rule_data},
-                    "$set": {"updated_at": datetime.now(timezone.utc)}
-                }
+                {"$push": {"rules": rule_data}, "$set": {"updated_at": datetime.now(timezone.utc)}}
             )
 
             if result.modified_count > 0:
                 logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id}")
                 return True
             else:
-                # This could happen if the guild document doesn't exist.
-                # Let's try to create it first.
+                # If the update failed, it might be because the guild document doesn't exist.
+                # We'll create it and try adding the rule again.
+                logger.warning(f"Guild {guild_id} not found. Creating settings and retrying rule addition.")
                 guild_settings = await self.get_guild_settings(str(guild_id))
                 if guild_settings:
                     result = await collection.update_one(
                         {"_id": str(guild_id)},
-                        {
-                            "$push": {"rules": rule_data},
-                            "$set": {"updated_at": datetime.now(timezone.utc)}
-                        }
+                        {"$push": {"rules": rule_data}, "$set": {"updated_at": datetime.now(timezone.utc)}}
                     )
                     if result.modified_count > 0:
                         logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id} after creating settings.")
                         return True
-
-                logger.warning(f"No changes made when adding rule for guild {guild_id}")
+                logger.error(f"Failed to add rule for guild {guild_id} even after attempting to create settings.")
                 return False
-
         except Exception as e:
             logger.error(f"❌ Error adding forwarding rule: {e}", exc_info=True)
             return False

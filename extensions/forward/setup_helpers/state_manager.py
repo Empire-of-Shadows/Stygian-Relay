@@ -1,7 +1,3 @@
-
-"""
-Manages setup state across multiple guilds and sessions.
-"""
 import asyncio
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta, timezone
@@ -21,7 +17,11 @@ class SetupStateManager:
     # ... existing code ...
 
     async def ensure_collection_exists(self):
-        """Ensure the setup_sessions collection exists."""
+        """
+        Ensure the setup_sessions collection exists.
+        This method is called before any database operation to ensure that the
+        collection exists.
+        """
         try:
             # Check if collection exists, if not create it
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
@@ -35,7 +35,10 @@ class SetupStateManager:
             print(f"❌ Failed to initialize setup_sessions collection: {e}")
 
     async def create_session(self, guild_id: int, user_id: int) -> SetupState:
-        """Create a new setup session for a guild."""
+        """
+        Create a new setup session for a guild.
+        This method is called when a user starts the setup wizard.
+        """
         async with self._lock:
             # Check for existing session
             if guild_id in self.active_sessions:
@@ -61,7 +64,10 @@ class SetupStateManager:
             return session
 
     async def get_session(self, guild_id: int) -> Optional[SetupState]:
-        """Get an active setup session for a guild."""
+        """
+        Get an active setup session for a guild.
+        This method is called to retrieve the current setup session for a guild.
+        """
         async with self._lock:
             # Ensure collection exists before accessing
             await self.ensure_collection_exists()
@@ -81,7 +87,10 @@ class SetupStateManager:
             return session
 
     async def update_session(self, guild_id: int, updates: Dict[str, any]) -> bool:
-        """Update a setup session with new data."""
+        """
+        Update a setup session with new data.
+        This method is called to update the setup session with new data.
+        """
         async with self._lock:
             session = self.active_sessions.get(guild_id)
             if not session:
@@ -100,7 +109,11 @@ class SetupStateManager:
             return True
 
     async def cleanup_session(self, guild_id: int) -> bool:
-        """Clean up a setup session."""
+        """
+        Clean up a setup session.
+        This method is called to clean up a setup session after it has been
+        completed or cancelled.
+        """
         async with self._lock:
             if guild_id in self.active_sessions:
                 # Save final state to database before cleanup
@@ -116,7 +129,10 @@ class SetupStateManager:
             return False
 
     async def cleanup_expired_sessions(self):
-        """Clean up all expired sessions."""
+        """
+        Clean up all expired sessions.
+        This method is called periodically to clean up expired sessions.
+        """
         async with self._lock:
             expired_guilds = []
             for guild_id, session in self.active_sessions.items():
@@ -138,7 +154,11 @@ class SetupStateManager:
             return len(self.active_sessions)
 
     async def resume_sessions_on_startup(self):
-        """Resume active sessions from database on bot startup."""
+        """
+        Resume active sessions from database on bot startup.
+        This method is called when the bot starts up to resume any active
+        sessions that were interrupted.
+        """
         try:
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
 
@@ -174,7 +194,11 @@ class SetupStateManager:
 
     # Database persistence methods implementation
     async def _save_session_to_db(self, session: SetupState, mark_expired: bool = False):
-        """Save session state to database for persistence."""
+        """
+        Save session state to database for persistence.
+        This method is called to save the current state of a setup session to
+        the database.
+        """
         try:
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
 
@@ -195,7 +219,10 @@ class SetupStateManager:
             print(f"Error saving session to database for guild {session.guild_id}: {e}")
 
     async def _load_session_from_db(self, guild_id: int) -> Optional[SetupState]:
-        """Load session from database."""
+        """
+        Load session from database.
+        This method is called to load a setup session from the database.
+        """
         try:
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
 
@@ -221,7 +248,11 @@ class SetupStateManager:
                 return None
 
     async def _remove_session_from_db(self, guild_id: int):
-        """Remove session from database after completion."""
+        """
+        Remove session from database after completion.
+        This method is called to remove a setup session from the database after
+        it has been completed or cancelled.
+        """
         try:
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
             await collection.delete_one({"guild_id": guild_id})
@@ -230,7 +261,11 @@ class SetupStateManager:
             print(f"Error removing session from database for guild {guild_id}: {e}")
 
     def _serialize_session(self, session: SetupState) -> Dict:
-        """Convert SetupState object to dictionary for database storage."""
+        """
+        Convert SetupState object to dictionary for database storage.
+        This method is called to serialize a setup session before it is saved
+        to the database.
+        """
         try:
             session_data = session.to_dict()
             session_data["updated_at"] = datetime.now(timezone.utc)
@@ -241,7 +276,11 @@ class SetupStateManager:
             return {}
 
     def _deserialize_session(self, session_data: Dict) -> Optional[SetupState]:
-        """Convert database dictionary back to SetupState object."""
+        """
+        Convert database dictionary back to SetupState object.
+        This method is called to deserialize a setup session after it has been
+        loaded from the database.
+        """
         try:
             return SetupState.from_dict(session_data)
         except Exception as e:
@@ -249,7 +288,11 @@ class SetupStateManager:
             return None
 
     async def cleanup_old_sessions(self, days_old: int = 7):
-        """Clean up old expired sessions from database."""
+        """
+        Clean up old expired sessions from database.
+        This method is called periodically to clean up old expired sessions
+        from the database.
+        """
         try:
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
 
@@ -269,7 +312,11 @@ class SetupStateManager:
             print(f"Error cleaning up old sessions: {e}")
 
     async def get_database_session_count(self) -> int:
-        """Get count of sessions stored in database."""
+        """
+        Get count of sessions stored in database.
+        This method is used to get the number of active setup sessions stored
+        in the database.
+        """
         try:
             collection = db_core.get_collection("discord_forwarding_bot", "setup_sessions")
             return await collection.count_documents({"is_expired": {"$ne": True}})

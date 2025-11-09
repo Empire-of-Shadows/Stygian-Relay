@@ -1,28 +1,32 @@
 """
-Main setup wizard for message forwarding configuration.
+This module contains the primary user-facing setup wizard for configuring
+message forwarding rules. It uses a state machine and various discord.ui
+components to guide the user through a multi-step configuration process.
 """
 import discord
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 
-# Import setup helpers
 from .setup_helpers.state_manager import state_manager
 from .setup_helpers.button_manager import button_manager
 from .setup_helpers.permission_check import permission_checker
 from .setup_helpers.channel_select import channel_selector
-from .setup_helpers.rule_setup import rule_setup_helper
-from .models.setup_state import SetupState, SETUP_STEPS
+from .setup_helpers.rule_setup import RuleSetupHelper, rule_setup_helper
+from .setup_helpers.rule_creation_flow import RuleCreationFlow
+from .models.setup_state import SetupState
 from database import guild_manager
 
 
 class RuleSelectView(discord.ui.View):
-    """A view to select a rule to edit."""
+    """
+    A view that displays a dropdown menu for selecting a rule to edit.
+    This view is used by the `/forward edit` command.
+    """
 
     def __init__(self, rules: list, cog: 'ForwardCog'):
         super().__init__(timeout=180)
         self.cog = cog
-        # Store rules in a dict for easy lookup
         self.rules = {str(rule['rule_id']): rule for rule in rules}
 
         options = [
@@ -46,7 +50,10 @@ class RuleSelectView(discord.ui.View):
         self.add_item(rule_select)
 
     async def select_callback(self, interaction: discord.Interaction):
-        """Callback for when a rule is selected from the dropdown."""
+        """
+        Callback for when a rule is selected. It loads the selected rule
+        into the user's session and transitions them to the rule preview step.
+        """
         rule_id_str = interaction.data['values'][0]
         selected_rule = self.rules.get(rule_id_str)
 
@@ -64,18 +71,20 @@ class RuleSelectView(discord.ui.View):
             "step": "rule_preview"
         })
 
-        from .setup_helpers.rule_creation_flow import rule_creation_flow
-        await rule_creation_flow.show_rule_preview_step(interaction, session)
+        await self.cog.rule_creation_flow.show_rule_preview_step(interaction, session)
 
 
 class FormattingSettingsView(discord.ui.View):
-    """A view for editing formatting-specific settings of a rule."""
+    """
+    A view for editing formatting-specific settings of a rule, like the style.
+    This view is used when the user clicks the "Formatting" button in the
+    `RuleSettingsView`.
+    """
     def __init__(self, session: SetupState, cog: 'ForwardCog'):
         super().__init__(timeout=300)
         self.session = session
         self.cog = cog
 
-        # --- Style Select ---
         settings = self.session.current_rule.setdefault("settings", {})
         formatting_settings = settings.setdefault("formatting", {})
         current_style = formatting_settings.get("forward_style", "c_v2")
@@ -92,7 +101,6 @@ class FormattingSettingsView(discord.ui.View):
         style_select.callback = self.style_select_callback
         self.add_item(style_select)
 
-        # --- Navigation ---
         back_button = discord.ui.Button(label="Back to Main Settings", style=discord.ButtonStyle.primary, row=4)
         back_button.callback = self.back_to_main_settings_callback
         self.add_item(back_button)
@@ -105,6 +113,10 @@ class FormattingSettingsView(discord.ui.View):
         return embed
 
     async def style_select_callback(self, interaction: discord.Interaction):
+        """
+        Callback for when a style is selected. It updates the rule's
+        formatting style in the user's session.
+        """
         select = interaction.data['values'][0]
         
         settings = self.session.current_rule.setdefault("settings", {})
@@ -120,19 +132,26 @@ class FormattingSettingsView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def back_to_main_settings_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the back button. It returns the user to the main
+        rule settings view.
+        """
         view = RuleSettingsView(self.session, self.cog)
         embed = await view.create_settings_embed(interaction.guild)
         await interaction.response.edit_message(embed=embed, view=view)
 
 
 class RuleSettingsView(discord.ui.View):
-    """A hub view for editing all settings of a rule."""
+    """
+    A hub view for editing all settings of a rule, acting as a control panel.
+    This view is used when the user clicks the "Edit Settings" button in the
+    rule preview step.
+    """
     def __init__(self, session: SetupState, cog: 'ForwardCog'):
         super().__init__(timeout=300)
         self.session = session
         self.cog = cog
 
-        # --- General Settings ---
         name_button = discord.ui.Button(label="Name", style=discord.ButtonStyle.secondary, emoji="📝")
         name_button.callback = self.edit_name_callback
         self.add_item(name_button)
@@ -147,12 +166,10 @@ class RuleSettingsView(discord.ui.View):
         active_button.callback = self.toggle_active_callback
         self.add_item(active_button)
 
-        # --- Detailed Settings ---
         formatting_button = discord.ui.Button(label="Formatting", style=discord.ButtonStyle.secondary, emoji="🎨")
         formatting_button.callback = self.edit_formatting_callback
         self.add_item(formatting_button)
 
-        # --- Navigation ---
         save_button = discord.ui.Button(label="Save and Exit", style=discord.ButtonStyle.success, row=4)
         save_button.callback = self.save_and_exit_callback
         self.add_item(save_button)
@@ -172,7 +189,7 @@ class RuleSettingsView(discord.ui.View):
         if guild:
             source_id = rule.get("source_channel_id")
             if source_id:
-                # Handle BSON Long type
+                # MongoDB's BSON format for 64-bit integers may be a dict, so we handle it here.
                 if isinstance(source_id, dict) and "$numberLong" in source_id:
                     source_id = int(source_id["$numberLong"])
                 ch = guild.get_channel(int(source_id))
@@ -198,6 +215,10 @@ class RuleSettingsView(discord.ui.View):
         return embed
 
     async def edit_name_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the edit name button. It displays a modal for the user
+        to enter a new name for the rule.
+        """
         from .models.rule_modals import RuleNameModal
         
         async def modal_callback(modal_interaction: discord.Interaction, name: str):
@@ -212,9 +233,17 @@ class RuleSettingsView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
     async def edit_channels_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the edit channels button. This feature is not yet
+        implemented.
+        """
         await interaction.response.send_message("Editing channels is not implemented yet. This will be added in a future update.", ephemeral=True)
 
     async def toggle_active_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the toggle active button. It toggles the rule's active
+        status in the user's session.
+        """
         current_status = self.session.current_rule.get("is_active", True)
         self.session.current_rule["is_active"] = not current_status
         await state_manager.update_session(str(interaction.guild_id), {"current_rule": self.session.current_rule})
@@ -224,15 +253,26 @@ class RuleSettingsView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=new_view)
 
     async def edit_formatting_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the edit formatting button. It displays the
+        `FormattingSettingsView`.
+        """
         view = FormattingSettingsView(self.session, self.cog)
         embed = view.create_embed()
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def back_to_preview_callback(self, interaction: discord.Interaction):
-        from .setup_helpers.rule_creation_flow import rule_creation_flow
-        await rule_creation_flow.show_rule_preview_step(interaction, self.session)
+        """
+        Callback for the back to preview button. It returns the user to the
+        rule preview step.
+        """
+        await self.cog.rule_creation_flow.show_rule_preview_step(interaction, self.session)
 
     async def save_and_exit_callback(self, interaction: discord.Interaction):
+        """
+        Callback for the save and exit button. It saves the rule to the
+        database and ends the setup session.
+        """
         await interaction.response.defer()
 
         success, message = await self.cog.update_final_rule(interaction, self.session)
@@ -246,17 +286,21 @@ class RuleSettingsView(discord.ui.View):
 
 
 class ForwardCog(commands.Cog):
-    """Cog for setting up and managing message forwarding."""
+    """
+    This cog manages the /forward slash command group for setting up and
+    editing forwarding rules. It uses a state machine to guide the user
+    through a multi-step configuration process.
+    """
     forward = app_commands.Group(name="forward", description="Commands for message forwarding", guild_only=True)
 
     def __init__(self, bot):
         self.bot = bot
-        self.logger = None  # Will be set in on_ready
+        self.logger = None
         self.guild_manager = guild_manager
+        self.rule_creation_flow = RuleCreationFlow(bot)
 
     async def cog_load(self):
-        """Called when the cog is loaded."""
-        # Initialize logger
+        """Initializes the logger for this cog when it's loaded."""
         from logger.logger_setup import get_logger
         self.logger = get_logger("Forward", level=20, json_format=False, colored_console=True)
         self.logger.info("Forward cog loaded")
@@ -264,7 +308,10 @@ class ForwardCog(commands.Cog):
     @forward.command(name="edit", description="Edit an existing forwarding rule.")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def edit(self, interaction: discord.Interaction):
-        """Starts an interactive session to edit a forwarding rule."""
+        """
+        Starts an interactive UI to select and edit an existing forwarding rule.
+        This command is the entry point for editing rules.
+        """
         try:
             rules = await self.guild_manager.get_all_rules(str(interaction.guild_id))
 
@@ -292,9 +339,11 @@ class ForwardCog(commands.Cog):
     @forward.command(name="setup", description="Start interactive setup for message forwarding")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def setup(self, interaction: discord.Interaction):
-        """Start the interactive setup wizard."""
+        """
+        Starts the interactive setup wizard for creating a new forwarding rule.
+        This command is the entry point for creating new rules.
+        """
         try:
-            # Check if user has permission
             if not interaction.user.guild_permissions.manage_guild:
                 await interaction.response.send_message(
                     "❌ You need the 'Manage Server' permission to run setup.",
@@ -302,10 +351,7 @@ class ForwardCog(commands.Cog):
                 )
                 return
 
-            # Create or get setup session
             session = await state_manager.create_session(str(interaction.guild_id), interaction.user.id)
-
-            # Start with welcome step
             await self.show_welcome_step(interaction, session)
 
         except Exception as e:
@@ -316,7 +362,10 @@ class ForwardCog(commands.Cog):
             )
 
     async def show_welcome_step(self, interaction: discord.Interaction, session: SetupState):
-        """Show the welcome step of setup."""
+        """
+        Show the welcome step of setup.
+        This is the first step of the setup wizard.
+        """
         embed = discord.Embed(
             title="🤖 Welcome to Message Forwarding Setup!",
             description=(
@@ -331,56 +380,55 @@ class ForwardCog(commands.Cog):
             color=discord.Color.blue()
         )
 
-        # Show progress
         progress = session.get_progress()
         embed.add_field(
             name="📊 Progress",
             value=f"{progress:.0%} complete",
             inline=True
         )
-
         embed.set_footer(text="Click 'Start Setup' to begin!")
 
-        # Send initial message with buttons
+        view = button_manager.get_welcome_buttons()
+
         try:
             if interaction.response.is_done():
-                await interaction.edit_original_response(embed=embed, view=button_manager.get_welcome_buttons())
+                await interaction.edit_original_response(embed=embed, view=view)
             else:
-                await interaction.response.send_message(embed=embed, view=button_manager.get_welcome_buttons())
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower():
+            if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
                 try:
-                    await interaction.edit_original_response(embed=embed, view=button_manager.get_welcome_buttons())
+                    await interaction.edit_original_response(embed=embed, view=view)
                 except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=button_manager.get_welcome_buttons(),
-                                                    ephemeral=True)
+                    try:
+                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    except discord.HTTPException as followup_error:
+                        self.logger.error(f"Failed all interaction response methods: {followup_error}")
             else:
                 raise e
 
-        # Update session
-        await state_manager.update_session(interaction.guild_id, {
+        await state_manager.update_session(str(interaction.guild_id), {
             "step": "welcome",
-            "setup_message_id": interaction.message.id if interaction.message else None,
+            "setup_message_id": None,  # Will be set if we can get message ID
             "setup_channel_id": interaction.channel_id
         })
 
     async def show_permission_step(self, interaction: discord.Interaction, session: SetupState):
-        """Show the permission check step."""
+        """
+        Show the permission check step.
+        This step checks if the bot has the required permissions to function correctly.
+        """
         guild = interaction.guild
 
-        # Check permissions
         can_proceed, reason = await permission_checker.can_proceed_with_setup(guild)
         permission_embed = await permission_checker.create_permission_embed(guild)
 
-        # Create main embed
         embed = discord.Embed(
             title="🔐 Permission Check",
             color=discord.Color.green() if can_proceed else discord.Color.orange()
         )
-
         embed.description = reason
 
-        # Add progress
         progress = session.get_progress()
         embed.add_field(
             name="📊 Progress",
@@ -395,10 +443,8 @@ class ForwardCog(commands.Cog):
                 inline=False
             )
 
-        # Send or update message
         view = self._get_permission_step_buttons(can_proceed)
 
-        # Check if interaction has been responded to
         try:
             if interaction.response.is_done():
                 await interaction.edit_original_response(embed=embed, view=view)
@@ -406,16 +452,13 @@ class ForwardCog(commands.Cog):
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e):
-                # Try to edit the original response instead
                 try:
                     await interaction.edit_original_response(embed=embed, view=view)
                 except discord.HTTPException:
-                    # If that fails too, send a followup message
                     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 raise e
 
-        # Update session
         await state_manager.update_session(interaction.guild_id, {
             "step": "permissions"
         })
@@ -457,10 +500,13 @@ class ForwardCog(commands.Cog):
         return button_manager.create_button_row(buttons)
 
     async def show_log_channel_step(self, interaction: discord.Interaction, session: SetupState):
-        """Show the log channel setup step."""
+        """
+        Show the log channel setup step.
+        This step allows the user to select a channel for logging errors and
+        notifications.
+        """
         embed = await channel_selector.create_channel_embed(interaction.guild, "log_channel")
 
-        # Add progress
         progress = session.get_progress()
         embed.add_field(
             name="📊 Progress",
@@ -468,10 +514,8 @@ class ForwardCog(commands.Cog):
             inline=True
         )
 
-        # Create channel selection menu
         view = await channel_selector.create_channel_select_menu(interaction.guild, "text", "log_channel_select")
 
-        # Check if interaction has already been responded to
         try:
             if interaction.response.is_done():
                 await interaction.edit_original_response(embed=embed, view=view)
@@ -479,22 +523,22 @@ class ForwardCog(commands.Cog):
                 await interaction.response.send_message(embed=embed, view=view)
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower():
-                # Try to edit the original response instead
                 try:
                     await interaction.edit_original_response(embed=embed, view=view)
                 except discord.HTTPException:
-                    # If that fails too, send a followup message
                     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 raise e
 
-        # Update session
         await state_manager.update_session(interaction.guild_id, {
             "step": "log_channel"
         })
 
     async def show_first_rule_step(self, interaction: discord.Interaction, session: SetupState):
-        """Show the first forwarding rule setup step."""
+        """
+        Show the first forwarding rule setup step.
+        This step guides the user through creating their first forwarding rule.
+        """
         embed = discord.Embed(
             title="🔄 Create Your First Forwarding Rule",
             description=(
@@ -510,7 +554,6 @@ class ForwardCog(commands.Cog):
             color=discord.Color.blue()
         )
 
-        # Add progress
         progress = session.get_progress()
         embed.add_field(
             name="📊 Progress",
@@ -518,7 +561,6 @@ class ForwardCog(commands.Cog):
             inline=True
         )
 
-        # Get buttons for rule setup
         view = await rule_setup_helper.get_rule_setup_buttons()
 
         try:
@@ -535,13 +577,16 @@ class ForwardCog(commands.Cog):
             else:
                 raise e
 
-        # Update session
         await state_manager.update_session(interaction.guild_id, {
             "step": "first_rule"
         })
 
     async def show_learn_more(self, interaction: discord.Interaction, session: SetupState):
-        """Show more information about the bot."""
+        """
+        Show more information about the bot.
+        This step is displayed when the user clicks the "Learn More" button on
+        the welcome step.
+        """
         embed = discord.Embed(
             title="ℹ️ About Message Forwarding",
             color=discord.Color.blue()
@@ -578,16 +623,31 @@ class ForwardCog(commands.Cog):
             }
         ])
 
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            if interaction.response.is_done():
+                await interaction.edit_original_response(embed=embed, view=view)
+            else:
+                await interaction.response.edit_message(embed=embed, view=view)
+        except discord.HTTPException as e:
+            if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
+                try:
+                    await interaction.edit_original_response(embed=embed, view=view)
+                except discord.HTTPException:
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            else:
+                raise e
 
     async def show_rule_name_modal(self, interaction: discord.Interaction, session):
-        """Show modal for entering rule name."""
+        """
+        Show modal for entering rule name.
+        This modal is displayed when the user clicks the "Enter Name" button
+        when creating a new rule.
+        """
         from .models.rule_modals import RuleNameModal
 
         async def modal_callback(modal_interaction: discord.Interaction, name: str):
             try:
                 self.logger.info(f"Rule name modal submitted: '{name}' for guild {modal_interaction.guild_id}")
-                # Update session with rule name
                 session.current_rule["rule_name"] = name
                 session.current_rule["step"] = "rule_preview"
 
@@ -596,9 +656,7 @@ class ForwardCog(commands.Cog):
                 })
                 self.logger.debug(f"Session updated with rule name: {name}")
 
-                # Show rule preview
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.show_rule_preview_step(modal_interaction, session)
+                await self.rule_creation_flow.show_rule_preview_step(modal_interaction, session)
             except Exception as e:
                 self.logger.error(f"Error in rule name modal callback: {e}", exc_info=True)
                 await modal_interaction.followup.send(
@@ -608,11 +666,9 @@ class ForwardCog(commands.Cog):
 
         modal = RuleNameModal(modal_callback)
 
-        # Check if the interaction has already been responded to
         if interaction.response.is_done():
             self.logger.warning(
                 f"Cannot show modal - interaction already acknowledged for guild {interaction.guild_id}")
-            # Interaction already acknowledged - cannot send modal
             await interaction.followup.send(
                 "❌ Cannot open name input dialog (interaction already processed). Please use 'Auto-generated Name' instead.",
                 ephemeral=True
@@ -623,19 +679,26 @@ class ForwardCog(commands.Cog):
             self.logger.info(f"Rule name modal displayed successfully for guild {interaction.guild_id}")
 
     async def show_rule_edit_step(self, interaction: discord.Interaction, session: SetupState):
-        """Show the rule settings editor."""
+        """
+        Show the rule settings editor.
+        This step is displayed when the user clicks the "Edit Settings" button
+        in the rule preview step.
+        """
         view = RuleSettingsView(session, self)
         embed = await view.create_settings_embed(interaction.guild)
         await interaction.response.edit_message(embed=embed, view=view)
 
     async def handle_button_interaction(self, interaction: discord.Interaction):
-        """Handle button interactions from setup messages."""
+        """
+        Primary router for all button interactions within the setup wizard.
+        It retrieves the user's session and delegates the interaction to the
+        appropriate handler based on the button's `custom_id`.
+        """
         custom_id = interaction.data.get('custom_id', 'unknown')
         self.logger.info(
             f"Button interaction received: {custom_id} from user {interaction.user.id} in guild {interaction.guild_id}")
 
         try:
-            # Get the session
             session = await state_manager.get_session(str(interaction.guild_id))
             if not session:
                 self.logger.warning(f"No session found for guild {interaction.guild_id}")
@@ -660,312 +723,156 @@ class ForwardCog(commands.Cog):
                         raise e
                 return
 
-            # Update activity
             session.update_activity()
             self.logger.debug(f"Session activity updated for guild {interaction.guild_id}")
 
-            # Handle different button types based on custom_id
-            # === SETUP FLOW BUTTONS ===
+            # --- Welcome & Learn More Flow ---
             if custom_id == "setup_start":
                 self.logger.info(f"Starting permission step for guild {interaction.guild_id}")
                 await self.show_permission_step(interaction, session)
-
             elif custom_id == "setup_learn_more":
                 self.logger.info(f"Showing learn more for guild {interaction.guild_id}")
                 await self.show_learn_more(interaction, session)
-
             elif custom_id == "learn_back":
                 self.logger.info(f"Returning to welcome step for guild {interaction.guild_id}")
                 await self.show_welcome_step(interaction, session)
 
-            # === PERMISSION STEP BUTTONS ===
+            # --- Permission Check Flow ---
             elif custom_id == "perms_continue":
                 self.logger.info(f"Permission check passed, continuing to log channel for guild {interaction.guild_id}")
                 await self.show_log_channel_step(interaction, session)
-
             elif custom_id == "perms_check_again":
                 self.logger.info(f"Rechecking permissions for guild {interaction.guild_id}")
                 await self.show_permission_step(interaction, session)
 
-            # === RULE CREATION BUTTONS ===
+            # --- Rule Creation & Editing Flow ---
             elif custom_id == "rule_create":
                 self.logger.info(f"Starting rule creation for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.start_rule_creation(interaction, session)
-
+                await self.rule_creation_flow.start_rule_creation(interaction, session)
             elif custom_id == "rule_source_continue":
                 self.logger.info(f"Source channel selected, showing destination for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.show_destination_channel_step(interaction, session)
-
-            # Add specific handler for rule_source_back
-            elif custom_id == "rule_source_back":
-                self.logger.info(f"Going back from source selection for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_rule_back(interaction, session, "source")
-
-            # Add handler for rule_dest_back
-            elif custom_id == "rule_dest_back":
-                self.logger.info(f"Going back from destination selection for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_rule_back(interaction, session, "destination")
-
+                await self.rule_creation_flow.show_destination_channel_step(interaction, session)
             elif custom_id == "rule_dest_continue":
                 self.logger.info(f"Destination channel selected, showing rule name for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.show_rule_name_step(interaction, session)
-
+                await self.rule_creation_flow.show_rule_name_step(interaction, session)
             elif custom_id == "rule_auto_name":
                 self.logger.info(f"Using auto-generated rule name for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_auto_name(interaction, session)
-
+                await self.rule_creation_flow.handle_auto_name(interaction, session)
             elif custom_id == "rule_name_input":
                 self.logger.info(f"Showing rule name input modal for guild {interaction.guild_id}")
                 await self.show_rule_name_modal(interaction, session)
-
             elif custom_id == "rule_final_create":
                 if session.is_editing:
                     self.logger.info(f"Updating final rule for guild {interaction.guild_id}")
                     success, message = await self.update_final_rule(interaction, session)
                 else:
                     self.logger.info(f"Creating final rule for guild {interaction.guild_id}")
-                    from .setup_helpers.rule_creation_flow import rule_creation_flow
-                    success, message = await rule_creation_flow.create_final_rule(interaction, session)
+                    success, message = await self.rule_creation_flow.create_final_rule(interaction, session)
 
                 if success:
                     self.logger.info(f"Rule operation successful for guild {interaction.guild_id}")
                     await self.show_setup_complete(interaction, session, is_editing=session.is_editing)
                 else:
                     self.logger.error(f"Rule operation failed for guild {interaction.guild_id}: {message}")
-                    try:
-                        if interaction.response.is_done():
-                            await interaction.followup.send(
-                                f"❌ {message}",
-                                ephemeral=True
-                            )
-                        else:
-                            await interaction.response.send_message(
-                                f"❌ {message}",
-                                ephemeral=True
-                            )
-                    except discord.HTTPException as e:
-                        if "already been acknowledged" in str(e).lower():
-                            await interaction.followup.send(
-                                f"❌ {message}",
-                                ephemeral=True
-                            )
-                        else:
-                            raise e
-
+                    await interaction.followup.send(f"❌ {message}", ephemeral=True)
             elif custom_id == "rule_edit_settings":
                 self.logger.info(f"Showing rule edit screen for guild {interaction.guild_id}")
                 await self.show_rule_edit_step(interaction, session)
-
             elif custom_id == "rule_start_over":
                 self.logger.info(f"Restarting rule creation for guild {interaction.guild_id}")
-                # Reset rule creation and start over
                 session.current_rule = None
-                await state_manager.update_session(interaction.guild_id, {
-                    "current_rule": None
-                })
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.start_rule_creation(interaction, session)
+                await state_manager.update_session(interaction.guild_id, {"current_rule": None})
+                await self.rule_creation_flow.start_rule_creation(interaction, session)
 
-            # === NAVIGATION BUTTONS ===
+            # --- Navigation (Back/Cancel) ---
             elif custom_id in ["nav_back", "perms_back", "channel_back", "rule_back"]:
                 self.logger.info(f"Back button pressed for guild {interaction.guild_id}")
                 await self.handle_back_button(interaction, session)
-
-            # Handle rule-specific back buttons
             elif custom_id.startswith("rule_") and custom_id.endswith("_back"):
                 step = custom_id.replace("rule_", "").replace("_back", "")
                 self.logger.info(f"Rule-specific back button: {step} for guild {interaction.guild_id}")
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_rule_back(interaction, session, step)
-
-            # === CANCEL BUTTONS ===
+                await self.rule_creation_flow.handle_rule_back(interaction, session, self, step)
+            elif custom_id.startswith("rule_") and custom_id.endswith("_cancel"):
+                self.logger.info(f"Rule-specific cancel button for guild {interaction.guild_id}")
+                await self.handle_cancel_button(interaction, session)
             elif custom_id in ["setup_cancel", "perms_cancel", "channel_cancel", "rule_cancel", "nav_cancel"]:
                 self.logger.info(f"Cancel button pressed for guild {interaction.guild_id}")
                 await self.handle_cancel_button(interaction, session)
 
-            # Handle rule-specific cancel buttons
-            elif custom_id.startswith("rule_") and custom_id.endswith("_cancel"):
-                self.logger.info(f"Rule-specific cancel button for guild {interaction.guild_id}")
-                await self.handle_cancel_button(interaction, session)
-
-            # === SETUP COMPLETION BUTTONS ===
+            # --- Post-Setup Actions ---
             elif custom_id == "setup_test_rule":
                 self.logger.info(f"Test rule requested for guild {interaction.guild_id}")
                 await self.handle_test_rule(interaction, session)
-
             elif custom_id == "setup_manage_rules":
                 self.logger.info(f"Manage rules requested for guild {interaction.guild_id}")
                 await self.handle_manage_rules(interaction, session)
 
             else:
                 self.logger.warning(f"Unhandled button custom_id: {custom_id} for guild {interaction.guild_id}")
-                try:
-                    if interaction.response.is_done():
-                        await interaction.followup.send(
-                            f"This button (`{custom_id}`) isn't implemented yet. Please use the navigation buttons.",
-                            ephemeral=True
-                        )
-                    else:
-                        await interaction.response.send_message(
-                            f"This button (`{custom_id}`) isn't implemented yet. Please use the navigation buttons.",
-                            ephemeral=True
-                        )
-                except discord.HTTPException as e:
-                    if "already been acknowledged" in str(e).lower():
-                        await interaction.followup.send(
-                            f"This button (`{custom_id}`) isn't implemented yet. Please use the navigation buttons.",
-                            ephemeral=True
-                        )
-                    else:
-                        raise e
+                await interaction.response.send_message(
+                    f"This button (`{custom_id}`) isn't implemented yet.",
+                    ephemeral=True
+                )
 
         except Exception as e:
             self.logger.error(f"Error handling button interaction ({custom_id}): {e}", exc_info=True)
             try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(
-                        "❌ An error occurred. Please run `/setup` again.",
-                        ephemeral=True
-                    )
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred. Please run `/setup` again.", ephemeral=True)
                 else:
-                    await interaction.response.send_message(
-                        "❌ An error occurred. Please run `/setup` again.",
-                        ephemeral=True
-                    )
-            except discord.HTTPException as e:
-                if "already been acknowledged" in str(e).lower():
-                    await interaction.followup.send(
-                        "❌ An error occurred. Please run `/setup` again.",
-                        ephemeral=True
-                    )
-                else:
-                    # Log the error but don't re-raise to avoid further issues
-                    self.logger.error(f"Failed to send error message: {e}")
+                    await interaction.followup.send("❌ An error occurred. Please run `/setup` again.", ephemeral=True)
+            except discord.HTTPException:
+                self.logger.error(f"Failed to send error followup message for interaction {custom_id}.")
 
     async def handle_select_menu(self, interaction: discord.Interaction):
-        """Handle select menu interactions."""
+        """
+        Router for all select menu interactions. It determines which type of
+        select menu was used and delegates to the appropriate handler.
+        """
         try:
             session = await state_manager.get_session(str(interaction.guild_id))
             if not session:
-                try:
-                    if interaction.response.is_done():
-                        await interaction.followup.send(
-                            "Setup session expired. Please run `/setup` again.",
-                            ephemeral=True
-                        )
-                    else:
-                        await interaction.response.send_message(
-                            "Setup session expired. Please run `/setup` again.",
-                            ephemeral=True
-                        )
-                except discord.HTTPException as e:
-                    if "already been acknowledged" in str(e).lower():
-                        await interaction.followup.send(
-                            "Setup session expired. Please run `/setup` again.",
-                            ephemeral=True
-                        )
-                    else:
-                        raise e
+                await interaction.response.send_message("Setup session expired. Please run `/setup` again.", ephemeral=True)
                 return
 
             custom_id = interaction.data.get('custom_id')
             values = interaction.data.get('values', [])
-
             if not values:
                 return
 
+            # --- Log Channel Selection ---
             if custom_id == "log_channel_select":
-                # Handle log channel selection
                 channel_id = int(values[0])
                 is_valid, message = await channel_selector.validate_channel_access(interaction.guild, channel_id)
-
                 if is_valid:
-                    await state_manager.update_session(interaction.guild_id, {
-                        "master_log_channel": channel_id
-                    })
-
-                    # Send confirmation message
-                    try:
-                        if interaction.response.is_done():
-                            await interaction.followup.send(
-                                f"✅ Log channel set to {interaction.guild.get_channel(channel_id).mention}",
-                                ephemeral=True
-                            )
-                        else:
-                            await interaction.response.send_message(
-                                f"✅ Log channel set to {interaction.guild.get_channel(channel_id).mention}",
-                                ephemeral=True
-                            )
-                    except discord.HTTPException as e:
-                        if "already been acknowledged" in str(e).lower():
-                            await interaction.followup.send(
-                                f"✅ Log channel set to {interaction.guild.get_channel(channel_id).mention}",
-                                ephemeral=True
-                            )
-                        else:
-                            raise e
-
+                    await state_manager.update_session(interaction.guild_id, {"master_log_channel": channel_id})
+                    await interaction.response.send_message(f"✅ Log channel set to {interaction.guild.get_channel(channel_id).mention}", ephemeral=True)
                     await self.show_first_rule_step(interaction, session)
                 else:
-                    try:
-                        if interaction.response.is_done():
-                            await interaction.followup.send(
-                                f"❌ {message}",
-                                ephemeral=True
-                            )
-                        else:
-                            await interaction.response.send_message(
-                                f"❌ {message}",
-                                ephemeral=True
-                            )
-                    except discord.HTTPException as e:
-                        if "already been acknowledged" in str(e).lower():
-                            await interaction.followup.send(
-                                f"❌ {message}",
-                                ephemeral=True
-                            )
-                        else:
-                            raise e
+                    await interaction.response.send_message(f"❌ {message}", ephemeral=True)
 
+            # --- Rule Channel Selection ---
             elif custom_id == "rule_source_select":
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_channel_selection(interaction, session, "source", int(values[0]))
-
+                await self.rule_creation_flow.handle_channel_selection(interaction, session, "source", int(values[0]))
             elif custom_id == "rule_dest_select":
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_channel_selection(interaction, session, "destination", int(values[0]))
+                await self.rule_creation_flow.handle_channel_selection(interaction, session, "destination", int(values[0]))
 
         except Exception as e:
             self.logger.error(f"Error handling select menu: {e}", exc_info=True)
             try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(
-                        "❌ An error occurred. Please try again.",
-                        ephemeral=True
-                    )
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred. Please try again.", ephemeral=True)
                 else:
-                    await interaction.response.send_message(
-                        "❌ An error occurred. Please try again.",
-                        ephemeral=True
-                    )
-            except discord.HTTPException as e:
-                if "already been acknowledged" in str(e).lower():
-                    await interaction.followup.send(
-                        "❌ An error occurred. Please try again.",
-                        ephemeral=True
-                    )
-                else:
-                    # Log the error but don't re-raise to avoid further issues
-                    self.logger.error(f"Failed to send error message: {e}")
+                    await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
+            except discord.HTTPException:
+                self.logger.error("Failed to send error followup for select menu.")
 
     async def handle_back_button(self, interaction: discord.Interaction, session: SetupState):
-        """Handle back button navigation."""
+        """
+        Handle back button navigation.
+        This method is called when the user clicks a back button in the setup
+        wizard.
+        """
         current_step = session.step
 
         if current_step == "permissions":
@@ -978,15 +885,17 @@ class ForwardCog(commands.Cog):
             await self.show_welcome_step(interaction, session)
 
     async def update_final_rule(self, interaction: discord.Interaction, session: SetupState) -> (bool, str):
-        """Updates the final rule in the database."""
+        """
+        Updates the final rule in the database.
+        This method is called when the user clicks the "Save and Exit" button
+        when editing a rule.
+        """
         rule = session.current_rule
         if not rule or not rule.get("rule_id"):
             return False, "Rule data is missing or invalid."
 
         rule_id = rule["rule_id"]
-        
-        # We pass the entire rule dictionary as the update payload.
-        # The guild_manager's update_rule method is expected to handle this.
+        # The entire rule dictionary is passed as the update payload.
         success = await self.guild_manager.update_rule(rule_id, rule)
         
         if success:
@@ -995,7 +904,11 @@ class ForwardCog(commands.Cog):
             return False, "Failed to update the rule in the database."
 
     async def show_setup_complete(self, interaction: discord.Interaction, session: SetupState, is_editing: bool = False):
-        """Show the final setup completion message."""
+        """
+        Show the final setup completion message.
+        This method is called when the user has successfully created or edited
+        a rule.
+        """
         title = "✅ Rule Updated!" if is_editing else "✅ Setup Complete!"
         description = "Your message forwarding rule has been updated." if is_editing else "Your message forwarding rules are now active."
         
@@ -1005,14 +918,10 @@ class ForwardCog(commands.Cog):
             color=discord.Color.green()
         )
         
-        # Clean up session
         await state_manager.cleanup_session(str(interaction.guild_id))
         
         try:
-            if interaction.response.is_done():
-                await interaction.edit_original_response(embed=embed, view=None)
-            else:
-                await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.edit_original_response(embed=embed, view=None)
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower():
                 try:
@@ -1023,16 +932,25 @@ class ForwardCog(commands.Cog):
                 raise e
 
     async def handle_test_rule(self, interaction: discord.Interaction, session: SetupState):
-        """Handle the test rule button."""
+        """
+        Handle the test rule button.
+        This feature is not yet implemented.
+        """
         await interaction.response.send_message("Testing rules is not yet implemented.", ephemeral=True)
 
     async def handle_manage_rules(self, interaction: discord.Interaction, session: SetupState):
-        """Handle the manage rules button."""
+        """
+        Handle the manage rules button.
+        This feature is not yet implemented.
+        """
         await interaction.response.send_message("Managing rules is not yet implemented.", ephemeral=True)
 
     async def handle_cancel_button(self, interaction: discord.Interaction, session: SetupState):
-        """Handle cancel button."""
-        # Clean up session
+        """
+        Cleans up the session and shows a cancellation message.
+        This method is called when the user clicks a cancel button in the setup
+        wizard.
+        """
         await state_manager.cleanup_session(interaction.guild_id)
 
         embed = discord.Embed(
@@ -1042,10 +960,7 @@ class ForwardCog(commands.Cog):
         )
 
         try:
-            if interaction.response.is_done():
-                await interaction.edit_original_response(embed=embed, view=None)
-            else:
-                await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.edit_original_response(embed=embed, view=None)
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower():
                 try:
@@ -1057,13 +972,16 @@ class ForwardCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        """Listen for interactions and handle setup components."""
+        """
+        Global listener for all interactions.
+        This acts as the main entry point for component interactions within this cog,
+        delegating them to the appropriate handlers based on their `custom_id`.
+        """
         if interaction.type == discord.InteractionType.component:
             custom_id = interaction.data.get('custom_id', '')
 
             if custom_id.endswith('_select'):
                 await self.handle_select_menu(interaction)
-
             elif custom_id.startswith(('setup_', 'perms_', 'channel_', 'rule_', 'nav_', 'option_')):
                 await self.handle_button_interaction(interaction)
 

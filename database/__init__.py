@@ -1,6 +1,3 @@
-"""
-Database manager for Discord Forwarding Bot.
-"""
 from typing import Dict, Any
 
 from .core import DatabaseCore
@@ -14,7 +11,10 @@ guild_manager = GuildManager(db_core)
 
 # Convenience functions
 async def ensure_database_connection() -> bool:
-    """Ensure database connection is established and healthy."""
+    """
+    Ensure database connection is established and healthy.
+    This function should be called before any database operation.
+    """
     if not db_core.is_healthy():
         from logger.logger_setup import get_logger
         logger = get_logger("Database", level=20, json_format=False, colored_console=True)
@@ -23,14 +23,21 @@ async def ensure_database_connection() -> bool:
     return True
 
 async def setup_new_guild(guild_id: str, guild_name: str) -> Dict[str, Any]:
-    """Convenience function to setup a new guild."""
+    """
+    Convenience function to setup a new guild.
+    This function will create a new guild document in the database with default settings.
+    """
     if not await ensure_database_connection():
         raise DatabaseConnectionError("Could not establish database connection")
 
     return await guild_manager.setup_new_guild(guild_id, guild_name)
 
 async def get_guild_settings(guild_id: str) -> Dict[str, Any]:
-    """Convenience function to get guild settings."""
+    """
+    Convenience function to get guild settings.
+    This function will return the guild's settings document from the database.
+    If the guild does not exist, it will be created with default settings.
+    """
     if not await ensure_database_connection():
         raise DatabaseConnectionError("Could not establish database connection")
 

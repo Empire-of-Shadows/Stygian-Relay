@@ -1,6 +1,3 @@
-"""
-Interactive channel selection for setup process.
-"""
 from typing import List, Optional, Callable, Tuple
 import discord
 
@@ -19,6 +16,8 @@ class ChannelSelector:
                                          custom_id: str = "channel_select") -> discord.ui.View:
         """
         Create a channel selection dropdown menu.
+        This view is used in the setup wizard to allow the user to select a
+        channel.
 
         Args:
             guild: The guild to get channels from
@@ -67,7 +66,11 @@ class ChannelSelector:
         return view
 
     async def _get_filtered_channels(self, guild: discord.Guild, channel_type: str) -> List[discord.abc.GuildChannel]:
-        """Get channels filtered by type and accessibility."""
+        """
+        Get channels filtered by type and accessibility.
+        This method is used to get a list of channels that can be selected by
+        the user.
+        """
         channels = []
 
         for channel in guild.channels:
@@ -89,6 +92,8 @@ class ChannelSelector:
     async def validate_channel_access(self, guild: discord.Guild, channel_id: int) -> Tuple[bool, str]:
         """
         Validate that the bot can access and use a channel.
+        This method is used to ensure that the bot has the required permissions
+        to use a channel.
 
         Returns:
             Tuple of (is_valid, error_message)
@@ -117,6 +122,7 @@ class ChannelSelector:
     async def create_channel_embed(self, guild: discord.Guild, purpose: str) -> discord.Embed:
         """
         Create an embed for channel selection step.
+        This embed is shown to the user when they are selecting a channel.
 
         Args:
             guild: The guild

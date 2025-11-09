@@ -1,6 +1,3 @@
-"""
-Bot permission verification for setup process.
-"""
 from typing import List, Tuple, Dict
 import discord
 
@@ -27,6 +24,7 @@ class PermissionChecker:
     async def check_guild_permissions(self, guild: discord.Guild) -> Tuple[bool, List[str], List[str]]:
         """
         Check if bot has required permissions in the guild.
+        This method is used to check the bot's permissions at the guild level.
 
         Returns:
             Tuple of (has_basic_permissions, missing_basic, missing_advanced)
@@ -57,6 +55,7 @@ class PermissionChecker:
                                         required_perms: List[str] = None) -> Tuple[bool, List[str]]:
         """
         Check if bot has required permissions in a specific channel.
+        This method is used to check the bot's permissions in a specific channel.
 
         Args:
             channel: The channel to check
@@ -82,7 +81,11 @@ class PermissionChecker:
         return len(missing_perms) == 0, missing_perms
 
     def format_missing_permissions(self, missing_perms: List[str]) -> str:
-        """Format missing permissions into a user-friendly message."""
+        """
+        Format missing permissions into a user-friendly message.
+        This method is used to create a user-friendly message that lists the
+        missing permissions.
+        """
         if not missing_perms:
             return "✅ All required permissions are granted!"
 
@@ -104,7 +107,10 @@ class PermissionChecker:
         return "❌ Missing permissions:\n• " + "\n• ".join(readable_perms)
 
     async def create_permission_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Create an embed showing current permission status."""
+        """
+        Create an embed showing current permission status.
+        This embed is shown to the user during the setup wizard.
+        """
         has_basic, missing_basic, missing_advanced = await self.check_guild_permissions(guild)
 
         embed = discord.Embed(
@@ -150,6 +156,8 @@ class PermissionChecker:
     async def can_proceed_with_setup(self, guild: discord.Guild) -> Tuple[bool, str]:
         """
         Check if setup can proceed based on permissions.
+        This method is used to determine if the setup wizard can proceed to the
+        next step.
 
         Returns:
             Tuple of (can_proceed, reason_message)
