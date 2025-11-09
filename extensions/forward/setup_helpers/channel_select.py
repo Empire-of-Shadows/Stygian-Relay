@@ -4,9 +4,14 @@ Interactive channel selection for setup process.
 from typing import List, Optional, Callable, Tuple
 import discord
 
+from logger.logger_setup import get_logger
+
 
 class ChannelSelector:
     """Handles interactive channel selection."""
+
+    def __init__(self):
+        self.logger = get_logger("ChannelSelector", level=20, json_format=False, colored_console=True)
 
 
     async def create_channel_select_menu(self, guild: discord.Guild,
@@ -23,12 +28,14 @@ class ChannelSelector:
         Returns:
             discord.ui.View with channel selection
         """
+        self.logger.debug(f"Creating channel select menu for guild {guild.id}, type: {channel_type}")
         view = discord.ui.View(timeout=1800)
 
         # Get appropriate channels based on type
         channels = await self._get_filtered_channels(guild, channel_type)
 
         if not channels:
+            self.logger.warning(f"No channels found for guild {guild.id}, type: {channel_type}")
             # Fallback if no channels available
             select = discord.ui.Select(
                 placeholder="No channels available",
@@ -37,6 +44,7 @@ class ChannelSelector:
                 custom_id=custom_id
             )
         else:
+            self.logger.info(f"Found {len(channels)} channels for guild {guild.id}")
             # Create select options from channels
             options = []
             for channel in channels[:25]:  # Discord limit of 25 options

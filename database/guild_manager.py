@@ -302,3 +302,48 @@ class GuildManager:
     def get_metrics(self) -> Dict[str, Any]:
         """Get guild management metrics."""
         return self.metrics.copy()
+
+    async def add_forwarding_rule(self, guild_id: int, rule_name: str, source_channel_id: int,
+                                  destination_channel_id: int, enabled: bool = True,
+                                  settings: dict = None) -> bool:
+        """
+        Add a new forwarding rule for a guild.
+
+        Args:
+            guild_id: The guild ID
+            rule_name: Name of the rule
+            source_channel_id: Channel to watch
+            destination_channel_id: Channel to forward to
+            enabled: Whether the rule is enabled
+            settings: Additional rule settings
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        from logger.logger_setup import get_logger
+        logger = get_logger("GuildManager", level=20, json_format=False, colored_console=True)
+
+        try:
+            logger.info(f"Adding forwarding rule '{rule_name}' for guild {guild_id}")
+
+            rule_data = {
+                "guild_id": str(guild_id),
+                "rule_name": rule_name,
+                "source_channel_id": source_channel_id,
+                "destination_channel_id": destination_channel_id,
+                "is_active": enabled,
+                "settings": settings or {},
+            }
+
+            rule_id = await self.create_forwarding_rule(rule_data)
+
+            if rule_id:
+                logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id} with id {rule_id}")
+                return True
+            else:
+                logger.warning(f"Rule creation returned no ID for guild {guild_id}")
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ Error adding forwarding rule: {e}", exc_info=True)
+            return False

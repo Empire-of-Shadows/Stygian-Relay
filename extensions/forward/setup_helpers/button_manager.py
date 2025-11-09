@@ -34,8 +34,8 @@ class ButtonManager:
             # Store callback for this button
             if "callback" in button_config:
                 self.button_callbacks[button_config["custom_id"]] = button_config["callback"]
+                button.callback = self._create_button_callback(button_config["custom_id"])
 
-            button.callback = self._create_button_callback(button_config["custom_id"])
             view.add_item(button)
 
         return view
@@ -47,11 +47,7 @@ class ButtonManager:
             callback = self.button_callbacks.get(custom_id)
             if callback:
                 await callback(interaction)
-            else:
-                await interaction.response.send_message(
-                    "This button isn't working right now. Please use the command again.",
-                    ephemeral=True
-                )
+            # No-op if no callback is defined, allowing the global listener to handle it.
 
         return button_callback
 

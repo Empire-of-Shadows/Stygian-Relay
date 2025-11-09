@@ -324,28 +324,55 @@ class SetupCog(commands.Cog):
         """Show modal for entering rule name."""
         from .models.rule_modals import RuleNameModal
 
-        async def modal_callback(interaction: discord.Interaction, name: str):
-            # Update session with rule name
-            session.current_rule["rule_name"] = name
-            session.current_rule["step"] = "rule_preview"
+        async def modal_callback(modal_interaction: discord.Interaction, name: str):
+            try:
+                self.logger.info(f"Rule name modal submitted: '{name}' for guild {modal_interaction.guild_id}")
+                # Update session with rule name
+                session.current_rule["rule_name"] = name
+                session.current_rule["step"] = "rule_preview"
 
-            await state_manager.update_session(interaction.guild_id, {
-                "current_rule": session.current_rule
-            })
+                await state_manager.update_session(modal_interaction.guild_id, {
+                    "current_rule": session.current_rule
+                })
+                self.logger.debug(f"Session updated with rule name: {name}")
 
-            # Show rule preview
-            from .setup_helpers.rule_creation_flow import rule_creation_flow
-            await rule_creation_flow.show_rule_preview_step(interaction, session)
+                # Show rule preview
+                from .setup_helpers.rule_creation_flow import rule_creation_flow
+                await rule_creation_flow.show_rule_preview_step(modal_interaction, session)
+            except Exception as e:
+                self.logger.error(f"Error in rule name modal callback: {e}", exc_info=True)
+                await modal_interaction.followup.send(
+                    "❌ An error occurred while saving the rule name. Please try again.",
+                    ephemeral=True
+                )
 
         modal = RuleNameModal(modal_callback)
-        await interaction.response.send_modal(modal)
+
+        # Check if the interaction has already been responded to
+        if interaction.response.is_done():
+            self.logger.warning(
+                f"Cannot show modal - interaction already acknowledged for guild {interaction.guild_id}")
+            # Interaction already acknowledged - cannot send modal
+            await interaction.followup.send(
+                "❌ Cannot open name input dialog (interaction already processed). Please use 'Auto-generated Name' instead.",
+                ephemeral=True
+            )
+        else:
+            self.logger.debug(f"Showing rule name modal for guild {interaction.guild_id}")
+            await interaction.response.send_modal(modal)
+            self.logger.info(f"Rule name modal displayed successfully for guild {interaction.guild_id}")
 
     async def handle_button_interaction(self, interaction: discord.Interaction):
         """Handle button interactions from setup messages."""
+        custom_id = interaction.data.get('custom_id', 'unknown')
+        self.logger.info(
+            f"Button interaction received: {custom_id} from user {interaction.user.id} in guild {interaction.guild_id}")
+
         try:
             # Get the session
             session = await state_manager.get_session(interaction.guild_id)
             if not session:
+                self.logger.warning(f"No session found for guild {interaction.guild_id}")
                 try:
                     if interaction.response.is_done():
                         await interaction.followup.send(
@@ -369,65 +396,78 @@ class SetupCog(commands.Cog):
 
             # Update activity
             session.update_activity()
+            self.logger.debug(f"Session activity updated for guild {interaction.guild_id}")
 
             # Handle different button types based on custom_id
-            custom_id = interaction.data.get('custom_id')
-
             # === SETUP FLOW BUTTONS ===
             if custom_id == "setup_start":
+                self.logger.info(f"Starting permission step for guild {interaction.guild_id}")
                 await self.show_permission_step(interaction, session)
 
             elif custom_id == "setup_learn_more":
+                self.logger.info(f"Showing learn more for guild {interaction.guild_id}")
                 await self.show_learn_more(interaction, session)
 
             elif custom_id == "learn_back":
+                self.logger.info(f"Returning to welcome step for guild {interaction.guild_id}")
                 await self.show_welcome_step(interaction, session)
 
             # === PERMISSION STEP BUTTONS ===
             elif custom_id == "perms_continue":
+                self.logger.info(f"Permission check passed, continuing to log channel for guild {interaction.guild_id}")
                 await self.show_log_channel_step(interaction, session)
 
             elif custom_id == "perms_check_again":
+                self.logger.info(f"Rechecking permissions for guild {interaction.guild_id}")
                 await self.show_permission_step(interaction, session)
 
             # === RULE CREATION BUTTONS ===
             elif custom_id == "rule_create":
+                self.logger.info(f"Starting rule creation for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.start_rule_creation(interaction, session)
 
             elif custom_id == "rule_source_continue":
+                self.logger.info(f"Source channel selected, showing destination for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.show_destination_channel_step(interaction, session)
 
             # Add specific handler for rule_source_back
             elif custom_id == "rule_source_back":
+                self.logger.info(f"Going back from source selection for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.handle_rule_back(interaction, session, "source")
 
             # Add handler for rule_dest_back
             elif custom_id == "rule_dest_back":
+                self.logger.info(f"Going back from destination selection for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.handle_rule_back(interaction, session, "destination")
 
             elif custom_id == "rule_dest_continue":
+                self.logger.info(f"Destination channel selected, showing rule name for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.show_rule_name_step(interaction, session)
 
             elif custom_id == "rule_auto_name":
+                self.logger.info(f"Using auto-generated rule name for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.handle_auto_name(interaction, session)
 
             elif custom_id == "rule_name_input":
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.show_rule_name_modal(interaction, session, self.show_rule_name_modal)
+                self.logger.info(f"Showing rule name input modal for guild {interaction.guild_id}")
+                await self.show_rule_name_modal(interaction, session)
 
             elif custom_id == "rule_final_create":
+                self.logger.info(f"Creating final rule for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 success, message = await rule_creation_flow.create_final_rule(interaction, session)
 
                 if success:
+                    self.logger.info(f"Rule created successfully for guild {interaction.guild_id}")
                     await self.show_setup_complete(interaction, session)
                 else:
+                    self.logger.error(f"Rule creation failed for guild {interaction.guild_id}: {message}")
                     try:
                         if interaction.response.is_done():
                             await interaction.followup.send(
@@ -449,6 +489,7 @@ class SetupCog(commands.Cog):
                             raise e
 
             elif custom_id == "rule_edit_settings":
+                self.logger.info(f"Rule editing requested (not implemented) for guild {interaction.guild_id}")
                 # Todo: Implement rule editing
                 try:
                     if interaction.response.is_done():
@@ -477,6 +518,7 @@ class SetupCog(commands.Cog):
                     await self.show_setup_complete(interaction, session)
 
             elif custom_id == "rule_start_over":
+                self.logger.info(f"Restarting rule creation for guild {interaction.guild_id}")
                 # Reset rule creation and start over
                 session.current_rule = None
                 await state_manager.update_session(interaction.guild_id, {
@@ -487,35 +529,37 @@ class SetupCog(commands.Cog):
 
             # === NAVIGATION BUTTONS ===
             elif custom_id in ["nav_back", "perms_back", "channel_back", "rule_back"]:
+                self.logger.info(f"Back button pressed for guild {interaction.guild_id}")
                 await self.handle_back_button(interaction, session)
 
             # Handle rule-specific back buttons
             elif custom_id.startswith("rule_") and custom_id.endswith("_back"):
                 step = custom_id.replace("rule_", "").replace("_back", "")
+                self.logger.info(f"Rule-specific back button: {step} for guild {interaction.guild_id}")
                 from .setup_helpers.rule_creation_flow import rule_creation_flow
                 await rule_creation_flow.handle_rule_back(interaction, session, step)
 
-            # Add specific handler for rule_source_back
-            elif custom_id == "rule_source_back":
-                from .setup_helpers.rule_creation_flow import rule_creation_flow
-                await rule_creation_flow.handle_rule_back(interaction, session, "source")
-
             # === CANCEL BUTTONS ===
             elif custom_id in ["setup_cancel", "perms_cancel", "channel_cancel", "rule_cancel", "nav_cancel"]:
+                self.logger.info(f"Cancel button pressed for guild {interaction.guild_id}")
                 await self.handle_cancel_button(interaction, session)
 
             # Handle rule-specific cancel buttons
             elif custom_id.startswith("rule_") and custom_id.endswith("_cancel"):
+                self.logger.info(f"Rule-specific cancel button for guild {interaction.guild_id}")
                 await self.handle_cancel_button(interaction, session)
 
             # === SETUP COMPLETION BUTTONS ===
             elif custom_id == "setup_test_rule":
+                self.logger.info(f"Test rule requested for guild {interaction.guild_id}")
                 await self.handle_test_rule(interaction, session)
 
             elif custom_id == "setup_manage_rules":
+                self.logger.info(f"Manage rules requested for guild {interaction.guild_id}")
                 await self.handle_manage_rules(interaction, session)
 
             else:
+                self.logger.warning(f"Unhandled button custom_id: {custom_id} for guild {interaction.guild_id}")
                 try:
                     if interaction.response.is_done():
                         await interaction.followup.send(
@@ -537,7 +581,7 @@ class SetupCog(commands.Cog):
                         raise e
 
         except Exception as e:
-            self.logger.error(f"Error handling button interaction: {e}", exc_info=True)
+            self.logger.error(f"Error handling button interaction ({custom_id}): {e}", exc_info=True)
             try:
                 if interaction.response.is_done():
                     await interaction.followup.send(
@@ -688,6 +732,39 @@ class SetupCog(commands.Cog):
         else:
             await self.show_welcome_step(interaction, session)
 
+    async def show_setup_complete(self, interaction: discord.Interaction, session: SetupState):
+        """Show the final setup completion message."""
+        embed = discord.Embed(
+            title="✅ Setup Complete!",
+            description="Your message forwarding rules are now active.",
+            color=discord.Color.green()
+        )
+        
+        # Clean up session
+        await state_manager.cleanup_session(interaction.guild_id)
+        
+        try:
+            if interaction.response.is_done():
+                await interaction.edit_original_response(embed=embed, view=None)
+            else:
+                await interaction.response.edit_message(embed=embed, view=None)
+        except discord.HTTPException as e:
+            if "already been acknowledged" in str(e).lower():
+                try:
+                    await interaction.edit_original_response(embed=embed, view=None)
+                except discord.HTTPException:
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                raise e
+
+    async def handle_test_rule(self, interaction: discord.Interaction, session: SetupState):
+        """Handle the test rule button."""
+        await interaction.response.send_message("Testing rules is not yet implemented.", ephemeral=True)
+
+    async def handle_manage_rules(self, interaction: discord.Interaction, session: SetupState):
+        """Handle the manage rules button."""
+        await interaction.response.send_message("Managing rules is not yet implemented.", ephemeral=True)
+
     async def handle_cancel_button(self, interaction: discord.Interaction, session: SetupState):
         """Handle cancel button."""
         # Clean up session
@@ -719,11 +796,11 @@ class SetupCog(commands.Cog):
         if interaction.type == discord.InteractionType.component:
             custom_id = interaction.data.get('custom_id', '')
 
-            if custom_id.startswith(('setup_', 'perms_', 'channel_', 'rule_', 'nav_', 'option_')):
-                await self.handle_button_interaction(interaction)
-
-            elif custom_id.endswith('_select'):
+            if custom_id.endswith('_select'):
                 await self.handle_select_menu(interaction)
+
+            elif custom_id.startswith(('setup_', 'perms_', 'channel_', 'rule_', 'nav_', 'option_')):
+                await self.handle_button_interaction(interaction)
 
 async def setup(bot):
     """Setup function for the forward extension."""
