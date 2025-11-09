@@ -213,3 +213,8 @@ __marimo__/
 /.idea/vcs.xml
 /componentsv2/components_v_2_guide.md
 /componentsv2/create_ad.py
+
+# Docker files
+Dockerfile
+docker-compose.yml
+deploy.sh
