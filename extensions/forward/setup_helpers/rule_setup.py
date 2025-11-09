@@ -49,7 +49,8 @@ class RuleSetupHelper:
                 "add_prefix": "",
                 "add_suffix": "",
                 "forward_attachments": True,
-                "forward_embeds": True
+                "forward_embeds": True,
+                "forward_style": "c_v2"
             },
             "advanced_options": {
                 "case_sensitive": False,
@@ -152,6 +153,15 @@ class RuleSetupHelper:
             formatting_info.append(f"• Prefix: {rule['formatting']['add_prefix']}")
         if rule["formatting"]["add_suffix"]:
             formatting_info.append(f"• Suffix: {rule['formatting']['add_suffix']}")
+
+        # Add forward style to preview
+        style = rule["formatting"].get("forward_style", "c_v2")
+        style_map = {
+            "c_v2": "Component v2",
+            "embed": "Embed",
+            "text": "Plain Text"
+        }
+        formatting_info.append(f"• Style: {style_map.get(style, 'Unknown')}")
 
         embed.add_field(
             name="🎨 Formatting",

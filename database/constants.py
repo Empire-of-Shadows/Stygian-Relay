@@ -9,7 +9,6 @@ COLLECTION_REGISTRY = {}
 # Required collections for the Discord Forwarding Bot
 REQUIRED_COLLECTIONS = {
     'guild_settings',
-    'forwarding_rules',
     'message_logs',
     'error_logs',
     'rate_limits',

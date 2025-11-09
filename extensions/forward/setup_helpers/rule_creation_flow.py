@@ -254,7 +254,7 @@ class RuleCreationFlow:
             # Add rule to session (for display purposes)
             session.forwarding_rules.append(rule)
             await state_manager.update_session(interaction.guild_id, {
-                "forwarding_rules": session.forwarding_rules
+                "rules": session.forwarding_rules
             })
 
             # SAVE TO DATABASE

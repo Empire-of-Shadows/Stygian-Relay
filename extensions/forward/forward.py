@@ -1,10 +1,86 @@
 import discord
 from discord.ext import commands
+from discord import app_commands, ui
 from database import guild_manager
 from logger.logger_setup import get_logger
 import asyncio
 
 logger = get_logger(__name__, level=20)
+
+
+class ForwardOptionsView(ui.View):
+    def __init__(self, original_message: discord.Message, cog_instance):
+        super().__init__(timeout=180)
+        self.original_message = original_message
+        self.cog_instance = cog_instance
+        self.forward_style = "c_v2"
+        self.destination_channel = None
+
+        # Style select
+        style_select = ui.Select(
+            placeholder="Choose a forwarding style...",
+            options=[
+                discord.SelectOption(label="Component v2 (Default)", value="c_v2", description="A modern, structured layout."),
+                discord.SelectOption(label="Embed", value="embed", description="A standard Discord embed."),
+                discord.SelectOption(label="Plain Text", value="text", description="A simple text-based message."),
+            ]
+        )
+        style_select.callback = self.style_select_callback
+        self.add_item(style_select)
+
+        # Channel select
+        channel_select = ui.ChannelSelect(
+            placeholder="Select destination channel...",
+            channel_types=[discord.ChannelType.text]
+        )
+        channel_select.callback = self.channel_select_callback
+        self.add_item(channel_select)
+
+        # Forward button
+        forward_button = ui.Button(label="Forward", style=discord.ButtonStyle.primary, row=2)
+        forward_button.callback = self.forward_button_callback
+        self.add_item(forward_button)
+
+    async def style_select_callback(self, interaction: discord.Interaction):
+        self.forward_style = interaction.data['values'][0]
+        await interaction.response.defer()
+
+    async def channel_select_callback(self, interaction: discord.Interaction):
+        self.destination_channel = interaction.data['values'][0]
+        # Get the actual channel object
+        self.destination_channel = interaction.guild.get_channel(int(self.destination_channel))
+        await interaction.response.defer()
+
+    async def forward_button_callback(self, interaction: discord.Interaction):
+        if not self.destination_channel:
+            await interaction.response.send_message("Please select a destination channel.", ephemeral=True)
+            return
+
+        if not isinstance(self.destination_channel, discord.TextChannel):
+            await interaction.response.send_message("Please select a valid text channel.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        default_formatting = {
+            "add_prefix": None,
+            "include_author": True,
+            "add_suffix": None,
+            "forward_embeds": True,
+            "forward_attachments": True,
+            "forward_style": self.forward_style
+        }
+
+        try:
+            await self.cog_instance.forward_message(default_formatting, self.original_message, self.destination_channel)
+            await interaction.followup.send(f"Message forwarded to {self.destination_channel.mention}!", ephemeral=True)
+
+            for item in self.children:
+                item.disabled = True
+            await interaction.edit_original_response(view=self)
+        except Exception as e:
+            logger.error(f"Error forwarding message from view: {e}", exc_info=True)
+            await interaction.followup.send("An error occurred while forwarding the message.", ephemeral=True)
 
 class Forwarding(commands.Cog):
     """
@@ -13,6 +89,21 @@ class Forwarding(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self.ctx_menu = app_commands.ContextMenu(
+            name='Forward Message',
+            callback=self.forward_message_context_menu,
+        )
+        self.bot.tree.add_command(self.ctx_menu)
+
+    async def cog_unload(self):
+        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+
+    async def forward_message_context_menu(self, interaction: discord.Interaction, message: discord.Message):
+        """
+        Context menu command to forward a message.
+        """
+        view = ForwardOptionsView(message, self)
+        await interaction.response.send_message("Select forwarding options:", view=view, ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -141,7 +232,18 @@ class Forwarding(commands.Cog):
         return True
 
     async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
-        """Construct and send the forwarded message."""
+        """Dispatches to the correct forwarding method based on style."""
+        forward_style = formatting.get("forward_style", "c_v2")  # Default to component v2
+
+        if forward_style == "text":
+            await self.forward_as_text(formatting, message, destination)
+        elif forward_style == "embed":
+            await self.forward_as_embed(formatting, message, destination)
+        else:  # "c_v2" or default
+            await self.forward_as_component_v2(formatting, message, destination)
+
+    async def forward_as_text(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
+        """Construct and send the forwarded message as plain text."""
         content_parts = []
         embeds_to_send = []
         files_to_send = []
@@ -172,19 +274,173 @@ class Forwarding(commands.Cog):
         if formatting.get("forward_attachments", True) and message.attachments:
             for attachment in message.attachments:
                 try:
-                    # This can fail if the attachment is too large or bot is rate limited
                     f = await attachment.to_file()
                     files_to_send.append(f)
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
                     final_content += f"\n(Attachment failed to forward: {attachment.filename})"
 
+        # Send the message
+        send_kwargs = {
+            "content": final_content if final_content else None,
+            "embeds": embeds_to_send,
+            "files": files_to_send
+        }
+        if message.channel.id == destination.id:
+            send_kwargs["reference"] = message
+            try:
+                await destination.send(**send_kwargs)
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send forwarded message to {destination.id} with reference: {e}")
+                if "reference" in send_kwargs:
+                    del send_kwargs["reference"]
+                await destination.send(**send_kwargs)
+        else:
+            try:
+                await destination.send(**send_kwargs)
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send forwarded message to {destination.id}: {e}")
+
+    async def forward_as_embed(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
+        """Construct and send the forwarded message as an embed."""
+        embed = discord.Embed(
+            description=message.content,
+            color=discord.Color.blue(),
+            timestamp=message.created_at
+        )
+
+        if formatting.get("include_author", True):
+            embed.set_author(
+                name=f"Forwarded from {message.author.display_name}",
+                icon_url=message.author.display_avatar.url
+            )
+            embed.add_field(name="Source", value=f"[Jump to message]({message.jump_url})", inline=False)
+
+        if prefix := formatting.get("add_prefix"):
+            embed.title = prefix
+
+        if suffix := formatting.get("add_suffix"):
+            embed.set_footer(text=suffix)
+
+        files_to_send = []
+        # Handle attachments
+        if formatting.get("forward_attachments", True) and message.attachments:
+            image_set = False
+            for attachment in message.attachments:
+                try:
+                    f = await attachment.to_file()
+                    if not image_set and attachment.content_type and attachment.content_type.startswith('image/'):
+                        embed.set_image(url=f"attachment://{f.filename}")
+                        image_set = True
+                    files_to_send.append(f)
+                except discord.HTTPException as e:
+                    logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
+                    embed.add_field(name="Attachment Failed", value=attachment.filename)
+
+        embeds_to_send = [embed]
+        if formatting.get("forward_embeds", True) and message.embeds:
+            embeds_to_send.extend(message.embeds)
+            embeds_to_send = embeds_to_send[:10]
 
         # Send the message
-        try:
-            await destination.send(content=final_content if final_content else None, embeds=embeds_to_send, files=files_to_send, reference=message)
-        except discord.HTTPException as e:
-            logger.error(f"Failed to send forwarded message to {destination.id}: {e}")
+        send_kwargs = {
+            "embeds": embeds_to_send,
+            "files": files_to_send
+        }
+        if message.channel.id == destination.id:
+            send_kwargs["reference"] = message
+            try:
+                await destination.send(**send_kwargs)
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send forwarded message to {destination.id} with reference: {e}")
+                if "reference" in send_kwargs:
+                    del send_kwargs["reference"]
+                await destination.send(**send_kwargs)
+        else:
+            try:
+                await destination.send(**send_kwargs)
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send forwarded message to {destination.id}: {e}")
+
+    async def forward_as_component_v2(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
+        """Construct and send the forwarded message using Components v2."""
+        layout = ui.LayoutView()
+        files_to_send = []
+        embeds_to_send = []
+
+        # Main container for the forwarded message
+        container = ui.Container()
+
+        # Prefix
+        if prefix := formatting.get("add_prefix"):
+            container.add_item(ui.TextDisplay(prefix))
+
+        # Author section
+        if formatting.get("include_author", True):
+            author_section = ui.Section(accessory=ui.Thumbnail(media=message.author.display_avatar.url))
+            author_section.add_item(ui.TextDisplay(f"**From {message.author.mention} in {message.channel.mention}:**"))
+            container.add_item(author_section)
+
+        # Message content
+        if message.content:
+            container.add_item(ui.TextDisplay(message.content))
+
+        # Suffix
+        if suffix := formatting.get("add_suffix"):
+            container.add_item(ui.TextDisplay(suffix))
+
+        layout.add_item(container)
+
+        # Embeds
+        if formatting.get("forward_embeds", True) and message.embeds:
+            embeds_to_send.extend(message.embeds)
+
+        # Attachments
+        failed_attachments = []
+        if formatting.get("forward_attachments", True) and message.attachments:
+            media_gallery = ui.MediaGallery()
+            for attachment in message.attachments:
+                try:
+                    f = await attachment.to_file()
+                    files_to_send.append(f)
+                    if attachment.content_type and \
+                       (attachment.content_type.startswith('image/') or attachment.content_type.startswith('video/')):
+                        media_gallery.add_item(media=f"attachment://{f.filename}")
+                except discord.HTTPException as e:
+                    logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
+                    failed_attachments.append(attachment.filename)
+
+            if media_gallery.items:
+                layout.add_item(ui.Separator())
+                layout.add_item(media_gallery)
+
+        if failed_attachments:
+            failed_files_text = "\n".join([f"(Attachment failed to forward: {filename})" for filename in failed_attachments])
+            layout.add_item(ui.TextDisplay(failed_files_text))
+
+        # Send the message
+        send_kwargs = {
+            "view": layout,
+            "files": files_to_send,
+            "embeds": embeds_to_send,
+            "content": None
+        }
+
+        if message.channel.id == destination.id:
+            send_kwargs["reference"] = message
+            try:
+                await destination.send(**send_kwargs)
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send forwarded message to {destination.id} with reference: {e}")
+                # Fallback to sending without reference if it fails
+                if "reference" in send_kwargs:
+                    del send_kwargs["reference"]
+                await destination.send(**send_kwargs)
+        else:
+            try:
+                await destination.send(**send_kwargs)
+            except discord.HTTPException as e:
+                logger.error(f"Failed to send forwarded message to {destination.id}: {e}")
 
 
 async def setup(bot):

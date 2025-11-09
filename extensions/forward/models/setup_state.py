@@ -39,7 +39,7 @@ class SetupState:
             "started_at": self.started_at.isoformat(),
             "last_activity": self.last_activity.isoformat(),
             "master_log_channel": self.master_log_channel,
-            "forwarding_rules": self.forwarding_rules,
+            "rules": self.forwarding_rules,
             "current_rule": self.current_rule,
             "setup_options": self.setup_options,
             "setup_message_id": self.setup_message_id,
@@ -54,7 +54,7 @@ class SetupState:
         state.started_at = datetime.fromisoformat(data["started_at"])
         state.last_activity = datetime.fromisoformat(data["last_activity"])
         state.master_log_channel = data["master_log_channel"]
-        state.forwarding_rules = data["forwarding_rules"]
+        state.forwarding_rules = data["rules"]
         state.current_rule = data["current_rule"]
         state.setup_options = data["setup_options"]
         state.setup_message_id = data["setup_message_id"]

@@ -157,12 +157,6 @@ class GuildManager:
             guild_settings = db["guild_settings"]
             await guild_settings.delete_one({"_id": guild_id})
 
-            forwarding_rules = db["forwarding_rules"]
-            await forwarding_rules.update_many(
-                {"guild_id": guild_id},
-                {"$set": {"is_active": False, "deactivated_at": datetime.now(timezone.utc)}}
-            )
-
             user_permissions = db["user_permissions"]
             await user_permissions.delete_many({"guild_id": guild_id})
 
@@ -207,6 +201,13 @@ class GuildManager:
         cursor = collection.find({})
         return await cursor.to_list(length=None)
 
+    async def get_all_rules(self, guild_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all forwarding rules for a specific guild.
+        """
+        logger.debug(f"Fetching all forwarding rules for guild {guild_id}")
+        return await self.get_guild_rules(str(guild_id))
+
     async def get_guild_count(self) -> int:
         """
         Get total number of guilds in the database.
@@ -214,39 +215,39 @@ class GuildManager:
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         return await collection.count_documents({})
 
-    async def get_guild_forwarding_rules(self, guild_id: str) -> List[Dict[str, Any]]:
-        """Get all forwarding rules for a guild."""
+    async def get_guild_rules(self, guild_id: str) -> List[Dict[str, Any]]:
+        """Get all rules for a guild."""
         guild_settings = await self.get_guild_settings(guild_id)
-        return guild_settings.get("forwarding_rules", [])
+        return guild_settings.get("rules", [])
 
     async def get_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific forwarding rule by ID."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-        result = await collection.find_one({"forwarding_rules.rule_id": rule_id})
+        result = await collection.find_one({"rules.rule_id": rule_id})
         if result:
-            for rule in result.get("forwarding_rules", []):
+            for rule in result.get("rules", []):
                 if rule.get("rule_id") == rule_id:
                     return rule
         return None
 
-    async def update_forwarding_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
-        """Update a forwarding rule."""
+    async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a rule."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
 
         # Construct the update query
-        update_fields = {f"forwarding_rules.$.{key}": value for key, value in updates.items()}
+        update_fields = {f"rules.$.{key}": value for key, value in updates.items()}
 
         result = await collection.update_one(
-            {"forwarding_rules.rule_id": rule_id},
+            {"rules.rule_id": rule_id},
             {"$set": update_fields}
         )
 
         return result.modified_count > 0
 
-    async def delete_forwarding_rule(self, rule_id: str) -> bool:
-        """Soft delete a forwarding rule."""
-        return await self.update_forwarding_rule(rule_id, {"is_active": False})
+    async def delete_rule(self, rule_id: str) -> bool:
+        """Soft delete a rule."""
+        return await self.update_rule(rule_id, {"is_active": False})
 
     async def log_forwarded_message(self, log_data: Dict[str, Any]):
         """Log a forwarded message for tracking."""
@@ -299,11 +300,11 @@ class GuildManager:
         """Get guild management metrics."""
         return self.metrics.copy()
 
-    async def add_forwarding_rule(self, guild_id: int, rule_name: str, source_channel_id: int,
+    async def add_rule(self, guild_id: int, rule_name: str, source_channel_id: int,
                                   destination_channel_id: int, enabled: bool = True,
                                   settings: dict = None) -> bool:
         """
-        Add a new forwarding rule for a guild.
+        Add a new rule for a guild.
 
         Args:
             guild_id: The guild ID
@@ -338,7 +339,7 @@ class GuildManager:
             result = await collection.update_one(
                 {"_id": str(guild_id)},
                 {
-                    "$push": {"forwarding_rules": rule_data},
+                    "$push": {"rules": rule_data},
                     "$set": {"updated_at": datetime.now(timezone.utc)}
                 }
             )
@@ -354,7 +355,7 @@ class GuildManager:
                     result = await collection.update_one(
                         {"_id": str(guild_id)},
                         {
-                            "$push": {"forwarding_rules": rule_data},
+                            "$push": {"rules": rule_data},
                             "$set": {"updated_at": datetime.now(timezone.utc)}
                         }
                     )

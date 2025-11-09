@@ -14,9 +14,11 @@ class RuleNameModal(discord.ui.Modal, title="Rule Name"):
         required=True
     )
 
-    def __init__(self, callback):
+    def __init__(self, callback, current_name: str = None):
         super().__init__()
         self.callback = callback
+        if current_name:
+            self.name_input.default = current_name
 
     async def on_submit(self, interaction: discord.Interaction):
         await self.callback(interaction, self.name_input.value)
