@@ -1045,7 +1045,7 @@ class ForwardCog(commands.Cog):
             # --- Rule Creation & Editing Flow ---
             elif custom_id == "rule_create":
                 self.logger.info(f"Starting rule creation for guild {interaction.guild_id}")
-                await self.rule_creation_flow.start_rule_creation(interaction, session)
+                await self.rule_creation_flow.start_rule_creation(interaction)
             elif custom_id == "rule_source_continue":
                 self.logger.info(f"Source channel selected, showing destination for guild {interaction.guild_id}")
                 await self.rule_creation_flow.show_destination_channel_step(interaction, session)
@@ -1077,9 +1077,10 @@ class ForwardCog(commands.Cog):
                 await self.show_rule_edit_step(interaction, session)
             elif custom_id == "rule_start_over":
                 self.logger.info(f"Restarting rule creation for guild {interaction.guild_id}")
+                await state_manager.cleanup_session(str(interaction.guild_id))
                 session.current_rule = None
                 await state_manager.update_session(str(interaction.guild_id), {"current_rule": None})
-                await self.rule_creation_flow.start_rule_creation(interaction, session)
+                await self.rule_creation_flow.start_rule_creation(interaction)
 
             # --- Navigation (Back/Cancel) ---
             elif custom_id in ["nav_back", "perms_back", "rule_back"]:
@@ -1204,6 +1205,7 @@ class ForwardCog(commands.Cog):
             description=description,
             color=discord.Color.green()
         )
+        await state_manager.cleanup_session(str(interaction.guild_id))
 
         try:
             await interaction.edit_original_response(embed=embed, view=None)
