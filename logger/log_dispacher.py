@@ -193,6 +193,26 @@ class EmailTemplate:
             by_category[error.category].append(error)
             by_severity[error.severity].append(error)
 
+        # Fix: Extract the problematic CSS to a separate variable
+        chart_placeholder_css = """
+            .chart-placeholder {
+                height: 200px;
+                background: 
+                    linear-gradient(45deg, #f8f9fa 25%, transparent 25%), 
+                    linear-gradient(-45deg, #f8f9fa 25%, transparent 25%), 
+                    linear-gradient(45deg, transparent 75%, #f8f9fa 75%), 
+                    linear-gradient(-45deg, transparent 75%, #f8f9fa 75%);
+                background-size: 20px 20px;
+                background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+                border: 2px dashed #dee2e6;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #6c757d;
+                font-style: italic;
+            }
+        """
+
         html_content = f"""
         <!DOCTYPE html>
         <html lang="en">
@@ -315,21 +335,7 @@ class EmailTemplate:
                     border-top: 1px solid #e9ecef;
                     color: #6c757d;
                 }}
-                .chart-placeholder {{
-                    height: 200px;
-                    background: linear-gradient(45deg, #f8f9fa 25%, transparent 25%),
-                               linear-gradient(-45deg, #f8f9fa 25%, transparent 25%),
-                               linear-gradient(45deg, transparent 75%, #f8f9fa 75%),
-                               linear-gradient(-45deg, transparent 75%, #f8f9fa 75%);
-                    background-size: 20px 20px;
-                    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-                    border: 2px dashed #dee2e6;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    color: #6c757d;
-                    font-style: italic;
-                }}
+                {chart_placeholder_css}
             </style>
         </head>
         <body>
@@ -512,20 +518,21 @@ class EmailTemplate:
     ) -> str:
         """Create a plain text version for email clients that don't support HTML"""
 
-        text_content = f"""
-🤖 DISCORD BOT ERROR REPORT
-════════════════════════════════════════
-
-📅 Report Period: {period_start.strftime('%Y-%m-%d %H:%M:%S')} - {period_end.strftime('%Y-%m-%d %H:%M:%S')}
-
-📊 SUMMARY STATISTICS
-────────────────────
-• Total Errors: {stats.get('total_errors', 0)}
-• Critical Issues: {stats.get('critical_count', 0)}
-• Error Rate: {stats.get('errors_per_hour', 0):.1f} errors/hour
-• Most Affected Category: {stats.get('top_category', 'N/A')}
-
-"""
+        summary_lines = [
+            "🤖 DISCORD BOT ERROR REPORT",
+            "════════════════════════════════════════",
+            "",
+            f"📅 Report Period: {period_start.strftime('%Y-%m-%d %H:%M:%S')} - {period_end.strftime('%Y-%m-%d %H:%M:%S')}",
+            "",
+            "📊 SUMMARY STATISTICS",
+            "────────────────────",
+            f"• Total Errors: {stats.get('total_errors', 0)}",
+            f"• Critical Issues: {stats.get('critical_count', 0)}",
+            f"• Error Rate: {stats.get('errors_per_hour', 0):.1f} errors/hour",
+            f"• Most Affected Category: {stats.get('top_category', 'N/A')}",
+            "",
+        ]
+        text_content = "\n".join(summary_lines)
 
         # Group errors by category and severity
         by_category = defaultdict(list)
@@ -580,7 +587,7 @@ class EmailTemplate:
                 if error.stack_trace:
                     # Show first line of stack trace in text version
                     first_line = error.stack_trace.split('\n')[0]
-                    text_content += f"     Stack: {first_line}\n"
+                    text_content += f"     Stack: {first_line}" + "\n"
 
                 text_content += "\n"
 

@@ -15,11 +15,12 @@ class RuleCreationFlow:
         self.cog = cog
         self.logger = get_logger("RuleCreationFlow", level=20, json_format=False, colored_console=True)
 
-    async def start_rule_creation(self, interaction: discord.Interaction, session: SetupState):
+    async def start_rule_creation(self, interaction: discord.Interaction):
         """
         Starts the rule creation flow by initializing a new rule in the user's
         session and showing the first step (source channel selection).
         """
+        session = await state_manager.create_session(interaction.guild_id, interaction.user.id)
         self.logger.info(f"Starting rule creation for guild {interaction.guild_id}")
         session.current_rule = {
             "step": "source_channel"
@@ -322,6 +323,7 @@ class RuleCreationFlow:
 
             if save_result:
                 self.logger.info(f"✅ Rule '{rule_data['rule_name']}' saved successfully for guild {interaction.guild_id}")
+                await state_manager.cleanup_session(interaction.guild_id)
                 return True, "Rule created and saved successfully."
             else:
                 self.logger.error(f"Failed to save rule to database for guild {interaction.guild_id}")
