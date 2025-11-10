@@ -134,7 +134,7 @@ async def send_welcome_message(guild, settings):
                 return
 
         embed = discord.Embed(
-            title="🤖 Stygian Relay",
+            title="🤖 Stygian-Relay",
             description="Thanks for adding me to your server! I can forward messages between channels with advanced filtering.",
             color=discord.Color.green()
         )
