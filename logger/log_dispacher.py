@@ -471,12 +471,16 @@ class EmailTemplate:
                                 <div><strong>Error:</strong> {html.escape(error.error_message)}</div>
                     """
 
+
                     if error.stack_trace:
                         # Show first few lines of stack trace
-                        stack_lines = error.stack_trace.split('\n')[:5]
+                        newline_char = '\n'
+                        stack_lines = error.stack_trace.split(newline_char)[:5]
+                        stack_text = html.escape(newline_char.join(stack_lines))
+                        more_indicator = '...' if len(error.stack_trace.split(newline_char)) > 5 else ''
                         html_content += f"""
                                 <div style="margin-top: 10px;"><strong>Stack Trace:</strong></div>
-                                <pre style="margin: 5px 0; white-space: pre-wrap;">{html.escape('\n'.join(stack_lines))}{'...' if len(error.stack_trace.split('\n')) > 5 else ''}</pre>
+                                <pre style="margin: 5px 0; white-space: pre-wrap;">{stack_text}{more_indicator}</pre>
                         """
 
                     html_content += """
@@ -532,7 +536,8 @@ class EmailTemplate:
             f"• Most Affected Category: {stats.get('top_category', 'N/A')}",
             "",
         ]
-        text_content = "\n".join(summary_lines)
+        newline_char = "\n"
+        text_content = newline_char.join(summary_lines)
 
         # Group errors by category and severity
         by_category = defaultdict(list)
