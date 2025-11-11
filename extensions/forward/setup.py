@@ -4,6 +4,7 @@ message forwarding rules. It uses a state machine and various discord.ui
 components to guide the user through a multi-step configuration process.
 """
 import discord
+import json
 from discord.ext import commands
 from discord import app_commands
 
@@ -306,9 +307,7 @@ class RuleSettingsView(discord.ui.View):
         success, message = await self.cog.update_final_rule(interaction, self.session)
         
         if success:
-            await state_manager.cleanup_session(str(interaction.guild_id))
-            await interaction.message.delete()
-            await interaction.followup.send("✅ Rule updated successfully!", ephemeral=True)
+            await self.cog.show_setup_complete(interaction, self.session, is_editing=True)
         else:
             await interaction.followup.send(f"❌ Save failed: {message}", ephemeral=True)
 
@@ -949,7 +948,7 @@ class ForwardCog(commands.Cog):
         """
         view = RuleSettingsView(session, self)
         embed = await view.create_settings_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
+        await interaction.edit_original_response(embed=embed, view=view) # Type: Ignore
 
     async def _handle_log_channel_back(self, interaction: discord.Interaction):
         """Handle back button in log channel step"""
@@ -1178,17 +1177,43 @@ class ForwardCog(commands.Cog):
         This method is called when the user clicks the "Save and Exit" button
         when editing a rule.
         """
-        rule = session.current_rule
-        if not rule or not rule.get("rule_id"):
+        updated_rule = session.current_rule
+        if not updated_rule or not updated_rule.get("rule_id"):
             return False, "Rule data is missing or invalid."
 
-        rule_id = rule["rule_id"]
+        rule_id = updated_rule["rule_id"]
+
+        # Fetch all rules and find the original one for logging
+        all_rules = await self.guild_manager.get_all_rules(str(interaction.guild_id))
+        original_rule = None
+        if all_rules:
+            for r in all_rules:
+                if r.get("rule_id") == rule_id:
+                    original_rule = r
+                    break
+
+        if original_rule:
+            # Create string representations for comparison
+            before_str = json.dumps(original_rule, indent=2, default=str, sort_keys=True)
+            after_str = json.dumps(updated_rule, indent=2, default=str, sort_keys=True)
+
+            if before_str == after_str:
+                self.logger.info(f"Rule {rule_id} update requested, but no changes were detected.")
+            else:
+                self.logger.info(f"Updating rule {rule_id} for guild {interaction.guild_id}.\n"
+                                 f"--- BEFORE ---\n{before_str}\n"
+                                 f"--- AFTER ---\n{after_str}")
+        else:
+            self.logger.warning(f"Could not find original rule {rule_id} in DB for diff logging.")
+
         # The entire rule dictionary is passed as the update payload.
-        success = await self.guild_manager.update_rule(rule_id, rule)
+        success = await self.guild_manager.update_rule(rule_id, updated_rule)
 
         if success:
+            self.logger.info(f"Successfully updated rule {rule_id} in database.")
             return True, "Rule updated successfully."
         else:
+            self.logger.error(f"Failed to update rule {rule_id} in database.")
             return False, "Failed to update the rule in the database."
 
     async def show_setup_complete(self, interaction: discord.Interaction, session: SetupState, is_editing: bool = False):
@@ -1266,7 +1291,7 @@ class ForwardCog(commands.Cog):
             custom_id = interaction.data.get('custom_id', '')
 
             # Skip components that have direct callbacks
-            if custom_id in ["log_channel_continue", "channel_cancel", "log_channel_select"]:
+            if custom_id in ["log_channel_continue", "channel_cancel", "log_channel_select", "rule_edit_select"]:
                 self.logger.debug(f"Skipping {custom_id} as it has direct callback")
                 return
 

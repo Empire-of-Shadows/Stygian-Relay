@@ -279,16 +279,17 @@ class RuleCreationFlow:
         ])
 
         try:
-            if interaction.response.is_done(): # Type: Ignore
+            if interaction.response.is_done():  # Type: Ignore
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
-                await interaction.response.send_message(embed=embed, view=view) # Type: Ignore
+                await interaction.response.send_message(embed=embed, view=view)  # Type: Ignore
             self.logger.info(f"Rule preview displayed for guild {interaction.guild_id}")
         except discord.HTTPException as e:
-            self.logger.error(f"Error displaying rule preview: {e}", exc_info=True)
-            if "already been acknowledged" in str(e).lower():
+            if e.code == 40060:  # Interaction has already been acknowledged
+                self.logger.info("Interaction already acknowledged when showing rule preview, editing instead.")
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
+                self.logger.error(f"Error displaying rule preview: {e}", exc_info=True)
                 raise e
 
     async def create_final_rule(self, interaction: discord.Interaction, session: SetupState) -> Tuple[bool, str]:
