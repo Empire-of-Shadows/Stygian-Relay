@@ -329,42 +329,48 @@ class Forwarding(commands.Cog):
     async def forward_as_native_style(self, formatting: dict, message: discord.Message,
                                       destination: discord.TextChannel):
         """
-        Attempts to replicate Discord's native forward appearance as closely as possible.
-        This sends the content with minimal additional formatting to maintain the original feel.
+        Replicates Discord's true native forward behavior with quoted message format.
+        Discord's native forward quotes the original content and lets Discord regenerate
+        fresh embeds from URLs, keeping video functionality intact.
         """
-        # Send embeds and files without extra text when possible
-        if not message.content and (message.embeds or message.attachments):
-            embeds_to_send = []
-            files_to_send = []
+        # Build the quoted message content
+        quote_lines = []
 
-            # Forward embeds directly
-            if formatting.get("forward_embeds", True) and message.embeds:
-                for embed in message.embeds:
-                    if not self._should_filter_embed(embed, formatting.get("embed_filter", [])):
-                        embeds_to_send.append(self._sanitize_embed(embed))
+        # Add author line in the quote
+        if formatting.get("include_author", True):
+            quote_lines.append(f"> **{message.author.display_name}**")
 
-            # Forward attachments directly
-            if formatting.get("forward_attachments", True) and message.attachments:
-                for attachment in message.attachments:
-                    try:
-                        f = await attachment.to_file()
-                        files_to_send.append(f)
-                    except discord.HTTPException:
-                        logger.warning(f"Failed to forward attachment: {attachment.filename}")
+        # Add the message text content with quote formatting
+        if message.content:
+            # Split content into lines and add quote prefix to each
+            content_lines = message.content.split('\n')
+            for line in content_lines:
+                quote_lines.append(f"> {line}")
 
-            # Send without any wrapper text for maximum native feel
-            if embeds_to_send or files_to_send:
-                await self._send_with_enhanced_handling(
-                    destination=destination,
-                    message=message,
-                    embeds=embeds_to_send,
-                    files=files_to_send,
-                    formatting=formatting
-                )
-                return
+        # Add any attachments/media indicators
+        has_attachments = bool(message.attachments)
+        has_embeds = bool(message.embeds)
 
-        # Fall back to minimal text forwarding for content with text
-        await self.forward_as_text(formatting, message, destination)
+        if has_attachments and not message.content:
+            quote_lines.append("> 📎 Attachment")
+        elif has_embeds and not message.content and not message.attachments:
+            quote_lines.append("> 🔗 Embedded content")
+
+        # Add the original message link within the quote
+        quote_lines.append(f"> [View Original]({message.jump_url})")
+
+        # Join all quote lines
+        quoted_content = '\n'.join(quote_lines)
+
+        # The key insight: Send ONLY the quoted content as text
+        # Discord will automatically detect URLs in the quoted content and generate fresh embeds
+        # This preserves video functionality while maintaining the quoted appearance
+        await self._send_with_enhanced_handling(
+            destination=destination,
+            message=message,
+            content=quoted_content,
+            formatting=formatting
+        )
 
     async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
         """
