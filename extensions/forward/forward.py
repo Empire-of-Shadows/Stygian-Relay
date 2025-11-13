@@ -350,7 +350,7 @@ class Forwarding(commands.Cog):
                 quote_lines.append(f"> {line}")
 
         # Add the original message link within the quote
-        quote_lines.append(f"> -# [original post]({message.jump_url})")
+        quote_lines.append(f"> -# ([original post]({message.jump_url}))")
 
         # Join all quote lines
         quoted_content = '\n'.join(quote_lines)
