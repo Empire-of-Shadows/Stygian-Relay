@@ -242,6 +242,18 @@ class GuildManager:
         """Soft deletes a rule by setting its `is_active` flag to False."""
         return await self.update_rule(rule_id, {"is_active": False})
 
+    async def permanently_delete_rule(self, guild_id: str, rule_id: str) -> bool:
+        """Permanently deletes a rule by removing it from the database."""
+        try:
+            result = await self.collection.update_one(
+                {"guild_id": guild_id},
+                {"$pull": {"rules": {"rule_id": rule_id}}}
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error permanently deleting rule {rule_id} from guild {guild_id}: {e}", exc_info=True)
+            return False
+
     async def log_forwarded_message(self, log_data: Dict[str, Any]):
         """Log a forwarded message for tracking and rate-limiting."""
         collection = self.db.get_collection("discord_forwarding_bot", "message_logs")

@@ -127,7 +127,7 @@ class RuleDeleteView(discord.ui.View):
 
 class RuleDeleteConfirmView(discord.ui.View):
     """
-    Confirmation view for rule deletion with Yes/No buttons.
+    Confirmation view for rule deletion with Deactivate/Delete options.
     """
 
     def __init__(self, rule: dict, cog: 'ForwardCog'):
@@ -135,82 +135,97 @@ class RuleDeleteConfirmView(discord.ui.View):
         self.rule = rule
         self.cog = cog
 
-        # Confirm delete button
-        confirm_button = discord.ui.Button(
-            label="Yes, Delete Rule",
+        # Deactivate button (soft delete)
+        deactivate_button = discord.ui.Button(
+            label="Deactivate Rule",
+            style=discord.ButtonStyle.secondary,
+            emoji="🔴"
+        )
+        deactivate_button.callback = self.deactivate_callback
+        self.add_item(deactivate_button)
+
+        # Permanently delete button
+        delete_button = discord.ui.Button(
+            label="Permanently Delete",
             style=discord.ButtonStyle.danger,
             emoji="🗑️"
         )
-        confirm_button.callback = self.confirm_callback
-        self.add_item(confirm_button)
+        delete_button.callback = self.delete_callback
+        self.add_item(delete_button)
 
         # Cancel button
         cancel_button = discord.ui.Button(
             label="Cancel",
-            style=discord.ButtonStyle.secondary,
+            style=discord.ButtonStyle.primary,
             emoji="❌"
         )
         cancel_button.callback = self.cancel_callback
         self.add_item(cancel_button)
 
-    async def confirm_callback(self, interaction: discord.Interaction):
-        """Actually delete the rule after confirmation"""
+    async def deactivate_callback(self, interaction: discord.Interaction):
+        """Deactivate (soft delete) the rule"""
         await interaction.response.defer(ephemeral=True)
 
         try:
             rule_id = self.rule.get('rule_id')
-            success = await guild_manager.delete_rule(rule_id)
+            success = await guild_manager.delete_rule(rule_id)  # This does soft delete
 
             if success:
-                # Get channel names for the confirmation message
-                source_channel = self.cog.bot.get_channel(int(self.rule.get("source_channel_id", 0)))
-                destination_channel = self.cog.bot.get_channel(int(self.rule.get("destination_channel_id", 0)))
-
-                source_name = source_channel.mention if source_channel else f"<#{self.rule.get('source_channel_id')}>"
-                destination_name = destination_channel.mention if destination_channel else f"<#{self.rule.get('destination_channel_id')}>"
-
                 rule_name = self.rule.get('rule_name', 'Unnamed Rule')
-
                 embed = discord.Embed(
-                    title="✅ Rule Deleted Successfully",
-                    description="The forwarding rule has been permanently deleted.",
+                    title="✅ Rule Deactivated",
+                    description=f"The forwarding rule **{rule_name}** has been deactivated and will no longer forward messages.\n\n*You can reactivate it later using the edit command.*",
+                    color=discord.Color.orange()
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
+                logger.info(f"Rule {rule_id} deactivated in guild {interaction.guild.id}")
+            else:
+                await self._show_error(interaction, "Failed to deactivate the rule.")
+        except Exception as e:
+            logger.error(f"Error deactivating rule: {e}", exc_info=True)
+            await self._show_error(interaction, "An error occurred while deactivating the rule.")
+
+    async def delete_callback(self, interaction: discord.Interaction):
+        """Permanently delete the rule"""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            rule_id = self.rule.get('rule_id')
+            guild_id = str(interaction.guild.id)
+            success = await guild_manager.permanently_delete_rule(guild_id, rule_id)
+
+            if success:
+                rule_name = self.rule.get('rule_name', 'Unnamed Rule')
+                embed = discord.Embed(
+                    title="✅ Rule Permanently Deleted",
+                    description=f"The forwarding rule **{rule_name}** has been permanently deleted from the database.\n\n*This action cannot be undone.*",
                     color=discord.Color.green()
                 )
-
-                embed.add_field(name="Deleted Rule", value=rule_name, inline=False)
-                embed.add_field(name="Source", value=source_name, inline=True)
-                embed.add_field(name="Destination", value=destination_name, inline=True)
-
                 await interaction.edit_original_response(embed=embed, view=None)
-
-                logger.info(
-                    f"Forwarding rule {rule_id} deleted in guild {interaction.guild.id} by {interaction.user.id}")
+                logger.info(f"Rule {rule_id} permanently deleted from guild {guild_id}")
             else:
-                embed = discord.Embed(
-                    title="❌ Deletion Failed",
-                    description="Failed to delete the forwarding rule. Please try again later.",
-                    color=discord.Color.red()
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
-
+                await self._show_error(interaction, "Failed to permanently delete the rule.")
         except Exception as e:
-            logger.error(f"Error deleting forwarding rule {rule_id} in guild {interaction.guild.id}: {e}",
-                         exc_info=True)
-            embed = discord.Embed(
-                title="❌ Error",
-                description="An error occurred while deleting the forwarding rule. Please try again later.",
-                color=discord.Color.red()
-            )
-            await interaction.edit_original_response(embed=embed, view=None)
+            logger.error(f"Error permanently deleting rule: {e}", exc_info=True)
+            await self._show_error(interaction, "An error occurred while deleting the rule.")
 
     async def cancel_callback(self, interaction: discord.Interaction):
         """Cancel the deletion"""
         embed = discord.Embed(
-            title="❌ Deletion Cancelled",
-            description="The rule was not deleted.",
+            title="❌ Action Cancelled",
+            description="No changes were made to the rule.",
             color=discord.Color.red()
         )
         await interaction.response.edit_message(embed=embed, view=None)
+
+    async def _show_error(self, interaction: discord.Interaction, message: str):
+        """Helper method to show error messages"""
+        embed = discord.Embed(
+            title="❌ Error",
+            description=message,
+            color=discord.Color.red()
+        )
+        await interaction.edit_original_response(embed=embed, view=None)
 
 class LearnMoreView(discord.ui.View):
     """View for the Learn More section with proper button callbacks"""
@@ -1611,8 +1626,9 @@ class ForwardCog(commands.Cog):
         if interaction.type == discord.InteractionType.component:
             custom_id = interaction.data.get('custom_id', '')
 
-            # Skip components that have direct callbacks
-            if custom_id in ["log_channel_continue", "channel_cancel", "log_channel_select", "rule_edit_select"]:
+            # Skip components that have direct callbacks - add rule_delete_select to the list
+            if custom_id in ["log_channel_continue", "channel_cancel", "log_channel_select", "rule_edit_select",
+                             "rule_delete_select"]:
                 self.logger.debug(f"Skipping {custom_id} as it has direct callback")
                 return
 
