@@ -245,8 +245,9 @@ class GuildManager:
     async def permanently_delete_rule(self, guild_id: str, rule_id: str) -> bool:
         """Permanently deletes a rule by removing it from the database."""
         try:
-            result = await self.collection.update_one(
-                {"guild_id": guild_id},
+            collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+            result = await collection.update_one(
+                {"_id": guild_id},
                 {"$pull": {"rules": {"rule_id": rule_id}}}
             )
             return result.modified_count > 0
