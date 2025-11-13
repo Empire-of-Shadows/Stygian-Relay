@@ -20,6 +20,198 @@ from database import guild_manager
 
 logger = get_logger("setup")
 
+
+class RuleDeleteView(discord.ui.View):
+    """
+    A view that displays a dropdown menu for selecting a rule to delete.
+    This view is used by the `/forward delete_rule` command.
+    """
+
+    def __init__(self, rules: list, cog: 'ForwardCog'):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.rules = {str(rule['rule_id']): rule for rule in rules}
+
+        # Create select options for each rule
+        options = []
+        for rule in rules[:25]:  # Discord limit of 25 options
+            rule_name = rule.get('rule_name', f"Rule {rule['rule_id'][:8]}...")
+
+            # Get channel names for description
+            source_channel = cog.bot.get_channel(int(rule.get("source_channel_id", 0)))
+            destination_channel = cog.bot.get_channel(int(rule.get("destination_channel_id", 0)))
+
+            source_name = f"#{source_channel.name}" if source_channel else "Unknown Channel"
+            dest_name = f"#{destination_channel.name}" if destination_channel else "Unknown Channel"
+
+            status = "🟢" if rule.get("is_active", False) else "🔴"
+
+            options.append(
+                discord.SelectOption(
+                    label=f"{status} {rule_name}"[:100],
+                    value=str(rule['rule_id']),
+                    description=f"From {source_name} → {dest_name}"[:100]
+                )
+            )
+
+        if not options:
+            # Add a disabled option if no rules
+            self.add_item(discord.ui.Button(label="No rules found to delete", disabled=True))
+            return
+
+        rule_select = discord.ui.Select(
+            placeholder="Choose a rule to delete...",
+            options=options,
+            custom_id="rule_delete_select"
+        )
+        rule_select.callback = self.select_callback
+        self.add_item(rule_select)
+
+        # Add cancel button
+        cancel_button = discord.ui.Button(
+            label="Cancel",
+            style=discord.ButtonStyle.secondary,
+            emoji="❌"
+        )
+        cancel_button.callback = self.cancel_callback
+        self.add_item(cancel_button)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        """
+        Callback for when a rule is selected for deletion.
+        Shows a confirmation dialog before deleting.
+        """
+        rule_id = interaction.data['values'][0]
+        selected_rule = self.rules.get(rule_id)
+
+        if not selected_rule:
+            await interaction.response.send_message("❌ Could not find the selected rule.", ephemeral=True)
+            return
+
+        # Create confirmation view
+        confirm_view = RuleDeleteConfirmView(selected_rule, self.cog)
+
+        # Get channel info for display
+        source_channel = self.cog.bot.get_channel(int(selected_rule.get("source_channel_id", 0)))
+        destination_channel = self.cog.bot.get_channel(int(selected_rule.get("destination_channel_id", 0)))
+
+        source_name = source_channel.mention if source_channel else f"<#{selected_rule.get('source_channel_id')}>"
+        dest_name = destination_channel.mention if destination_channel else f"<#{selected_rule.get('destination_channel_id')}>"
+
+        rule_name = selected_rule.get('rule_name', 'Unnamed Rule')
+        status = "🟢 Active" if selected_rule.get("is_active", False) else "🔴 Inactive"
+
+        embed = discord.Embed(
+            title="⚠️ Confirm Rule Deletion",
+            description="Are you sure you want to delete this forwarding rule? This action cannot be undone.",
+            color=discord.Color.orange()
+        )
+
+        embed.add_field(name="Rule Name", value=rule_name, inline=False)
+        embed.add_field(name="Status", value=status, inline=True)
+        embed.add_field(name="Rule ID", value=f"`{rule_id}`", inline=True)
+        embed.add_field(name="Source Channel", value=source_name, inline=False)
+        embed.add_field(name="Destination Channel", value=dest_name, inline=False)
+
+        await interaction.response.edit_message(embed=embed, view=confirm_view)
+
+    async def cancel_callback(self, interaction: discord.Interaction):
+        """Cancel the deletion process"""
+        embed = discord.Embed(
+            title="❌ Deletion Cancelled",
+            description="No rules were deleted.",
+            color=discord.Color.red()
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+class RuleDeleteConfirmView(discord.ui.View):
+    """
+    Confirmation view for rule deletion with Yes/No buttons.
+    """
+
+    def __init__(self, rule: dict, cog: 'ForwardCog'):
+        super().__init__(timeout=60)
+        self.rule = rule
+        self.cog = cog
+
+        # Confirm delete button
+        confirm_button = discord.ui.Button(
+            label="Yes, Delete Rule",
+            style=discord.ButtonStyle.danger,
+            emoji="🗑️"
+        )
+        confirm_button.callback = self.confirm_callback
+        self.add_item(confirm_button)
+
+        # Cancel button
+        cancel_button = discord.ui.Button(
+            label="Cancel",
+            style=discord.ButtonStyle.secondary,
+            emoji="❌"
+        )
+        cancel_button.callback = self.cancel_callback
+        self.add_item(cancel_button)
+
+    async def confirm_callback(self, interaction: discord.Interaction):
+        """Actually delete the rule after confirmation"""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            rule_id = self.rule.get('rule_id')
+            success = await guild_manager.delete_rule(rule_id)
+
+            if success:
+                # Get channel names for the confirmation message
+                source_channel = self.cog.bot.get_channel(int(self.rule.get("source_channel_id", 0)))
+                destination_channel = self.cog.bot.get_channel(int(self.rule.get("destination_channel_id", 0)))
+
+                source_name = source_channel.mention if source_channel else f"<#{self.rule.get('source_channel_id')}>"
+                destination_name = destination_channel.mention if destination_channel else f"<#{self.rule.get('destination_channel_id')}>"
+
+                rule_name = self.rule.get('rule_name', 'Unnamed Rule')
+
+                embed = discord.Embed(
+                    title="✅ Rule Deleted Successfully",
+                    description="The forwarding rule has been permanently deleted.",
+                    color=discord.Color.green()
+                )
+
+                embed.add_field(name="Deleted Rule", value=rule_name, inline=False)
+                embed.add_field(name="Source", value=source_name, inline=True)
+                embed.add_field(name="Destination", value=destination_name, inline=True)
+
+                await interaction.edit_original_response(embed=embed, view=None)
+
+                logger.info(
+                    f"Forwarding rule {rule_id} deleted in guild {interaction.guild.id} by {interaction.user.id}")
+            else:
+                embed = discord.Embed(
+                    title="❌ Deletion Failed",
+                    description="Failed to delete the forwarding rule. Please try again later.",
+                    color=discord.Color.red()
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
+
+        except Exception as e:
+            logger.error(f"Error deleting forwarding rule {rule_id} in guild {interaction.guild.id}: {e}",
+                         exc_info=True)
+            embed = discord.Embed(
+                title="❌ Error",
+                description="An error occurred while deleting the forwarding rule. Please try again later.",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed, view=None)
+
+    async def cancel_callback(self, interaction: discord.Interaction):
+        """Cancel the deletion"""
+        embed = discord.Embed(
+            title="❌ Deletion Cancelled",
+            description="The rule was not deleted.",
+            color=discord.Color.red()
+        )
+        await interaction.response.edit_message(embed=embed, view=None)
+
 class LearnMoreView(discord.ui.View):
     """View for the Learn More section with proper button callbacks"""
 
@@ -439,10 +631,9 @@ class ForwardCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @forward.command(name="delete_rule", description="Delete a forwarding rule")
-    @app_commands.describe(rule_id="The ID of the rule to delete")
-    async def delete_forwarding_rule(self, interaction: discord.Interaction, rule_id: str):
+    async def delete_forwarding_rule(self, interaction: discord.Interaction):
         """
-        Slash command to delete a forwarding rule by its ID.
+        Slash command to delete a forwarding rule using a select menu.
         Only users with manage_guild permission can use this command.
         """
         # Check if user has permission to manage the server
@@ -456,56 +647,36 @@ class ForwardCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Get current guild settings to verify the rule exists
+            # Get all rules for this guild
             guild_settings = await guild_manager.get_guild_settings(str(interaction.guild.id))
             rules = guild_settings.get("rules", [])
 
-            # Find the rule to delete
-            rule_to_delete = None
-            for rule in rules:
-                if rule.get("rule_id") == rule_id:
-                    rule_to_delete = rule
-                    break
-
-            if not rule_to_delete:
+            if not rules:
                 await interaction.followup.send(
-                    f"❌ No forwarding rule found with ID: `{rule_id}`",
+                    "📋 **No forwarding rules found for this server.**\n"
+                    "Create your first rule using `/forward setup`!",
                     ephemeral=True
                 )
                 return
 
-            # Delete the rule from the database
-            success = await guild_manager.delete_rule(str(interaction.guild.id), rule_id)
+            # Create the selection view
+            view = RuleDeleteView(rules, self)
 
-            if success:
-                # Get channel names for the confirmation message
-                source_channel = self.bot.get_channel(int(rule_to_delete.get("source_channel_id")))
-                destination_channel = self.bot.get_channel(int(rule_to_delete.get("destination_channel_id")))
+            embed = discord.Embed(
+                title="🗑️ Delete Forwarding Rule",
+                description=f"Select a rule to delete from the dropdown below.\n\n"
+                            f"**Found {len(rules)} rule(s) in this server.**",
+                color=discord.Color.orange()
+            )
 
-                source_name = source_channel.mention if source_channel else f"<#{rule_to_delete.get('source_channel_id')}>"
-                destination_name = destination_channel.mention if destination_channel else f"<#{rule_to_delete.get('destination_channel_id')}>"
+            embed.set_footer(text="⚠️ Deletion is permanent and cannot be undone!")
 
-                await interaction.followup.send(
-                    f"✅ **Forwarding rule deleted successfully!**\n"
-                    f"**Rule ID:** `{rule_id}`\n"
-                    f"**Source:** {source_name}\n"
-                    f"**Destination:** {destination_name}",
-                    ephemeral=True
-                )
-
-                logger.info(
-                    f"Forwarding rule {rule_id} deleted in guild {interaction.guild.id} by {interaction.user.id}")
-            else:
-                await interaction.followup.send(
-                    f"❌ Failed to delete forwarding rule `{rule_id}`. Please try again later.",
-                    ephemeral=True
-                )
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
         except Exception as e:
-            logger.error(f"Error deleting forwarding rule {rule_id} in guild {interaction.guild.id}: {e}",
-                         exc_info=True)
+            logger.error(f"Error showing delete rule menu in guild {interaction.guild.id}: {e}", exc_info=True)
             await interaction.followup.send(
-                "❌ An error occurred while deleting the forwarding rule. Please try again later.",
+                "❌ An error occurred while retrieving forwarding rules. Please try again later.",
                 ephemeral=True
             )
 
