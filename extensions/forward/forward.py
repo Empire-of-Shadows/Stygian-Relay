@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord.ext import commands
 from discord import app_commands, ui
@@ -24,11 +25,14 @@ class ForwardOptionsView(ui.View):
         style_select = ui.Select(
             placeholder="Choose a forwarding style...",
             options=[
-                discord.SelectOption(label="Component v2 (Default)", value="c_v2", description="A modern, structured layout."),
+                discord.SelectOption(label="Native Style", value="native",
+                                     description="Closest to Discord's forward feature."),
+                discord.SelectOption(label="Component v2", value="c_v2", description="A modern, structured layout."),
                 discord.SelectOption(label="Embed", value="embed", description="A standard Discord embed."),
                 discord.SelectOption(label="Plain Text", value="text", description="A simple text-based message."),
             ]
         )
+
         style_select.callback = self.style_select_callback
         self.add_item(style_select)
 
@@ -139,6 +143,18 @@ class Forwarding(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        # Enhanced URL embed detection and waiting
+        if self._contains_embeddable_url(message.content) and not message.embeds:
+            # Wait longer for embeds to load, with multiple checks
+            for attempt in range(3):
+                await asyncio.sleep(2 + attempt)  # 2s, 3s, 4s
+                try:
+                    message = await message.channel.fetch_message(message.id)
+                    if message.embeds:
+                        break
+                except (discord.NotFound, discord.Forbidden):
+                    return
+
         try:
             # Retrieve guild-specific settings from the database.
             guild_settings = await guild_manager.get_guild_settings(str(message.guild.id))
@@ -180,6 +196,32 @@ class Forwarding(commands.Cog):
         except Exception as e:
             logger.error(f"Error in on_message for guild {message.guild.id}: {e}", exc_info=True)
 
+    def _contains_embeddable_url(self, content: str) -> bool:
+        """
+        Check if content contains URLs that typically generate embeds.
+        """
+        import re
+
+        # Common platforms that generate embeds
+        embeddable_patterns = [
+            r'https?://(?:www\.)?twitter\.com/\S+',
+            r'https?://(?:www\.)?x\.com/\S+',
+            r'https?://(?:www\.)?youtube\.com/watch\?\S+',
+            r'https?://youtu\.be/\S+',
+            r'https?://(?:www\.)?instagram\.com/\S+',
+            r'https?://(?:www\.)?tiktok\.com/\S+',
+            r'https?://(?:www\.)?reddit\.com/\S+',
+            r'https?://(?:www\.)?github\.com/\S+',
+            r'https?://(?:www\.)?twitch\.tv/\S+',
+            r'https?://(?:www\.)?spotify\.com/\S+',
+            r'https?://\S+\.(jpg|jpeg|png|gif|webp|mp4|webm|mov)\b'
+        ]
+
+        for pattern in embeddable_patterns:
+            if re.search(pattern, content, re.IGNORECASE):
+                return True
+        return False
+
     async def process_rule(self, rule: dict, message: discord.Message, guild_settings: dict) -> bool:
         """
         Process a single rule against a message.
@@ -210,21 +252,36 @@ class Forwarding(commands.Cog):
         This method checks the message content, attachments, embeds, and stickers
         to determine if the message should be forwarded.
         """
+        # Handle text content
         if message.content and message_types.get("text", False):
             return True
-        if message.attachments and message_types.get("media", False): # Simplified: media covers general attachments
-            return True
-        if message.attachments and message_types.get("files", False):
-            return True
-        if message.embeds and message_types.get("embeds", False):
-            return True
+
+        # Handle attachments (images, videos, files)
+        if message.attachments:
+            if message_types.get("media", False):
+                return True
+            if message_types.get("files", False):
+                return True
+
+        # Handle embeds (including URL previews, videos, etc.)
+        if message.embeds:
+            if message_types.get("embeds", False):
+                return True
+            # Also check if embeds contain media content
+            if message_types.get("media", False):
+                for embed in message.embeds:
+                    if embed.image or embed.video or embed.thumbnail:
+                        return True
+
+        # Handle stickers
         if message.stickers and message_types.get("stickers", False):
             return True
-        if "http" in message.content and message_types.get("links", False): # A basic check for links
+
+        # Handle links in content
+        if message.content and "http" in message.content and message_types.get("links", False):
             return True
-        # If a message has no text (e.g., just an attachment), it should still be forwarded
-        # if the corresponding type (e.g., 'media') is enabled. This prevents blocking
-        # attachment-only messages when 'text' is disabled.
+
+        # Allow messages without text content if they have other allowed content types
         if not message.content:
             return True
 
@@ -269,19 +326,67 @@ class Forwarding(commands.Cog):
 
         return True
 
+    async def forward_as_native_style(self, formatting: dict, message: discord.Message,
+                                      destination: discord.TextChannel):
+        """
+        Replicates Discord's true native forward behavior with quoted message format.
+        Discord's native forward quotes the original content and lets Discord regenerate
+        fresh embeds from URLs, keeping video functionality intact.
+        """
+        # Build the quoted message content
+        quote_lines = []
+
+        # Add author line in the quote
+        if formatting.get("include_author", True):
+            quote_lines.append(f"> **{message.author.display_name}**")
+
+        # Add the message text content with quote formatting
+        if message.content:
+            # Split content into lines and add quote prefix to each
+            content_lines = message.content.split('\n')
+            for line in content_lines:
+                quote_lines.append(f"> {line}")
+
+        # Add any attachments/media indicators
+        has_attachments = bool(message.attachments)
+        has_embeds = bool(message.embeds)
+
+        if has_attachments and not message.content:
+            quote_lines.append("> 📎 Attachment")
+        elif has_embeds and not message.content and not message.attachments:
+            quote_lines.append("> 🔗 Embedded content")
+
+        # Add the original message link within the quote
+        quote_lines.append(f"> [View Original]({message.jump_url})")
+
+        # Join all quote lines
+        quoted_content = '\n'.join(quote_lines)
+
+        # The key insight: Send ONLY the quoted content as text
+        # Discord will automatically detect URLs in the quoted content and generate fresh embeds
+        # This preserves video functionality while maintaining the quoted appearance
+        await self._send_with_enhanced_handling(
+            destination=destination,
+            message=message,
+            content=quoted_content,
+            formatting=formatting
+        )
+
     async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
         """
         Dispatches to the correct forwarding method based on style.
         This method is the entry point for all message forwarding.
         """
-        forward_style = formatting.get("forward_style", "c_v2")  # Default to component v2
+        forward_style = formatting.get("forward_style", "native")  # Default to native style
 
         if forward_style == "text":
             await self.forward_as_text(formatting, message, destination)
         elif forward_style == "embed":
             await self.forward_as_embed(formatting, message, destination)
-        else:  # "c_v2" or default
+        elif forward_style == "c_v2":
             await self.forward_as_component_v2(formatting, message, destination)
+        else:  # "native" or default
+            await self.forward_as_native_style(formatting, message, destination)
 
     async def forward_as_text(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
         """
@@ -344,22 +449,22 @@ class Forwarding(commands.Cog):
             for attachment in message.attachments:
                 try:
                     if attachment.size > max_size:
-                        failed_attachments.append(f"{attachment.filename} (too large: {attachment.size // 1024}KB)")
+                        failed_attachments.append(f"File too large ({attachment.size // 1024}KB)")
                         continue
 
                     if allowed_types and not any(attachment.filename.lower().endswith(ext) for ext in allowed_types):
-                        failed_attachments.append(f"{attachment.filename} (type not allowed)")
+                        failed_attachments.append("File type not allowed")
                         continue
 
                     f = await attachment.to_file()
                     files_to_send.append(f)
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
-                    failed_attachments.append(attachment.filename)
+                    failed_attachments.append("Failed to process file")
 
+        # Only show failure count, not specific filenames
         if failed_attachments:
-            failed_text = "\n".join([f"⚠️ {fail}" for fail in failed_attachments])
-            final_content += f"\n\n**Failed to forward:**\n{failed_text}"
+            final_content += f"\n\n⚠️ **{len(failed_attachments)} file(s) could not be forwarded**"
 
         await self._send_with_enhanced_handling(
             destination=destination,
@@ -421,55 +526,52 @@ class Forwarding(commands.Cog):
         if footer_parts:
             embed.set_footer(text=" • ".join(filter(None, footer_parts)))
 
+        embeds_to_send = [embed]
         files_to_send = []
         if formatting.get("forward_attachments", True) and message.attachments:
-            images = []
-            other_attachments = []
-
+            # Prepare all attachments to be sent as files first.
             for attachment in message.attachments:
                 try:
                     f = await attachment.to_file()
                     files_to_send.append(f)
-
-                    if attachment.content_type and attachment.content_type.startswith('image/'):
-                        images.append(attachment)
-                    else:
-                        other_attachments.append(attachment)
                 except discord.HTTPException as e:
-                    logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
+                    logger.warning(f"Failed to prepare attachment {attachment.filename}: {e}")
                     embed.add_field(
                         name="⚠️ Attachment Failed",
                         value=f"`{attachment.filename}`",
                         inline=True
                     )
 
-            # Set the first image as the main embed image.
-            if images and not embed.image:
-                main_image = images[0]
+            # Filter for image attachments to embed them visually.
+            image_attachments = [
+                att for att in message.attachments
+                if att.content_type and att.content_type.startswith('image/')
+            ]
+
+            if image_attachments:
+                # The first image goes into the main embed.
+                main_image = image_attachments.pop(0)
                 embed.set_image(url=f"attachment://{main_image.filename}")
 
-            # List all other attachments in a field.
-            if other_attachments or len(images) > 1:
-                attachment_list = []
-                for i, att in enumerate(images[1:], 1):
-                    attachment_list.append(f"🖼️ Image {i}: `{att.filename}`")
-                for att in other_attachments:
-                    attachment_list.append(f"📎 `{att.filename}`")
-
-                if attachment_list:
-                    embed.add_field(
-                        name=f"Attachments ({len(attachment_list)})",
-                        value="\n".join(attachment_list),
-                        inline=False
-                    )
+                # Create additional embeds for other images, up to the Discord limit.
+                for image in image_attachments:
+                    if len(embeds_to_send) < 10:
+                        img_embed = discord.Embed(
+                            url=message.jump_url,  # Link back to the original message
+                            color=embed_color
+                        )
+                        img_embed.set_image(url=f"attachment://{image.filename}")
+                        embeds_to_send.append(img_embed)
 
         # Stack original embeds from the source message below the main one.
-        embeds_to_send = [embed]
         if formatting.get("forward_embeds", True) and message.embeds:
             max_embeds = formatting.get("max_embeds", 10)
-            for original_embed in message.embeds[:max_embeds - 1]:
-                safe_embed = self._sanitize_embed(original_embed)
-                embeds_to_send.append(safe_embed)
+            # Account for embeds we've already created for images.
+            remaining_embed_slots = max_embeds - len(embeds_to_send)
+            if remaining_embed_slots > 0:
+                for original_embed in message.embeds[:remaining_embed_slots]:
+                    safe_embed = self._sanitize_embed(original_embed)
+                    embeds_to_send.append(safe_embed)
 
         await self._send_with_enhanced_handling(
             destination=destination,
@@ -577,6 +679,16 @@ class Forwarding(commands.Cog):
                     layout.add_item(media_gallery)
 
             # Handle other file types in a simple list.
+            if other_attachments:
+                for attachment in other_attachments:
+                    try:
+                        f = await attachment.to_file()
+                        files_to_send.append(f)
+                    except discord.HTTPException as e:
+                        logger.warning(f"Failed to forward file {attachment.filename}: {e}")
+                        failed_attachments.append(
+                            attachment.filename)
+
             if other_attachments:
                 layout.add_item(ui.Separator())
                 file_container = ui.Container()
@@ -709,9 +821,6 @@ class Forwarding(commands.Cog):
                 return True
 
             if rule == "discord" and embed.author and "discord" in embed.author.name.lower():
-                return True
-
-            if rule == "video" and embed.video:
                 return True
 
             if rule == "ad" and any(keyword in (embed.title or "").lower()

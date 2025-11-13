@@ -121,9 +121,10 @@ class FormattingSettingsView(discord.ui.View):
         style_select = discord.ui.Select(
             placeholder="Choose a forwarding style...",
             options=[
+                discord.SelectOption(label="Native Style", value="native", description="Closest to Discord's forward feature.", default=current_style == "native"),
                 discord.SelectOption(label="Component v2", value="c_v2", default=current_style == "c_v2"),
-                discord.SelectOption(label="Embed", value="embed", default=current_style == "embed"),
-                discord.SelectOption(label="Plain Text", value="text", default=current_style == "text"),
+                discord.SelectOption(label="Embed", value="embed", description="A standard Discord embed.", default=current_style == "embed"),
+                discord.SelectOption(label="Plain Text", value="text", description="A simple text-based message.", default=current_style == "text"),
             ],
             row=0
         )
