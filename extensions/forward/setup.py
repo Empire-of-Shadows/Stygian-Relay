@@ -380,6 +380,99 @@ class FormattingSettingsView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
 
 
+class EditChannelsView(discord.ui.View):
+    """A view for editing the source and destination channels of a rule."""
+    def __init__(self, session: SetupState, cog: 'ForwardCog'):
+        super().__init__(timeout=300)
+        self.session = session
+        self.cog = cog
+
+        # Source Channel Select
+        source_select = discord.ui.ChannelSelect(
+            placeholder="Select new source channel...",
+            channel_types=[discord.ChannelType.text],
+            custom_id="edit_source_channel_select"
+        )
+        source_select.callback = self.source_select_callback
+        self.add_item(source_select)
+
+        # Destination Channel Select
+        dest_select = discord.ui.ChannelSelect(
+            placeholder="Select new destination channel...",
+            channel_types=[discord.ChannelType.text],
+            custom_id="edit_dest_channel_select"
+        )
+        dest_select.callback = self.dest_select_callback
+        self.add_item(dest_select)
+
+        # Back button
+        back_button = discord.ui.Button(label="Back to Main Settings", style=discord.ButtonStyle.primary, row=4)
+        back_button.callback = self.back_to_main_settings_callback
+        self.add_item(back_button)
+
+    def create_embed(self, guild: discord.Guild) -> discord.Embed:
+        """Creates the embed for the channel editing view."""
+        embed = discord.Embed(title="🔄 Edit Channels", description="Select new source and destination channels for this rule.")
+        
+        source_id = self.session.current_rule.get("source_channel_id")
+        if isinstance(source_id, dict) and "$numberLong" in source_id:
+            source_id = int(source_id["$numberLong"])
+        source_ch = guild.get_channel(int(source_id)) if source_id else None
+        embed.add_field(name="Current Source", value=source_ch.mention if source_ch else "Not Set", inline=True)
+
+        dest_id = self.session.current_rule.get("destination_channel_id")
+        if isinstance(dest_id, dict) and "$numberLong" in dest_id:
+            dest_id = int(dest_id["$numberLong"])
+        dest_ch = guild.get_channel(int(dest_id)) if dest_id else None
+        embed.add_field(name="Current Destination", value=dest_ch.mention if dest_ch else "Not Set", inline=True)
+        
+        return embed
+
+    async def source_select_callback(self, interaction: discord.Interaction):
+        """Callback for source channel selection."""
+        channel_id = int(interaction.data['values'][0])
+        
+        dest_id = self.session.current_rule.get("destination_channel_id")
+        if isinstance(dest_id, dict) and "$numberLong" in dest_id:
+            dest_id = int(dest_id["$numberLong"])
+
+        if channel_id == dest_id:
+            await interaction.response.send_message("Source and destination channels cannot be the same.", ephemeral=True)
+            return
+
+        self.session.current_rule["source_channel_id"] = channel_id
+        await state_manager.update_session(str(interaction.guild_id), {"current_rule": self.session.current_rule})
+        
+        view = EditChannelsView(self.session, self.cog)
+        embed = view.create_embed(interaction.guild)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def dest_select_callback(self, interaction: discord.Interaction):
+        """Callback for destination channel selection."""
+        channel_id = int(interaction.data['values'][0])
+
+        source_id = self.session.current_rule.get("source_channel_id")
+        if isinstance(source_id, dict) and "$numberLong" in source_id:
+            source_id = int(source_id["$numberLong"])
+
+        if channel_id == source_id:
+            await interaction.response.send_message("Source and destination channels cannot be the same.", ephemeral=True)
+            return
+
+        self.session.current_rule["destination_channel_id"] = channel_id
+        await state_manager.update_session(str(interaction.guild_id), {"current_rule": self.session.current_rule})
+
+        view = EditChannelsView(self.session, self.cog)
+        embed = view.create_embed(interaction.guild)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    async def back_to_main_settings_callback(self, interaction: discord.Interaction):
+        """Returns to the main rule settings view."""
+        view = RuleSettingsView(self.session, self.cog)
+        embed = await view.create_settings_embed(interaction.guild)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 class RuleSettingsView(discord.ui.View):
     """
     A hub view for editing all settings of a rule, acting as a control panel.
@@ -473,10 +566,11 @@ class RuleSettingsView(discord.ui.View):
 
     async def edit_channels_callback(self, interaction: discord.Interaction):
         """
-        Callback for the edit channels button. This feature is not yet
-        implemented.
+        Callback for the edit channels button. Displays the EditChannelsView.
         """
-        await interaction.response.send_message("Editing channels is not implemented yet. This will be added in a future update.", ephemeral=True) # Type: Ignore
+        view = EditChannelsView(self.session, self.cog)
+        embed = view.create_embed(interaction.guild)
+        await interaction.response.edit_message(embed=embed, view=view)
 
     async def toggle_active_callback(self, interaction: discord.Interaction):
         """
@@ -1705,7 +1799,7 @@ class ForwardCog(commands.Cog):
 
             # Skip components that have direct callbacks - add rule_delete_select to the list
             if custom_id in ["log_channel_continue", "channel_cancel", "log_channel_select", "rule_edit_select",
-                             "rule_delete_select"]:
+                             "rule_delete_select", "edit_source_channel_select", "edit_dest_channel_select"]:
                 self.logger.debug(f"Skipping {custom_id} as it has direct callback")
                 return
 
