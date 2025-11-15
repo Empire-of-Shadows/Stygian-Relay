@@ -325,13 +325,13 @@ class FormattingSettingsView(discord.ui.View):
 
         settings = self.session.current_rule.setdefault("settings", {})
         formatting_settings = settings.setdefault("formatting", {})
-        current_style = formatting_settings.get("forward_style", "c_v2")
+        current_style = formatting_settings.get("forward_style", "native")
         
         style_select = discord.ui.Select(
             placeholder="Choose a forwarding style...",
             options=[
                 discord.SelectOption(label="Native Style", value="native", description="Closest to Discord's forward feature.", default=current_style == "native"),
-                discord.SelectOption(label="Component v2", value="c_v2", default=current_style == "c_v2"),
+                discord.SelectOption(label="Component v2", value="c_v2", description="A modern, structured layout.", default=current_style == "c_v2"),
                 discord.SelectOption(label="Embed", value="embed", description="A standard Discord embed.", default=current_style == "embed"),
                 discord.SelectOption(label="Plain Text", value="text", description="A simple text-based message.", default=current_style == "text"),
             ],
@@ -347,7 +347,7 @@ class FormattingSettingsView(discord.ui.View):
     def create_embed(self) -> discord.Embed:
         """Creates the embed for the formatting settings view."""
         embed = discord.Embed(title="🎨 Edit Formatting", description="Adjust how forwarded messages appear.")
-        style = self.session.current_rule.get("settings", {}).get("formatting", {}).get("forward_style", "c_v2")
+        style = self.session.current_rule.get("settings", {}).get("formatting", {}).get("forward_style", "native")
         embed.add_field(name="Current Style", value=style)
         return embed
 
@@ -606,6 +606,83 @@ class ForwardCog(commands.Cog):
                 "❌ An error occurred starting setup. Please try again.",
                 ephemeral=True
             )
+
+    @forward.command(name="create", description="Create a new forwarding rule directly.")
+    @app_commands.describe(
+        source_channel="The channel to forward messages from.",
+        destination_channel="The channel to forward messages to.",
+        rule_name="An optional name for the rule."
+    )
+    @app_commands.checks.has_permissions(manage_guild=True)
+    async def create(self, interaction: discord.Interaction,
+                     source_channel: discord.TextChannel,
+                     destination_channel: discord.TextChannel,
+                     rule_name: str = None):
+        """Creates a new forwarding rule with a single command."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # 1. Validation
+            if source_channel.id == destination_channel.id:
+                await interaction.followup.send("❌ Source and destination channels cannot be the same.", ephemeral=True)
+                return
+
+            # 2. Check bot permissions
+            source_perms = source_channel.permissions_for(interaction.guild.me)
+            if not source_perms.view_channel or not source_perms.read_message_history:
+                await interaction.followup.send(
+                    f"❌ I need 'View Channel' and 'Read Message History' permissions in {source_channel.mention}.",
+                    ephemeral=True)
+                return
+
+            dest_perms = destination_channel.permissions_for(interaction.guild.me)
+            if not dest_perms.send_messages:
+                await interaction.followup.send(f"❌ I need 'Send Messages' permission in {destination_channel.mention}.",
+                                                ephemeral=True)
+                return
+
+            # 3. Create the rule object
+            final_rule_name = rule_name if rule_name else f"Forward from #{source_channel.name} to #{destination_channel.name}"
+
+            new_rule = await rule_setup_helper.create_initial_rule(
+                source_channel_id=source_channel.id,
+                destination_channel_id=destination_channel.id,
+                rule_name=final_rule_name
+            )
+
+            # 4. Prepare for database
+            rule_data_for_db = {
+                "rule_name": new_rule.get("name"),
+                "source_channel_id": new_rule.get("source_channel_id"),
+                "destination_channel_id": new_rule.get("destination_channel_id"),
+                "enabled": new_rule.get("is_active", True),
+                "settings": {
+                    "message_types": new_rule.get("message_types", {}),
+                    "filters": new_rule.get("filters", {}),
+                    "formatting": new_rule.get("formatting", {}),
+                    "advanced_options": new_rule.get("advanced_options", {})
+                }
+            }
+
+            # 5. Save to database
+            save_result = await guild_manager.add_rule(guild_id=str(interaction.guild.id), **rule_data_for_db)
+
+            # 6. Send confirmation
+            if save_result:
+                embed = discord.Embed(
+                    title="✅ Rule Created Successfully!",
+                    description=f"I will now forward messages from {source_channel.mention} to {destination_channel.mention}.",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="Rule Name", value=final_rule_name, inline=False)
+                embed.set_footer(text="You can edit this rule with /forward edit.")
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Failed to save the rule to the database. Please try again.",
+                                                ephemeral=True)
+        except Exception as e:
+            self.logger.error(f"Error creating rule directly: {e}", exc_info=True)
+            await interaction.followup.send("❌ An unexpected error occurred. Please try again.", ephemeral=True)
 
     @forward.command(name="help", description="Get help and information about the forwarding bot.")
     async def help_command(self, interaction: discord.Interaction):

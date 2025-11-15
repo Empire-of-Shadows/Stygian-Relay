@@ -49,7 +49,7 @@ class RuleSetupHelper:
                 "add_suffix": "",
                 "forward_attachments": True,
                 "forward_embeds": True,
-                "forward_style": "c_v2"
+                "forward_style": "native"
             },
             "advanced_options": {
                 "case_sensitive": False,
@@ -144,8 +144,8 @@ class RuleSetupHelper:
             formatting_info.append(f"• Suffix: {rule['formatting']['add_suffix']}")
 
         # Map the internal style name to a user-friendly display name.
-        style = rule["formatting"].get("forward_style", "c_v2")
-        style_map = {"c_v2": "Component v2", "embed": "Embed", "text": "Plain Text"}
+        style = rule["formatting"].get("forward_style", "native")
+        style_map = {"native": "Native Style", "c_v2": "Component v2", "embed": "Embed", "text": "Plain Text"}
         formatting_info.append(f"• Style: {style_map.get(style, 'Unknown')}")
 
         embed.add_field(

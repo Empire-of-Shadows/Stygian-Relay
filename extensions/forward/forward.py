@@ -19,7 +19,7 @@ class ForwardOptionsView(ui.View):
         super().__init__(timeout=180)
         self.original_message = original_message
         self.cog_instance = cog_instance
-        self.forward_style = "c_v2"
+        self.forward_style = "native"
         self.destination_channel = None
 
         style_select = ui.Select(
@@ -369,7 +369,7 @@ class Forwarding(commands.Cog):
                     if allowed_types and not any(attachment.filename.lower().endswith(ext) for ext in allowed_types):
                         continue
 
-                    f = await attachment.to_file()
+                    f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
@@ -462,14 +462,12 @@ class Forwarding(commands.Cog):
             for attachment in message.attachments:
                 try:
                     if attachment.size > max_size:
-                        failed_attachments.append(f"File too large ({attachment.size // 1024}KB)")
                         continue
 
                     if allowed_types and not any(attachment.filename.lower().endswith(ext) for ext in allowed_types):
-                        failed_attachments.append("File type not allowed")
                         continue
 
-                    f = await attachment.to_file()
+                    f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
@@ -545,7 +543,7 @@ class Forwarding(commands.Cog):
             # Prepare all attachments to be sent as files first.
             for attachment in message.attachments:
                 try:
-                    f = await attachment.to_file()
+                    f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to prepare attachment {attachment.filename}: {e}")
@@ -564,7 +562,7 @@ class Forwarding(commands.Cog):
             if image_attachments:
                 # The first image goes into the main embed.
                 main_image = image_attachments.pop(0)
-                embed.set_image(url=f"attachment://{main_image.filename}")
+                embed.set_image(url=f"attachment://{'SPOILER_' if main_image.is_spoiler() else ''}{main_image.filename}")
 
                 # Create additional embeds for other images, up to the Discord limit.
                 for image in image_attachments:
@@ -573,7 +571,7 @@ class Forwarding(commands.Cog):
                             url=message.jump_url,  # Link back to the original message
                             color=embed_color
                         )
-                        img_embed.set_image(url=f"attachment://{image.filename}")
+                        img_embed.set_image(url=f"attachment://{'SPOILER_' if image.is_spoiler() else ''}{image.filename}")
                         embeds_to_send.append(img_embed)
 
         # Stack original embeds from the source message below the main one.
@@ -682,9 +680,9 @@ class Forwarding(commands.Cog):
                 media_gallery = ui.MediaGallery()
                 for attachment in media_attachments:
                     try:
-                        f = await attachment.to_file()
+                        f = await attachment.to_file(spoiler=attachment.is_spoiler())
                         files_to_send.append(f)
-                        media_gallery.add_item(media=f"attachment://{f.filename}")
+                        media_gallery.add_item(media=f"attachment://{'SPOILER_' if attachment.is_spoiler() else ''}{attachment.filename}")
                     except discord.HTTPException as e:
                         logger.warning(f"Failed to forward media {attachment.filename}: {e}")
                         failed_attachments.append(attachment.filename)
@@ -695,7 +693,7 @@ class Forwarding(commands.Cog):
             if other_attachments:
                 for attachment in other_attachments:
                     try:
-                        f = await attachment.to_file()
+                        f = await attachment.to_file(spoiler=attachment.is_spoiler())
                         files_to_send.append(f)
                     except discord.HTTPException as e:
                         logger.warning(f"Failed to forward file {attachment.filename}: {e}")
@@ -708,7 +706,7 @@ class Forwarding(commands.Cog):
                 file_container.add_item(ui.TextDisplay(f"## Files ({len(other_attachments)})"))
                 for attachment in other_attachments:
                     try:
-                        f = await attachment.to_file()
+                        f = await attachment.to_file(spoiler=attachment.is_spoiler())
                         files_to_send.append(f)
                         file_container.add_item(
                             ui.TextDisplay(f"📎 {attachment.filename} ({attachment.size // 1024}KB)")
