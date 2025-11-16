@@ -349,7 +349,7 @@ class Forwarding(commands.Cog):
 
         # Add author line in the quote
         if formatting.get("include_author", True):
-            quote_lines.append(f"> **{message.author.display_name}**")
+            quote_lines.append(f"> -# **{message.author.display_name}** - ([original post]({message.jump_url}))")
 
         # Add the message text content with quote formatting
         if message.content:
@@ -357,9 +357,6 @@ class Forwarding(commands.Cog):
             content_lines = message.content.split('\n')
             for line in content_lines:
                 quote_lines.append(f"> {line}")
-
-        # Add the original message link within the quote
-        quote_lines.append(f"> -# ([original post]({message.jump_url}))")
 
         # Join all quote lines
         quoted_content = '\n'.join(quote_lines)
