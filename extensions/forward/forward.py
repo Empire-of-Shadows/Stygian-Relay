@@ -141,6 +141,15 @@ class Forwarding(commands.Cog):
         """
         # Ignore messages from bots and DMs.
         if message.author.bot or not message.guild:
+            logger.debug(
+                "Ignoring message %s from %s (id=%s, bot=%s, guild=%s, channel=%s)",
+                message.id,
+                str(message.author),
+                message.author.id,
+                message.author.bot,
+                message.guild.id if message.guild else "DM",
+                message.channel.id if message.channel else "Unknown",
+            )
             return
 
         # Enhanced URL embed detection and waiting
