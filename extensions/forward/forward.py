@@ -363,11 +363,23 @@ class Forwarding(commands.Cog):
 
         # Prepare files to forward if attachment forwarding is enabled
         files_to_send = []
+        omitted_attachments = False
         if formatting.get("forward_attachments", True) and message.attachments:
             max_size = formatting.get("max_attachment_size", 25) * 1024 * 1024  # MB to bytes
+            if destination.guild.premium_tier >= 2:
+                max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
+            else:
+                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+            total_attachment_size = 0
             allowed_types = formatting.get("allowed_attachment_types")
 
             for attachment in message.attachments:
+                if total_attachment_size + attachment.size > max_total_size:
+                    omitted_attachments = True
+                    logger.warning(f"Total attachment size exceeds {max_total_size} bytes. "
+                                   f"Stopping attachment forwarding.")
+                    break  # Stop adding more attachments
+
                 try:
                     if attachment.size > max_size:
                         continue
@@ -377,8 +389,12 @@ class Forwarding(commands.Cog):
 
                     f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
+                    total_attachment_size += attachment.size
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
+
+        if omitted_attachments:
+            quoted_content += "\n\n*(Some attachments were not forwarded due to size limits.)*"
 
         # The key insight: Send the quoted content as text along with the original files
         # Discord will automatically detect URLs in the quoted content and generate fresh embeds
@@ -463,9 +479,20 @@ class Forwarding(commands.Cog):
 
         if formatting.get("forward_attachments", True) and message.attachments:
             max_size = formatting.get("max_attachment_size", 25) * 1024 * 1024  # MB to bytes
+            if destination.guild.premium_tier >= 2:
+                max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
+            else:
+                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+            total_attachment_size = 0
             allowed_types = formatting.get("allowed_attachment_types")
 
             for attachment in message.attachments:
+                if total_attachment_size + attachment.size > max_total_size:
+                    logger.warning(f"Total attachment size exceeds {max_total_size} bytes. "
+                                   f"Stopping attachment forwarding.")
+                    failed_attachments.append("Some files were not forwarded due to size limits.")
+                    break
+
                 try:
                     if attachment.size > max_size:
                         continue
@@ -475,6 +502,7 @@ class Forwarding(commands.Cog):
 
                     f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
+                    total_attachment_size += attachment.size
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
                     failed_attachments.append("Failed to process file")
@@ -545,12 +573,24 @@ class Forwarding(commands.Cog):
 
         embeds_to_send = [embed]
         files_to_send = []
+        omitted_attachments = False
         if formatting.get("forward_attachments", True) and message.attachments:
+            if destination.guild.premium_tier >= 2:
+                max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
+            else:
+                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+            total_attachment_size = 0
             # Prepare all attachments to be sent as files first.
             for attachment in message.attachments:
+                if total_attachment_size + attachment.size > max_total_size:
+                    omitted_attachments = True
+                    logger.warning(f"Total attachment size exceeds {max_total_size} bytes. "
+                                   f"Stopping attachment forwarding.")
+                    break
                 try:
                     f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
+                    total_attachment_size += attachment.size
                 except discord.HTTPException as e:
                     logger.warning(f"Failed to prepare attachment {attachment.filename}: {e}")
                     embed.add_field(
@@ -558,6 +598,12 @@ class Forwarding(commands.Cog):
                         value=f"`{attachment.filename}`",
                         inline=True
                     )
+            if omitted_attachments:
+                embed.add_field(
+                    name="⚠️ Attachments Omitted",
+                    value="Some files were not forwarded due to size limits.",
+                    inline=False
+                )
 
             # Filter for image attachments to embed them visually.
             image_attachments = [
@@ -673,6 +719,13 @@ class Forwarding(commands.Cog):
 
         # Handle media (images, videos) in a separate gallery component.
         if formatting.get("forward_attachments", True) and message.attachments:
+            if destination.guild.premium_tier >= 2:
+                max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
+            else:
+                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+            total_attachment_size = 0
+            omitted_attachments = False
+
             media_attachments = [att for att in message.attachments
                                  if att.content_type and
                                  (att.content_type.startswith('image/') or
@@ -685,9 +738,13 @@ class Forwarding(commands.Cog):
                 layout.add_item(ui.Separator())
                 media_gallery = ui.MediaGallery()
                 for attachment in media_attachments:
+                    if total_attachment_size + attachment.size > max_total_size:
+                        omitted_attachments = True
+                        break
                     try:
                         f = await attachment.to_file(spoiler=attachment.is_spoiler())
                         files_to_send.append(f)
+                        total_attachment_size += f.size
                         media_gallery.add_item(media=f"attachment://{'SPOILER_' if attachment.is_spoiler() else ''}{attachment.filename}")
                     except discord.HTTPException as e:
                         logger.warning(f"Failed to forward media {attachment.filename}: {e}")
@@ -697,30 +754,26 @@ class Forwarding(commands.Cog):
 
             # Handle other file types in a simple list.
             if other_attachments:
-                for attachment in other_attachments:
-                    try:
-                        f = await attachment.to_file(spoiler=attachment.is_spoiler())
-                        files_to_send.append(f)
-                    except discord.HTTPException as e:
-                        logger.warning(f"Failed to forward file {attachment.filename}: {e}")
-                        failed_attachments.append(
-                            attachment.filename)
-
-            if other_attachments:
-                layout.add_item(ui.Separator())
+                processed_files_in_container = False
                 file_container = ui.Container()
-                file_container.add_item(ui.TextDisplay(f"## Files ({len(other_attachments)})"))
+
                 for attachment in other_attachments:
-                    try:
-                        f = await attachment.to_file(spoiler=attachment.is_spoiler())
-                        files_to_send.append(f)
+                    # Check if the file was actually processed and added to files_to_send
+                    if any(f.filename.endswith(attachment.filename) for f in files_to_send):
+                        if not processed_files_in_container:
+                            layout.add_item(ui.Separator())
+                            file_container.add_item(ui.TextDisplay(f"## Files ({len(other_attachments)})"))
+                            processed_files_in_container = True
+
                         file_container.add_item(
                             ui.TextDisplay(f"📎 {attachment.filename} ({attachment.size // 1024}KB)")
                         )
-                    except discord.HTTPException as e:
-                        logger.warning(f"Failed to forward file {attachment.filename}: {e}")
-                        failed_attachments.append(attachment.filename)
-                layout.add_item(file_container)
+
+                if processed_files_in_container:
+                    layout.add_item(file_container)
+            
+            if omitted_attachments:
+                failed_attachments.append("Some files were not forwarded due to size limits.")
 
         if failed_attachments:
             layout.add_item(ui.Separator())
