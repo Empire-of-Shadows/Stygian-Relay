@@ -8,7 +8,6 @@ from discord.ext import tasks
 
 from dotenv import load_dotenv
 
-from bot import bot
 from logger.logger_setup import get_logger, log_performance, log_context
 
 load_dotenv()
@@ -17,8 +16,8 @@ logger = get_logger("idle")
 
 # You can tweak these to your taste
 ROTATE_MIN_SECONDS = 120  # 2 minutes
-ROTATE_MAX_SECONDS = 600  # 10 minutes
-NO_REPEAT_WINDOW = 5  # avoid repeating the same type within last N rotations
+ROTATE_MAX_SECONDS = 140  # 10 minutes
+NO_REPEAT_WINDOW = 15  # avoid repeating the same type within last N rotations
 
 # Heuristic weights per activity type (higher = more likely).
 # Types with no available phrases (or no streaming URL) are ignored at runtime.
@@ -35,65 +34,42 @@ STREAM_URL_PATTERN = re.compile(r"(twitch\.tv|youtube\.com|youtu\.be)", re.IGNOR
 
 status_options: Dict[str, List[str] | Dict[str, List[str] | str]] = {
     "playing": [
-        "with server stats ⚙️",
-        "with uptime numbers ⏱️",
-        "tag replies 🔖",
-        "server data sync 🔄",
-        "mention logs 🧾",
-        "with activity reports 📈",
-        "IP hunt 🔍",
-        "port-checking puzzles 🧩",
-        "auto-replies and help requests 🤖",
-        "connection stability games 🔌",
-        "ping pong with latency {latency_ms}ms 🏓",
-        "across {guilds} servers 🌐",
+        "with forwarding rules 📝",
+        "ping pong with {latency_ms}ms 🏓",
+        "forwarding messages across {guilds} servers 🌐",
+        "crafting custom rule logic 🧠",
+        "in development: expect updates! ✨",
+        "use `/forward setup` to begin!",
     ],
     "watching": [
-        "server activity 👀",
-        "for mentions and replies 💬",
-        "your status updates 🛰️",
-        "the logs scroll endlessly 📜",
-        "for API errors ⚠️",
-        "network pings 📶",
-        "free slots and user joins 👤",
-        "your info requests 🧠",
-        "the next command input ⌨️",
-        "real-time usage graphs 📊",
-        "the server pulse 💓",
+        "for `/forward setup` commands 💬",
+        "new rule creations 🆕",
+        "development logs scroll 📜",
         "over {users} users 🧮",
+        "for incoming messages to relay 📬",
+        " `/forward help` for commands",
     ],
     "listening": [
-        "for !help requests 🆘",
-        "to server chatter 👂",
-        "to the logs whisper 📝",
-        "for @mentions 🔔",
-        "command history talkbacks 🗣️",
-        "uptime checks ⌚",
-        "your support questions 🎧",
-        "voice channel joins 🎙️",
-        "admin alerts ⚡",
-        "network heartbeat 🌐",
-        "the rhythm of commands 🥁",
+        "for `/help` commands 🆘",
+        "for feedback 🗣️",
+        "for commands on {guilds} servers 🌐",
+        " `/forward edit` to manage rules",
+        "bot developer' discussions 💬",
     ],
     "competing": [
-        "in uptime races ⏳",
-        "for fastest responses ⚡",
-        "with latency {latency_ms}ms 🏁",
-        "to help {users} users 🏆",
+        "with other bots to be helpful 🏆",
+        "to assist {users} users efficiently 🏁",
+        "in an ongoing development sprint 🚀",
+        "to make forwarding seamless 🎯",
     ],
     "streaming": {
         "phrases": [
-            "server info 24/7 📡",
-            "live stats and data dashboards 📺",
-            "mention responses on demand 🔁",
-            "command output streams 📤",
-            "real-time monitoring 🎯",
-            "Discord bot diagnostics 🔍",
-            "user activity logs 🖥️",
-            "response time tracking 🕒",
-            "uptime wars: bot vs lag ⏳",
-            "server history playback 📽️",
-            "info queries live feed 📡",
+            "live development updates 🖥️",
+            "bot diagnostics 🔍",
+            "feature showcases 📺",
+            "Stygian-Relay Dev Stream",
+            "coding the next big feature 💻",
+            "optimizing backend processes ⚙️",
         ],
         "url": "https://twitch.tv/thegreateos"  # replace it with your stream URL if applicable
     }
@@ -121,6 +97,7 @@ def _stream_url_ok(url: Optional[str]) -> bool:
 @log_performance("runtime_placeholders_calculation")
 def _runtime_placeholders() -> Dict[str, str]:
     """Calculate runtime placeholders with comprehensive logging."""
+    from bot import bot
     logger.debug("Starting runtime placeholders calculation")
 
     # Safe accessors for dynamic values
@@ -433,6 +410,7 @@ def _randomize_interval():
 @tasks.loop(seconds=ROTATE_MIN_SECONDS)
 async def rotate_status():
     """Main status rotation task with comprehensive logging."""
+    from bot import bot
     logger.debug("=== STATUS ROTATION CYCLE START ===")
 
     try:
@@ -473,6 +451,7 @@ async def rotate_status():
 @rotate_status.before_loop
 async def _rotate_status_before_loop():
     """Pre-loop setup with enhanced logging."""
+    from bot import bot
     logger.info("🔄 Status rotation system initializing...")
     logger.info("Waiting for bot to become ready...")
 

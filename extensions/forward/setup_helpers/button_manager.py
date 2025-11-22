@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 import discord
+from ..views import CustomView
 
 
 class ButtonManager:
@@ -14,12 +15,12 @@ class ButtonManager:
     def __init__(self):
         self.button_callbacks = {}
 
-    def create_button_row(self, buttons: List[Dict[str, Any]]) -> discord.ui.View:
+    def create_button_row(self, buttons: List[Dict[str, Any]]) -> CustomView:
         """
         Create a row of buttons with callbacks.
         This method is the primary way to create a view with buttons.
         """
-        view = discord.ui.View(timeout=1800)  # 30 minute timeout
+        view = CustomView(timeout=1800)  # 30 minute timeout
 
         for button_config in buttons:
             button = discord.ui.Button(

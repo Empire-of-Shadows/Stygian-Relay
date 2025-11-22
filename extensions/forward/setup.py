@@ -16,12 +16,13 @@ from .setup_helpers.channel_select import channel_selector
 from .setup_helpers.rule_setup import rule_setup_helper
 from .setup_helpers.rule_creation_flow import RuleCreationFlow
 from .models.setup_state import SetupState
+from .views import CustomView
 from database import guild_manager
 
 logger = get_logger("setup")
 
 
-class RuleDeleteView(discord.ui.View):
+class RuleDeleteView(CustomView):
     """
     A view that displays a dropdown menu for selecting a rule to delete.
     This view is used by the `/forward delete_rule` command.
@@ -125,7 +126,7 @@ class RuleDeleteView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class RuleDeleteConfirmView(discord.ui.View):
+class RuleDeleteConfirmView(CustomView):
     """
     Confirmation view for rule deletion with Deactivate/Delete options.
     """
@@ -227,7 +228,7 @@ class RuleDeleteConfirmView(discord.ui.View):
         )
         await interaction.edit_original_response(embed=embed, view=None)
 
-class LearnMoreView(discord.ui.View):
+class LearnMoreView(CustomView):
     """View for the Learn More section with proper button callbacks"""
 
     def __init__(self, cog: 'ForwardCog', session: SetupState):
@@ -256,7 +257,7 @@ class LearnMoreView(discord.ui.View):
             await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
 
 
-class RuleSelectView(discord.ui.View):
+class RuleSelectView(CustomView):
     """
     A view that displays a dropdown menu for selecting a rule to edit.
     This view is used by the `/forward edit` command.
@@ -312,7 +313,7 @@ class RuleSelectView(discord.ui.View):
         await self.cog.rule_creation_flow.show_rule_preview_step(interaction, session)
 
 
-class FormattingSettingsView(discord.ui.View):
+class FormattingSettingsView(CustomView):
     """
     A view for editing formatting-specific settings of a rule, like the style.
     This view is used when the user clicks the "Formatting" button in the
@@ -380,7 +381,7 @@ class FormattingSettingsView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
 
 
-class EditChannelsView(discord.ui.View):
+class EditChannelsView(CustomView):
     """A view for editing the source and destination channels of a rule."""
     def __init__(self, session: SetupState, cog: 'ForwardCog'):
         super().__init__(timeout=300)
@@ -473,7 +474,7 @@ class EditChannelsView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=view)
 
 
-class RuleSettingsView(discord.ui.View):
+class RuleSettingsView(CustomView):
     """
     A hub view for editing all settings of a rule, acting as a control panel.
     This view is used when the user clicks the "Edit Settings" button in the
@@ -976,6 +977,8 @@ class ForwardCog(commands.Cog):
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
+            message = await interaction.original_response()
+            view.message = message
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
                 try:
@@ -1030,6 +1033,8 @@ class ForwardCog(commands.Cog):
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
+            message = await interaction.original_response()
+            view.message = message
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e):
                 try:
@@ -1130,7 +1135,7 @@ class ForwardCog(commands.Cog):
                 )
 
         # Create the main view
-        view = discord.ui.View(timeout=300)
+        view = CustomView(timeout=300)
 
         # Add select menu if we have channels
         if select_options:
@@ -1149,9 +1154,6 @@ class ForwardCog(commands.Cog):
                 style=discord.ButtonStyle.secondary # Type: Ignore
             ))
 
-        # Create button row
-        button_row = discord.ui.View(timeout=300)  # Separate view for buttons to ensure proper row layout
-
         back_button = discord.ui.Button(
             label="Back",
             style=discord.ButtonStyle.secondary, # Type: Ignore
@@ -1160,7 +1162,7 @@ class ForwardCog(commands.Cog):
             row=1
         )
         back_button.callback = self._handle_log_channel_back
-        button_row.add_item(back_button)
+        view.add_item(back_button)
 
         # Only add continue button if log channel is set
         has_log_channel = False
@@ -1183,7 +1185,7 @@ class ForwardCog(commands.Cog):
                 row=1
             )
             continue_button.callback = self._handle_log_channel_continue
-            button_row.add_item(continue_button)
+            view.add_item(continue_button)
 
         cancel_button = discord.ui.Button(
             label="Cancel",
@@ -1193,17 +1195,15 @@ class ForwardCog(commands.Cog):
             row=1
         )
         cancel_button.callback = self._handle_log_channel_cancel
-        button_row.add_item(cancel_button)
-
-        # Combine both views by adding all items to the main view
-        for item in button_row.children:
-            view.add_item(item)
+        view.add_item(cancel_button)
 
         try:
             if interaction.response.is_done(): # Type: Ignore
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
+            message = await interaction.original_response()
+            view.message = message
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower():
                 try:
@@ -1349,6 +1349,8 @@ class ForwardCog(commands.Cog):
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
                 await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
+            message = await interaction.original_response()
+            view.message = message
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower():
                 try:
@@ -1397,6 +1399,8 @@ class ForwardCog(commands.Cog):
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
                 await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
+            message = await interaction.original_response()
+            view.message = message
         except discord.HTTPException as e:
             if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
                 try:
