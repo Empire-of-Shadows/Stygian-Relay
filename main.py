@@ -8,6 +8,7 @@ from bot import get_bot, set_error_notifier
 from core.sync import load_cogs
 from logger.logger_setup import setup_application_logging, EmailErrorHandler
 from logger.log_dispacher import EnhancedErrorNotifier, Severity
+from status.idle import rotate_status
 from database import db_core, guild_manager
 
 load_dotenv()
@@ -97,6 +98,9 @@ async def main():
 
     try:
         app_logger.info("Starting Discord bot...")
+
+        rotate_status.start()
+        app_logger.info("Status rotation task started.")
 
         if error_notifier:
             # Start the error notification loop after the event loop is running
