@@ -1,5 +1,10 @@
 # Changelog
 
+## 2025-11-24
+
+### Fixed
+- Added robust error handling for "413 Payload Too Large" (error code 40005) HTTP exceptions during message forwarding. If an initial send attempt fails due to payload size, the message is automatically retried without attachments to ensure the text content and embeds are still delivered.
+
 ## 2025-11-19
 
 ### Fixed

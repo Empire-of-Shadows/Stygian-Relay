@@ -957,12 +957,29 @@ class Forwarding(commands.Cog):
         try:
             await destination.send(**send_kwargs)
         except discord.HTTPException as e:
-            logger.error(f"Failed to send forwarded message: {e}")
+            # Handle payload too large error by retrying without files
+            if e.code == 40005:  # Discord error code for "Request entity too large"
+                logger.warning(f"Payload too large for message {message.id}. Retrying without attachments. Error: {e}")
+                send_kwargs.pop('files', None)
 
-            # If the message is too long, try to handle it gracefully.
-            if "message content too long" in str(e).lower():
+                content = send_kwargs.get('content', '')
+                if "attachments were not forwarded" not in content.lower():
+                    content += "\n\n*(Attachments were not forwarded due to size limits.)*"
+                send_kwargs['content'] = content
+
+                try:
+                    await destination.send(**send_kwargs)
+                except discord.HTTPException as e2:
+                    logger.error(f"Failed to send forwarded message {message.id} even after removing attachments: {e2}")
+                    await self._send_minimal_version(destination, message, formatting)
+
+            # If the message content is too long, try to handle it gracefully.
+            elif "message content too long" in str(e).lower():
+                logger.error(f"Failed to send forwarded message: {e}")
                 await self._handle_oversized_message(destination, message, send_kwargs, formatting)
+
             else:
+                logger.error(f"Failed to send forwarded message: {e}")
                 # For other errors, try sending a minimal version.
                 send_kwargs.pop('reference', None)
                 send_kwargs.pop('files', None)
