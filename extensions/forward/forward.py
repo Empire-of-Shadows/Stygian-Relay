@@ -369,7 +369,7 @@ class Forwarding(commands.Cog):
             if destination.guild.premium_tier >= 2:
                 max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
             else:
-                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+                max_total_size = 10 * 1024 * 1024  # 8MB for non-boosted servers
             total_attachment_size = 0
             allowed_types = formatting.get("allowed_attachment_types")
 
@@ -394,7 +394,7 @@ class Forwarding(commands.Cog):
                     logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
 
         if omitted_attachments:
-            quoted_content += "\n\n*(Some attachments were not forwarded due to size limits.)*"
+            quoted_content += "\n*(Some attachments were not forwarded due to size limits.)*"
 
         # The key insight: Send the quoted content as text along with the original files
         # Discord will automatically detect URLs in the quoted content and generate fresh embeds
@@ -482,7 +482,7 @@ class Forwarding(commands.Cog):
             if destination.guild.premium_tier >= 2:
                 max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
             else:
-                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+                max_total_size = 10 * 1024 * 1024  # 8MB for non-boosted servers
             total_attachment_size = 0
             allowed_types = formatting.get("allowed_attachment_types")
 
@@ -578,7 +578,7 @@ class Forwarding(commands.Cog):
             if destination.guild.premium_tier >= 2:
                 max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
             else:
-                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+                max_total_size = 10 * 1024 * 1024  # 8MB for non-boosted servers
             total_attachment_size = 0
             # Prepare all attachments to be sent as files first.
             for attachment in message.attachments:
@@ -722,7 +722,7 @@ class Forwarding(commands.Cog):
             if destination.guild.premium_tier >= 2:
                 max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
             else:
-                max_total_size = 8 * 1024 * 1024  # 8MB for non-boosted servers
+                max_total_size = 10 * 1024 * 1024  # 8MB for non-boosted servers
             total_attachment_size = 0
             omitted_attachments = False
 
