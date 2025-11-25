@@ -1,5 +1,13 @@
 # Changelog
 
+## 2025-11-25
+
+### Improved
+- Increased the default cumulative attachment size limit for forwarded messages from 8MB to 10MB.
+
+### Fixed
+- Removed an unnecessary newline before the attachment size limit message for improved formatting.
+
 ## 2025-11-24
 
 ### Fixed
