@@ -3,11 +3,11 @@ import asyncio
 import uuid
 from typing import Dict, Any, List, Callable, Optional
 from datetime import datetime, timezone
-from logger.logger_setup import get_logger
+import logging
 from .exceptions import DatabaseOperationError
 from .constants import DEFAULT_BOT_SETTINGS, DEFAULT_GUILD_SETTINGS_TEMPLATE
 
-logger = get_logger("GuildManager", level=20, json_format=False, colored_console=True)
+logger = logging.getLogger("GuildManager")
 
 
 class GuildManager:
@@ -351,3 +351,225 @@ class GuildManager:
         except Exception as e:
             logger.error(f"❌ Error adding forwarding rule: {e}", exc_info=True)
             return False
+
+    # ==================== Premium Code Management ====================
+
+    async def generate_premium_code(self, duration_days: int = 30, tier: str = "premium",
+                                    created_by: str = None, guild_id: str = None) -> Dict[str, Any]:
+        """
+        Generate a premium activation code.
+
+        Args:
+            duration_days: How long the premium subscription lasts (default: 30 days)
+            tier: Premium tier ("premium" or "enterprise")
+            created_by: User ID who created the code
+            guild_id: Optional guild ID to restrict code to specific guild
+
+        Returns:
+            Dictionary with code details including the activation code
+        """
+        import secrets
+        import string
+
+        # Generate a secure random code (format: XXXX-XXXX-XXXX)
+        code_parts = []
+        for _ in range(3):
+            part = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+            code_parts.append(part)
+        activation_code = '-'.join(code_parts)
+
+        collection = self.db.get_collection("discord_forwarding_bot", "premium_codes")
+
+        code_data = {
+            "code": activation_code,
+            "tier": tier,
+            "duration_days": duration_days,
+            "is_redeemed": False,
+            "created_by": created_by,
+            "created_at": datetime.now(timezone.utc),
+            "redeemed_by": None,
+            "redeemed_at": None,
+            "redeemed_guild_id": None,
+            "restricted_to_guild": guild_id,  # If set, code can only be used in this guild
+            "expires_at": None  # Code doesn't expire until redeemed
+        }
+
+        try:
+            await collection.insert_one(code_data)
+            logger.info(f"✅ Generated premium code: {activation_code} (tier: {tier}, duration: {duration_days} days)")
+            return code_data
+        except Exception as e:
+            logger.error(f"❌ Failed to generate premium code: {e}", exc_info=True)
+            raise DatabaseOperationError(f"Failed to generate premium code: {e}") from e
+
+    async def redeem_premium_code(self, code: str, guild_id: str, redeemed_by: str) -> Dict[str, Any]:
+        """
+        Redeem a premium code for a guild.
+
+        Args:
+            code: The activation code to redeem
+            guild_id: The guild ID to activate premium for
+            redeemed_by: User ID who redeemed the code
+
+        Returns:
+            Dictionary with subscription details
+
+        Raises:
+            ValueError: If code is invalid, already redeemed, or restricted to another guild
+        """
+        codes_collection = self.db.get_collection("discord_forwarding_bot", "premium_codes")
+        subs_collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
+
+        # Find the code
+        code_data = await codes_collection.find_one({"code": code.upper()})
+
+        if not code_data:
+            raise ValueError("Invalid premium code")
+
+        if code_data.get("is_redeemed", False):
+            raise ValueError("This code has already been redeemed")
+
+        # Check if code is restricted to a specific guild
+        if code_data.get("restricted_to_guild") and code_data["restricted_to_guild"] != guild_id:
+            raise ValueError("This code is restricted to a different server")
+
+        # Calculate expiration date
+        duration_days = code_data.get("duration_days", 30)
+        activated_at = datetime.now(timezone.utc)
+        from datetime import timedelta
+        expires_at = activated_at + timedelta(days=duration_days)
+
+        # Mark code as redeemed
+        await codes_collection.update_one(
+            {"code": code.upper()},
+            {"$set": {
+                "is_redeemed": True,
+                "redeemed_by": redeemed_by,
+                "redeemed_at": activated_at,
+                "redeemed_guild_id": guild_id
+            }}
+        )
+
+        # Create or update premium subscription
+        existing_sub = await subs_collection.find_one({"guild_id": guild_id, "is_active": True})
+
+        if existing_sub:
+            # Extend existing subscription
+            current_expires = existing_sub.get("expires_at", datetime.now(timezone.utc))
+
+            # Ensure current_expires is timezone-aware (MongoDB returns naive datetimes)
+            if current_expires and current_expires.tzinfo is None:
+                current_expires = current_expires.replace(tzinfo=timezone.utc)
+
+            # If current subscription is still active, add to it
+            if current_expires and current_expires > activated_at:
+                new_expires = current_expires + timedelta(days=duration_days)
+            else:
+                new_expires = expires_at
+
+            await subs_collection.update_one(
+                {"guild_id": guild_id, "is_active": True},
+                {"$set": {
+                    "expires_at": new_expires,
+                    "tier": code_data.get("tier", "premium"),
+                    "updated_at": activated_at
+                }}
+            )
+            logger.info(f"✅ Extended premium subscription for guild {guild_id} until {new_expires}")
+        else:
+            # Create new subscription
+            subscription_data = {
+                "guild_id": guild_id,
+                "tier": code_data.get("tier", "premium"),
+                "is_active": True,
+                "activated_at": activated_at,
+                "expires_at": expires_at,
+                "activated_by": redeemed_by,
+                "activation_code": code.upper(),
+                "created_at": activated_at,
+                "updated_at": activated_at
+            }
+
+            await subs_collection.insert_one(subscription_data)
+            logger.info(f"✅ Created premium subscription for guild {guild_id} until {expires_at}")
+
+        # Update guild settings to reflect premium status
+        await self.update_guild_settings(guild_id, {"premium_tier": code_data.get("tier", "premium")})
+
+        return {
+            "tier": code_data.get("tier", "premium"),
+            "expires_at": expires_at,
+            "duration_days": duration_days
+        }
+
+    async def get_premium_subscription(self, guild_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get active premium subscription for a guild.
+
+        Returns:
+            Subscription data if active, None otherwise
+        """
+        collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
+        subscription = await collection.find_one({
+            "guild_id": guild_id,
+            "is_active": True,
+            "expires_at": {"$gt": datetime.now(timezone.utc)}
+        })
+        return subscription
+
+    async def deactivate_premium(self, guild_id: str) -> bool:
+        """
+        Deactivate premium subscription for a guild.
+
+        Returns:
+            True if subscription was deactivated, False otherwise
+        """
+        collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
+
+        result = await collection.update_one(
+            {"guild_id": guild_id, "is_active": True},
+            {"$set": {
+                "is_active": False,
+                "updated_at": datetime.now(timezone.utc)
+            }}
+        )
+
+        if result.modified_count > 0:
+            await self.update_guild_settings(guild_id, {"premium_tier": "free"})
+            logger.info(f"✅ Deactivated premium subscription for guild {guild_id}")
+            return True
+
+        return False
+
+    async def get_premium_code_info(self, code: str) -> Optional[Dict[str, Any]]:
+        """
+        Get information about a premium code without redeeming it.
+
+        Returns:
+            Code data if found, None otherwise
+        """
+        collection = self.db.get_collection("discord_forwarding_bot", "premium_codes")
+        code_data = await collection.find_one({"code": code.upper()})
+        return code_data
+
+    async def list_premium_codes(self, created_by: str = None, include_redeemed: bool = False) -> List[Dict[str, Any]]:
+        """
+        List premium codes with optional filtering.
+
+        Args:
+            created_by: Filter by creator user ID
+            include_redeemed: Whether to include already redeemed codes
+
+        Returns:
+            List of code data dictionaries
+        """
+        collection = self.db.get_collection("discord_forwarding_bot", "premium_codes")
+
+        query = {}
+        if created_by:
+            query["created_by"] = created_by
+        if not include_redeemed:
+            query["is_redeemed"] = False
+
+        cursor = collection.find(query).sort("created_at", -1)
+        return await cursor.to_list(length=100)

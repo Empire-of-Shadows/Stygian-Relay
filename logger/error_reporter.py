@@ -1,24 +1,25 @@
 import asyncio
 import os
 import json
+import logging
+import re
+import textwrap
+import traceback
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
-from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
-from enum import Enum
-import html
-import re
-import certifi
-import ssl
-import smtplib
+from typing import Dict, List, Optional, Any, Tuple, Set
+
+import certifi, ssl, smtplib
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import textwrap
+
+from .email_templates import EmailTemplate
+from .reporting_types import Severity, ErrorCategory, ErrorContext
 
 load_dotenv()
 
@@ -49,43 +50,6 @@ async def _send_discord_alert(bot_instance, error_context: 'ErrorContext'):
                 await channel.send(embed=embed)
             except Exception as e:
                 print(f"Failed to send error to Discord channel: {e}")
-
-
-class Severity(Enum):
-    """Error severity levels for better categorization"""
-    CRITICAL = "🔴 CRITICAL"
-    HIGH = "🟠 HIGH"
-    MEDIUM = "🟡 MEDIUM"
-    LOW = "🟢 LOW"
-    INFO = "ℹ️ INFO"
-
-
-class ErrorCategory(Enum):
-    """Error categories for better organization"""
-    DATABASE = "💾 Database"
-    DISCORD_API = "🤖 Discord API"
-    COMMAND = "⚡ Command"
-    SYSTEM = "🖥️ System"
-    NETWORK = "🌐 Network"
-    AUTHENTICATION = "🔐 Auth"
-    PERMISSION = "🛡️ Permission"
-    VALIDATION = "✅ Validation"
-    UNKNOWN = "❓ Unknown"
-
-
-@dataclass
-class ErrorContext:
-    """Rich error context information"""
-    timestamp: datetime
-    severity: Severity
-    category: ErrorCategory
-    error_message: str
-    guild_id: Optional[str] = None
-    user_id: Optional[str] = None
-    channel_id: Optional[str] = None
-    command: Optional[str] = None
-    stack_trace: Optional[str] = None
-    additional_data: Optional[Dict[str, Any]] = None
 
 
 class ErrorAnalyzer:
@@ -173,445 +137,7 @@ class ErrorAnalyzer:
         return ErrorCategory.UNKNOWN
 
 
-class EmailTemplate:
-    """Professional email templates with rich formatting"""
-
-    @staticmethod
-    def create_error_summary_html(
-            errors: List[ErrorContext],
-            stats: Dict[str, Any],
-            period_start: datetime,
-            period_end: datetime
-    ) -> str:
-        """Create a comprehensive HTML email template"""
-
-        # Group errors by category and severity
-        by_category = defaultdict(list)
-        by_severity = defaultdict(list)
-
-        for error in errors:
-            by_category[error.category].append(error)
-            by_severity[error.severity].append(error)
-
-        # Fix: Extract the problematic CSS to a separate variable
-        chart_placeholder_css = """
-            .chart-placeholder {
-                height: 200px;
-                background: 
-                    linear-gradient(45deg, #f8f9fa 25%, transparent 25%), 
-                    linear-gradient(-45deg, #f8f9fa 25%, transparent 25%), 
-                    linear-gradient(45deg, transparent 75%, #f8f9fa 75%), 
-                    linear-gradient(-45deg, transparent 75%, #f8f9fa 75%);
-                background-size: 20px 20px;
-                background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
-                border: 2px dashed #dee2e6;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                color: #6c757d;
-                font-style: italic;
-            }
-        """
-
-        html_content = f"""
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Discord Bot Error Report</title>
-            <style>
-                body {{
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    line-height: 1.6;
-                    color: #333;
-                    max-width: 900px;
-                    margin: 0 auto;
-                    padding: 20px;
-                    background-color: #f5f5f5;
-                }}
-                .container {{
-                    background: white;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                    overflow: hidden;
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 30px;
-                    text-align: center;
-                }}
-                .header h1 {{
-                    margin: 0;
-                    font-size: 2.5em;
-                    font-weight: 300;
-                }}
-                .header p {{
-                    margin: 10px 0 0;
-                    opacity: 0.9;
-                    font-size: 1.1em;
-                }}
-                .content {{
-                    padding: 30px;
-                }}
-                .stats-grid {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                    gap: 20px;
-                    margin-bottom: 30px;
-                }}
-                .stat-card {{
-                    background: #f8f9fa;
-                    border-left: 4px solid #007bff;
-                    padding: 20px;
-                    border-radius: 5px;
-                }}
-                .stat-card h3 {{
-                    margin: 0 0 10px;
-                    color: #495057;
-                    font-size: 1.1em;
-                }}
-                .stat-value {{
-                    font-size: 2em;
-                    font-weight: bold;
-                    color: #007bff;
-                }}
-                .section {{
-                    margin-bottom: 30px;
-                }}
-                .section h2 {{
-                    border-bottom: 2px solid #e9ecef;
-                    padding-bottom: 10px;
-                    color: #495057;
-                }}
-                .error-card {{
-                    border: 1px solid #e9ecef;
-                    border-radius: 8px;
-                    margin-bottom: 15px;
-                    overflow: hidden;
-                }}
-                .error-header {{
-                    padding: 15px 20px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    font-weight: 500;
-                }}
-                .error-body {{
-                    padding: 0 20px 20px;
-                    font-family: 'Courier New', monospace;
-                    font-size: 0.9em;
-                    background-color: #f8f9fa;
-                    border-top: 1px solid #e9ecef;
-                }}
-                .severity-critical {{ background-color: #f8d7da; color: #721c24; }}
-                .severity-high {{ background-color: #ffeaa7; color: #856404; }}
-                .severity-medium {{ background-color: #fff3cd; color: #856404; }}
-                .severity-low {{ background-color: #d4edda; color: #155724; }}
-                .severity-info {{ background-color: #cce5ff; color: #004085; }}
-                .timestamp {{ color: #6c757d; font-size: 0.9em; }}
-                .context-info {{
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                    gap: 10px;
-                    margin: 10px 0;
-                    font-size: 0.85em;
-                }}
-                .context-item {{
-                    background: white;
-                    padding: 8px 12px;
-                    border-radius: 4px;
-                    border: 1px solid #dee2e6;
-                }}
-                .context-label {{
-                    font-weight: 600;
-                    color: #495057;
-                }}
-                .footer {{
-                    background: #f8f9fa;
-                    padding: 20px 30px;
-                    text-align: center;
-                    border-top: 1px solid #e9ecef;
-                    color: #6c757d;
-                }}
-                {chart_placeholder_css}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🤖 Discord Bot Error Report</h1>
-                    <p>Period: {period_start.strftime('%Y-%m-%d %H:%M:%S')} - {period_end.strftime('%Y-%m-%d %H:%M:%S')}</p>
-                </div>
-
-                <div class="content">
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <h3>📊 Total Errors</h3>
-                            <div class="stat-value">{stats.get('total_errors', 0)}</div>
-                        </div>
-                        <div class="stat-card">
-                            <h3>🔴 Critical Issues</h3>
-                            <div class="stat-value">{stats.get('critical_count', 0)}</div>
-                        </div>
-                        <div class="stat-card">
-                            <h3>📈 Error Rate</h3>
-                            <div class="stat-value">{stats.get('errors_per_hour', 0):.1f}/hr</div>
-                        </div>
-                        <div class="stat-card">
-                            <h3>🎯 Most Affected</h3>
-                            <div class="stat-value" style="font-size: 1.2em;">{stats.get('top_category', 'N/A')}</div>
-                        </div>
-                    </div>
-        """
-
-        # Add severity breakdown
-        if by_severity:
-            html_content += """
-                    <div class="section">
-                        <h2>📈 Error Breakdown by Severity</h2>
-                        <div class="stats-grid">
-            """
-            for severity in Severity:
-                count = len(by_severity.get(severity, []))
-                if count > 0:
-                    html_content += f"""
-                        <div class="stat-card">
-                            <h3>{severity.value}</h3>
-                            <div class="stat-value">{count}</div>
-                        </div>
-                    """
-            html_content += """
-                        </div>
-                    </div>
-            """
-
-        # Add category breakdown
-        if by_category:
-            html_content += """
-                    <div class="section">
-                        <h2>🏷️ Error Breakdown by Category</h2>
-                        <div class="stats-grid">
-            """
-            for category, category_errors in sorted(by_category.items(), key=lambda x: len(x[1]), reverse=True):
-                count = len(category_errors)
-                html_content += f"""
-                    <div class="stat-card">
-                        <h3>{category.value}</h3>
-                        <div class="stat-value">{count}</div>
-                    </div>
-                """
-            html_content += """
-                        </div>
-                    </div>
-            """
-
-        # Add detailed errors
-        if errors:
-            html_content += """
-                    <div class="section">
-                        <h2>🔍 Detailed Error Log</h2>
-            """
-
-            # Group and display errors
-            for severity in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO]:
-                severity_errors = by_severity.get(severity, [])
-                if not severity_errors:
-                    continue
-
-                html_content += f"""
-                        <h3>{severity.value} ({len(severity_errors)} errors)</h3>
-                """
-
-                for error in severity_errors[:10]:  # Limit to 10 per severity
-                    severity_class = f"severity-{severity.name.lower()}"
-                    html_content += f"""
-                        <div class="error-card">
-                            <div class="error-header {severity_class}">
-                                <span><strong>{error.category.value}</strong> - {severity.value}</span>
-                                <span class="timestamp">{error.timestamp.strftime('%H:%M:%S')}</span>
-                            </div>
-                    """
-
-                    if any([error.guild_id, error.user_id, error.channel_id, error.command]):
-                        html_content += """
-                            <div class="context-info">
-                        """
-                        if error.guild_id:
-                            html_content += f"""
-                                <div class="context-item">
-                                    <span class="context-label">Guild:</span> {error.guild_id}
-                                </div>
-                            """
-                        if error.user_id:
-                            html_content += f"""
-                                <div class="context-item">
-                                    <span class="context-label">User:</span> {error.user_id}
-                                </div>
-                            """
-                        if error.channel_id:
-                            html_content += f"""
-                                <div class="context-item">
-                                    <span class="context-label">Channel:</span> {error.channel_id}
-                                </div>
-                            """
-                        if error.command:
-                            html_content += f"""
-                                <div class="context-item">
-                                    <span class="context-label">Command:</span> {error.command}
-                                </div>
-                            """
-                        html_content += """
-                            </div>
-                        """
-
-                    html_content += f"""
-                            <div class="error-body">
-                                <div><strong>Error:</strong> {html.escape(error.error_message)}</div>
-                    """
-
-
-                    if error.stack_trace:
-                        # Show first few lines of stack trace
-                        newline_char = '\n'
-                        stack_lines = error.stack_trace.split(newline_char)[:5]
-                        stack_text = html.escape(newline_char.join(stack_lines))
-                        more_indicator = '...' if len(error.stack_trace.split(newline_char)) > 5 else ''
-                        html_content += f"""
-                                <div style="margin-top: 10px;"><strong>Stack Trace:</strong></div>
-                                <pre style="margin: 5px 0; white-space: pre-wrap;">{stack_text}{more_indicator}</pre>
-                        """
-
-                    html_content += """
-                            </div>
-                        </div>
-                    """
-
-                if len(severity_errors) > 10:
-                    html_content += f"""
-                        <p style="text-align: center; color: #6c757d; font-style: italic;">
-                            ... and {len(severity_errors) - 10} more {severity.value.lower()} errors
-                        </p>
-                    """
-
-            html_content += """
-                    </div>
-            """
-
-        html_content += f"""
-                </div>
-
-                <div class="footer">
-                    <p>Generated by Discord Bot Error Notifier at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                    <p>This is an automated message. Please review the errors above and take appropriate action.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-
-        return html_content
-
-    @staticmethod
-    def create_text_summary(
-            errors: List[ErrorContext],
-            stats: Dict[str, Any],
-            period_start: datetime,
-            period_end: datetime
-    ) -> str:
-        """Create a plain text version for email clients that don't support HTML"""
-
-        summary_lines = [
-            "🤖 DISCORD BOT ERROR REPORT",
-            "════════════════════════════════════════",
-            "",
-            f"📅 Report Period: {period_start.strftime('%Y-%m-%d %H:%M:%S')} - {period_end.strftime('%Y-%m-%d %H:%M:%S')}",
-            "",
-            "📊 SUMMARY STATISTICS",
-            "────────────────────",
-            f"• Total Errors: {stats.get('total_errors', 0)}",
-            f"• Critical Issues: {stats.get('critical_count', 0)}",
-            f"• Error Rate: {stats.get('errors_per_hour', 0):.1f} errors/hour",
-            f"• Most Affected Category: {stats.get('top_category', 'N/A')}",
-            "",
-        ]
-        newline_char = "\n"
-        text_content = newline_char.join(summary_lines)
-
-        # Group errors by category and severity
-        by_category = defaultdict(list)
-        by_severity = defaultdict(list)
-
-        for error in errors:
-            by_category[error.category].append(error)
-            by_severity[error.severity].append(error)
-
-        # Severity breakdown
-        if by_severity:
-            text_content += "🔍 SEVERITY BREAKDOWN\n"
-            text_content += "────────────────────\n"
-            for severity in Severity:
-                count = len(by_severity.get(severity, []))
-                if count > 0:
-                    text_content += f"• {severity.value}: {count} errors\n"
-            text_content += "\n"
-
-        # Category breakdown
-        if by_category:
-            text_content += "🏷️ CATEGORY BREAKDOWN\n"
-            text_content += "─────────────────────\n"
-            for category, category_errors in sorted(by_category.items(), key=lambda x: len(x[1]), reverse=True):
-                count = len(category_errors)
-                text_content += f"• {category.value}: {count} errors\n"
-            text_content += "\n"
-
-        # Detailed errors
-        if errors:
-            text_content += "📋 DETAILED ERROR LOG\n"
-            text_content += "═════════════════════\n\n"
-
-            for i, error in enumerate(errors[:20], 1):  # Limit to 20 errors in text
-                text_content += f"[{i:2d}] {error.severity.value} | {error.category.value}\n"
-                text_content += f"     Time: {error.timestamp.strftime('%Y-%m-%d %H:%M:%S')}\n"
-
-                if error.guild_id or error.user_id or error.channel_id or error.command:
-                    context_parts = []
-                    if error.guild_id:
-                        context_parts.append(f"Guild:{error.guild_id}")
-                    if error.user_id:
-                        context_parts.append(f"User:{error.user_id}")
-                    if error.channel_id:
-                        context_parts.append(f"Channel:{error.channel_id}")
-                    if error.command:
-                        context_parts.append(f"Command:{error.command}")
-                    text_content += f"     Context: {' | '.join(context_parts)}\n"
-
-                text_content += f"     Error: {error.error_message}\n"
-
-                if error.stack_trace:
-                    # Show first line of stack trace in text version
-                    first_line = error.stack_trace.split('\n')[0]
-                    text_content += f"     Stack: {first_line}" + "\n"
-
-                text_content += "\n"
-
-            if len(errors) > 20:
-                text_content += f"... and {len(errors) - 20} more errors (see HTML version for complete details)\n\n"
-
-        text_content += f"""
-────────────────────────────────────────
-Generated by Discord Bot Error Notifier
-{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-This is an automated message. Please review 
-the errors above and take appropriate action.
-        """
-
-        return text_content.strip()
-
-
-class EnhancedErrorNotifier:
+class ErrorReporter:
     """
     Significantly enhanced error notification system with:
     - Rich HTML email formatting
@@ -625,15 +151,15 @@ class EnhancedErrorNotifier:
     """
 
     def __init__(
-        self,
-        email: str,
-        app_password: str,
-        bot_instance: commands.Bot,
-        interval: int = 300,
-        max_errors_per_email: int = 100,
-        enable_html: bool = True,
-        enable_attachments: bool = True,
-        severity_threshold: Severity = Severity.LOW
+            self,
+            email: str,
+            app_password: str,
+            bot_instance: Optional[commands.Bot] = None,
+            interval: int = 300,
+            max_errors_per_email: int = 100,
+            enable_html: bool = True,
+            enable_attachments: bool = True,
+            severity_threshold: Severity = Severity.LOW
     ):
         """
         Enhanced initialization with comprehensive configuration
@@ -649,7 +175,7 @@ class EnhancedErrorNotifier:
         """
         self.email = email
         self.app_password = app_password
-        self.bot_instance = bot_instance  # Stored bot instance
+        self.bot_instance = bot_instance
         self.interval = interval
         self.max_errors_per_email = max_errors_per_email
         self.enable_html = enable_html
@@ -666,10 +192,6 @@ class EnhancedErrorNotifier:
         self.consecutive_failures = 0
         self.max_failures = 3
 
-        # Task management
-        self.loop = asyncio.get_event_loop()
-        self.task = None
-
         # Statistics tracking
         self.stats = {
             'total_processed': 0,
@@ -682,7 +204,9 @@ class EnhancedErrorNotifier:
         self.correlation_window = timedelta(minutes=5)
         self.pattern_threshold = 5  # Similar errors in window
 
-        print("🚀 Enhanced Error Notifier initialized")
+        self.task = None
+
+        print(f"🚀 Error Reporter initialized")
         print(f"   📧 Email: {email}")
         print(f"   ⏱️ Interval: {interval}s")
         print(f"   📊 Max errors per email: {max_errors_per_email}")
@@ -778,7 +302,7 @@ class EnhancedErrorNotifier:
         """Generate a key for pattern detection"""
         # Normalize error message for pattern matching
         normalized = re.sub(r'\d+', 'N', error_context.error_message)
-        normalized = re.sub(r'[\'"][^\'\"]*[\'"]', 'STR', normalized)
+        normalized = re.sub(r'["\'][^"\']*["\']', 'STR', normalized)
 
         return f"{error_context.category.name}:{normalized}"
 
@@ -803,7 +327,7 @@ class EnhancedErrorNotifier:
 
             if self.enable_html:
                 body = EmailTemplate.create_error_summary_html(
-                    [error_context],
+                    [error_context], 
                     {'total_errors': 1, 'critical_count': 1, 'errors_per_hour': 0,
                      'top_category': error_context.category.value},
                     error_context.timestamp - timedelta(seconds=1),
@@ -819,10 +343,10 @@ class EnhancedErrorNotifier:
                 )
 
             await asyncio.to_thread(self._send_email, subject, body)
-            # Also send to Discord if configured
-            if self.bot_instance and log_channel_id:
+            if self.bot_instance:
                 await _send_discord_alert(self.bot_instance, error_context)
-            print("🚨 Sent immediate critical alert")
+            print(f"🚨 Sent immediate critical alert")
+
         except Exception as e:
             print(f"❌ Failed to send immediate alert: {e}")
 
@@ -1003,13 +527,13 @@ class EnhancedErrorNotifier:
             print(f"❌ Failed to send email (attempt {self.consecutive_failures}): {e}")
 
             if self.consecutive_failures >= self.max_failures:
-                print("🚫 Maximum email failures reached. Disabling email notifications temporarily.")
+                print(f"🚫 Maximum email failures reached. Disabling email notifications temporarily.")
 
-    async def start_loop(self, bot_instance: commands.Bot):
+    async def start_loop(self):
         """Enhanced background loop with comprehensive error processing"""
-        self.task = asyncio.create_task(self._loop(bot_instance))
+        self.task = asyncio.create_task(self._loop())
 
-    async def _loop(self, bot_instance: commands.Bot):
+    async def _loop(self):
         print(f"🔄 Starting enhanced error notification loop (interval: {self.interval}s)")
 
         while True:
@@ -1023,7 +547,7 @@ class EnhancedErrorNotifier:
 
                 # Skip if too many consecutive failures
                 if self.consecutive_failures >= self.max_failures:
-                    print("⏭️ Skipping email send due to consecutive failures")
+                    print(f"⏭️ Skipping email send due to consecutive failures")
                     self.errors.clear()
                     self.error_counter.clear()
                     continue
@@ -1146,87 +670,54 @@ class EnhancedErrorNotifier:
 
 
 # For backward compatibility, create an alias
-ErrorNotifier = EnhancedErrorNotifier
+ErrorNotifier = ErrorReporter
 
 
-# Example usage and test function
-async def test_enhanced_notifier():
-    """Test function demonstrating the enhanced features"""
-    print("🧪 Testing Enhanced Error Notifier...")
+class ReportingHandler(logging.Handler):
+    """
+    A logging handler that sends records to the ErrorReporter.
+    """
+    def __init__(self, notifier: ErrorReporter):
+        super().__init__()
+        self.notifier = notifier
 
-    # Initialize with enhanced features
-    notifier = EnhancedErrorNotifier(
-        email=os.getenv("EMAIL"),
-        app_password=os.getenv("PASSWORD"),
-        bot_instance=None,
-        interval=30,  # Shorter for testing
-        enable_html=True,
-        enable_attachments=True,
-        severity_threshold=Severity.INFO
-    )
+    def emit(self, record: logging.LogRecord):
+        """
+        Processes a log record and sends it to the notifier if it meets the criteria.
 
-    # Test various error types
-    test_errors = [
-        {
-            'error': 'Database connection timeout after 30 seconds',
-            'guild_id': '123456789',
-            'command': 'balance',
-            'additional_data': {'timeout': 30, 'retry_count': 3}
-        },
-        {
-            'error': 'Discord API rate limit exceeded: 429 Too Many Requests',
-            'user_id': '987654321',
-            'channel_id': '555666777',
-        },
-        {
-            'error': 'Invalid user permission for admin command',
-            'guild_id': '123456789',
-            'user_id': '111222333',
-            'command': 'ban'
-        },
-        {
-            'error': 'MongoDB connection lost - attempting reconnection',
-            'override_severity': Severity.CRITICAL,
-            'override_category': ErrorCategory.DATABASE
-        },
-        {
-            'error': 'Command parsing failed: missing required argument',
-            'command': 'shop buy',
-            'additional_data': {'args': ['buy'], 'expected': ['buy', 'item_name']}
-        }
-    ]
+        Args:
+            record: The log record to process.
+        """
+        # We only want to report ERROR and CRITICAL messages
+        if record.levelno < logging.ERROR:
+            return
 
-    # Log test errors
-    for i, test_error in enumerate(test_errors):
-        error_msg = test_error.pop('error')
-        notifier.log_error(error_msg, **test_error)
-        print(f"✅ Logged test error {i + 1}")
-        await asyncio.sleep(0.1)  # Small delay between errors
+        stack_trace = None
+        if record.exc_info:
+            stack_trace = ''.join(traceback.format_exception(*record.exc_info))
+        elif record.stack_info:
+            stack_trace = record.stack_info
 
-    # Print statistics
-    stats = notifier.get_statistics()
-    print(f"📊 Current statistics: {json.dumps(stats, indent=2)}")
+        # Map logging level to our custom severity
+        severity = Severity.HIGH  # Default for ERROR level
+        if record.levelno >= logging.CRITICAL:
+            severity = Severity.CRITICAL
 
-    print("🧪 Test complete - errors logged and ready for processing")
+        # Attempt to extract additional context if available on the record
+        # This allows for richer error reports if context is added via filters or adapters
+        guild_id = getattr(record, 'guild_id', None)
+        user_id = getattr(record, 'user_id', None)
+        channel_id = getattr(record, 'channel_id', None)
+        command = getattr(record, 'command', None)
+        additional_data = getattr(record, 'additional_data', None)
 
-    return notifier
-
-
-# if __name__ == "__main__":
-#     # Run test if executed directly
-#     async def main():
-#         notifier = await test_enhanced_notifier()
-#
-#         # Start the notification loop for a short test
-#         print("🔄 Starting notification loop for 60 seconds...")
-#
-#         try:
-#             # Run the loop for 1 minute for testing
-#             await asyncio.wait_for(notifier.start_loop(), timeout=60.0)
-#         except asyncio.TimeoutError:
-#             print("⏰ Test timeout - stopping")
-#         except KeyboardInterrupt:
-#             print("⌨️ Interrupted by user")
-#
-#
-#     asyncio.run(main())
+        self.notifier.log_error(
+            error=record.getMessage(),
+            stack_trace=stack_trace,
+            override_severity=severity,
+            guild_id=guild_id,
+            user_id=user_id,
+            channel_id=channel_id,
+            command=command,
+            additional_data=additional_data
+        )

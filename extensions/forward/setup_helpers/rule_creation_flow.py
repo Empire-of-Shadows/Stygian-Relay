@@ -1,10 +1,10 @@
 import discord
+import logging
 from typing import Tuple
 
 from ..models.setup_state import SetupState
 from .channel_select import channel_selector
 from .state_manager import state_manager
-from logger.logger_setup import get_logger
 
 
 class RuleCreationFlow:
@@ -13,7 +13,7 @@ class RuleCreationFlow:
     def __init__(self, bot, cog):
         self.bot = bot
         self.cog = cog
-        self.logger = get_logger("RuleCreationFlow", level=20, json_format=False, colored_console=True)
+        self.logger = logging.getLogger(__name__)
 
     async def start_rule_creation(self, interaction: discord.Interaction):
         """
@@ -247,6 +247,15 @@ class RuleCreationFlow:
         """
         source_channel = interaction.guild.get_channel(session.current_rule["source_channel_id"])
         dest_channel = interaction.guild.get_channel(session.current_rule["destination_channel_id"])
+
+        # Check if channels still exist
+        if not source_channel or not dest_channel:
+            await interaction.response.send_message(
+                "❌ One or more selected channels no longer exist. Please restart the setup.",
+                ephemeral=True
+            )
+            return
+
         rule_name = f"Forward from #{source_channel.name} to #{dest_channel.name}"
         session.current_rule["rule_name"] = rule_name
         self.logger.info(f"Auto-generated rule name: '{rule_name}' for guild {interaction.guild_id}")

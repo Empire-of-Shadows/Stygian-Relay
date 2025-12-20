@@ -8,11 +8,12 @@ from discord.ext import tasks
 
 from dotenv import load_dotenv
 
-from logger.logger_setup import get_logger, log_performance, log_context
+import logging
+from logger.log_factory import log_performance, log_context
 
 load_dotenv()
 
-logger = get_logger("idle")
+logger = logging.getLogger("idle")
 
 # You can tweak these to your taste
 ROTATE_MIN_SECONDS = 120  # 2 minutes

@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 
-from logger.logger_setup import get_logger, PerformanceLogger, log_performance, log_context
+import logging
+from logger.log_factory import PerformanceLogger, log_performance, log_context
 from .exceptions import DatabaseConnectionError, DatabaseOperationError
 from .constants import REQUIRED_COLLECTIONS
 
@@ -15,7 +16,7 @@ from .constants import REQUIRED_COLLECTIONS
 load_dotenv()
 MONGODB_URI = os.getenv("MONGODB_URI")
 
-logger = get_logger("DatabaseManager", level=20, json_format=False, colored_console=True)
+logger = logging.getLogger("DatabaseManager")
 
 
 class DatabaseCore:

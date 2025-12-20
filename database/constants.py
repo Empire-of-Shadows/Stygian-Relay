@@ -14,7 +14,8 @@ REQUIRED_COLLECTIONS = {
     'rate_limits',
     'bot_settings',
     'user_permissions',
-    'premium_subscriptions'
+    'premium_subscriptions',
+    'premium_codes'
 }
 
 # Default bot settings

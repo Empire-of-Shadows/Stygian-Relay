@@ -1,14 +1,14 @@
 from typing import List, Optional, Tuple
 import discord
 
-from logger.logger_setup import get_logger
+import logging
 
 
 class ChannelSelector:
     """Handles interactive channel selection."""
 
     def __init__(self):
-        self.logger = get_logger("ChannelSelector", level=20, json_format=False, colored_console=True)
+        self.logger = logging.getLogger("ChannelSelector")
 
 
     async def create_channel_select_menu(self, guild: discord.Guild,

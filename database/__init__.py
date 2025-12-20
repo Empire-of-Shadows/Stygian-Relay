@@ -1,4 +1,7 @@
+import logging
 from typing import Dict, Any
+
+logger = logging.getLogger("Database")
 
 from .core import DatabaseCore
 from .guild_manager import GuildManager
@@ -16,8 +19,6 @@ async def ensure_database_connection() -> bool:
     This function should be called before any database operation.
     """
     if not db_core.is_healthy():
-        from logger.logger_setup import get_logger
-        logger = get_logger("Database", level=20, json_format=False, colored_console=True)
         logger.info("Database not healthy, attempting to initialize/reconnect...")
         return await db_core.initialize()
     return True
