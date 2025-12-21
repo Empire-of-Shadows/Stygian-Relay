@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from datetime import datetime, timedelta, timezone
 
 from database import db_core
@@ -85,7 +85,7 @@ class SetupStateManager:
 
             return session
 
-    async def update_session(self, guild_id: int, updates: Dict[str, any]) -> bool:
+    async def update_session(self, guild_id: int, updates: Dict[str, Any]) -> bool:
         """
         Update a setup session with new data.
         This method is called to update the setup session with new data.
@@ -93,6 +93,11 @@ class SetupStateManager:
         async with self._lock:
             session = self.active_sessions.get(guild_id)
             if not session:
+                return False
+
+            # Check if session has expired
+            if session.is_expired():
+                await self.cleanup_session(guild_id)
                 return False
 
             # Apply updates
@@ -228,7 +233,7 @@ class SetupStateManager:
             # Find active session for this guild
             session_data = await collection.find_one({
                 "guild_id": str(guild_id),
-                "expires_at": {"$gt": datetime.utcnow()}
+                "expires_at": {"$gt": datetime.now(timezone.utc)}
             })
 
             if session_data:

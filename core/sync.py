@@ -8,11 +8,12 @@ from tabulate import tabulate
 from dotenv import load_dotenv
 
 from bot import bot
-from logger.logger_setup import get_logger, log_performance
+from logger.log_factory import log_performance
+import logging
 
 load_dotenv()
 
-logger = get_logger("sync")
+logger = logging.getLogger("sync")
 
 # Directories to scan for cogs (Python packages/modules)
 COG_DIRECTORIES: List[str] = ["extensions"]

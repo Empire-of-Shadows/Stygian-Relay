@@ -236,14 +236,22 @@ async def ping_command(ctx):
     await ctx.send(embed=embed)
 
 
-@bot.command(name="sync")
+@bot.command(name="syncl")
 @commands.is_owner()
-async def sync_commands(ctx):
-    """Syncs slash commands globally. Owner only."""
+async def sync_commands(ctx, guild_id: int = None):
+    """Syncs slash commands globally or to a specific guild. Owner only."""
     try:
-        synced = await bot.tree.sync()
-        await ctx.send(f"✅ Successfully synced {len(synced)} slash commands globally!")
-        print(f"Synced {len(synced)} slash commands globally")
+        if guild_id:
+            # Sync to specific guild
+            guild = discord.Object(id=guild_id)
+            synced = await bot.tree.sync(guild=guild)
+            await ctx.send(f"✅ Successfully synced {len(synced)} slash commands to guild {guild_id}!")
+            print(f"Synced {len(synced)} slash commands to guild {guild_id}")
+        else:
+            # Sync globally
+            synced = await bot.tree.sync()
+            await ctx.send(f"✅ Successfully synced {len(synced)} slash commands globally!")
+            print(f"Synced {len(synced)} slash commands globally")
 
         if synced:
             command_names = [cmd.name for cmd in synced]

@@ -8,7 +8,7 @@ import json
 from discord.ext import commands
 from discord import app_commands
 
-from logger.logger_setup import get_logger
+import logging
 from .setup_helpers.state_manager import state_manager
 from .setup_helpers.button_manager import button_manager
 from .setup_helpers.permission_check import permission_checker
@@ -19,7 +19,17 @@ from .models.setup_state import SetupState
 from .views import CustomView
 from database import guild_manager
 
-logger = get_logger("setup")
+logger = logging.getLogger(__name__)
+
+
+def normalize_channel_id(channel_id):
+    """
+    Normalize channel ID from various formats (int, str, BSON) to int.
+    Handles MongoDB BSON format: {"$numberLong": "123456"}
+    """
+    if isinstance(channel_id, dict) and "$numberLong" in channel_id:
+        return int(channel_id["$numberLong"])
+    return int(channel_id) if channel_id else None
 
 
 class RuleDeleteView(CustomView):
@@ -300,85 +310,17 @@ class RuleSelectView(CustomView):
             await interaction.followup.send("❌ Could not find the selected rule.", ephemeral=True)
             return
 
-        session = await state_manager.create_session(str(interaction.guild_id), interaction.user.id)
+        session = await state_manager.create_session(interaction.guild_id, interaction.user.id)
         session.current_rule = selected_rule
         session.is_editing = True
 
-        await state_manager.update_session(str(interaction.guild_id), {
+        await state_manager.update_session(interaction.guild_id, {
             "current_rule": session.current_rule,
             "is_editing": True,
             "step": "rule_preview"
         })
 
         await self.cog.rule_creation_flow.show_rule_preview_step(interaction, session)
-
-
-class FormattingSettingsView(CustomView):
-    """
-    A view for editing formatting-specific settings of a rule, like the style.
-    This view is used when the user clicks the "Formatting" button in the
-    `RuleSettingsView`.
-    """
-    def __init__(self, session: SetupState, cog: 'ForwardCog'):
-        super().__init__(timeout=300)
-        self.session = session
-        self.cog = cog
-
-        settings = self.session.current_rule.setdefault("settings", {})
-        formatting_settings = settings.setdefault("formatting", {})
-        current_style = formatting_settings.get("forward_style", "native")
-        
-        style_select = discord.ui.Select(
-            placeholder="Choose a forwarding style...",
-            options=[
-                discord.SelectOption(label="Native Style", value="native", description="Closest to Discord's forward feature.", default=current_style == "native"),
-                discord.SelectOption(label="Component v2", value="c_v2", description="A modern, structured layout.", default=current_style == "c_v2"),
-                discord.SelectOption(label="Embed", value="embed", description="A standard Discord embed.", default=current_style == "embed"),
-                discord.SelectOption(label="Plain Text", value="text", description="A simple text-based message.", default=current_style == "text"),
-            ],
-            row=0
-        )
-        style_select.callback = self.style_select_callback
-        self.add_item(style_select)
-
-        back_button = discord.ui.Button(label="Back to Main Settings", style=discord.ButtonStyle.primary, row=4) # Type: Ignore
-        back_button.callback = self.back_to_main_settings_callback
-        self.add_item(back_button)
-
-    def create_embed(self) -> discord.Embed:
-        """Creates the embed for the formatting settings view."""
-        embed = discord.Embed(title="🎨 Edit Formatting", description="Adjust how forwarded messages appear.")
-        style = self.session.current_rule.get("settings", {}).get("formatting", {}).get("forward_style", "native")
-        embed.add_field(name="Current Style", value=style)
-        return embed
-
-    async def style_select_callback(self, interaction: discord.Interaction):
-        """
-        Callback for when a style is selected. It updates the rule's
-        formatting style in the user's session.
-        """
-        select = interaction.data['values'][0]
-        
-        settings = self.session.current_rule.setdefault("settings", {})
-        formatting_settings = settings.setdefault("formatting", {})
-        formatting_settings["forward_style"] = select
-
-        await state_manager.update_session(str(interaction.guild_id), {
-            "current_rule": self.session.current_rule
-        })
-
-        view = FormattingSettingsView(self.session, self.cog)
-        embed = view.create_embed()
-        await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
-
-    async def back_to_main_settings_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the back button. It returns the user to the main
-        rule settings view.
-        """
-        view = RuleSettingsView(self.session, self.cog)
-        embed = await view.create_settings_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
 
 
 class EditChannelsView(CustomView):
@@ -414,19 +356,15 @@ class EditChannelsView(CustomView):
     def create_embed(self, guild: discord.Guild) -> discord.Embed:
         """Creates the embed for the channel editing view."""
         embed = discord.Embed(title="🔄 Edit Channels", description="Select new source and destination channels for this rule.")
-        
-        source_id = self.session.current_rule.get("source_channel_id")
-        if isinstance(source_id, dict) and "$numberLong" in source_id:
-            source_id = int(source_id["$numberLong"])
-        source_ch = guild.get_channel(int(source_id)) if source_id else None
+
+        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
+        source_ch = guild.get_channel(source_id) if source_id else None
         embed.add_field(name="Current Source", value=source_ch.mention if source_ch else "Not Set", inline=True)
 
-        dest_id = self.session.current_rule.get("destination_channel_id")
-        if isinstance(dest_id, dict) and "$numberLong" in dest_id:
-            dest_id = int(dest_id["$numberLong"])
-        dest_ch = guild.get_channel(int(dest_id)) if dest_id else None
+        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
+        dest_ch = guild.get_channel(dest_id) if dest_id else None
         embed.add_field(name="Current Destination", value=dest_ch.mention if dest_ch else "Not Set", inline=True)
-        
+
         return embed
 
     async def source_select_callback(self, interaction: discord.Interaction):
@@ -442,7 +380,7 @@ class EditChannelsView(CustomView):
             return
 
         self.session.current_rule["source_channel_id"] = channel_id
-        await state_manager.update_session(str(interaction.guild_id), {"current_rule": self.session.current_rule})
+        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
         
         view = EditChannelsView(self.session, self.cog)
         embed = view.create_embed(interaction.guild)
@@ -461,7 +399,7 @@ class EditChannelsView(CustomView):
             return
 
         self.session.current_rule["destination_channel_id"] = channel_id
-        await state_manager.update_session(str(interaction.guild_id), {"current_rule": self.session.current_rule})
+        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
 
         view = EditChannelsView(self.session, self.cog)
         embed = view.create_embed(interaction.guild)
@@ -499,10 +437,6 @@ class RuleSettingsView(CustomView):
         active_button.callback = self.toggle_active_callback
         self.add_item(active_button)
 
-        formatting_button = discord.ui.Button(label="Formatting", style=discord.ButtonStyle.secondary, emoji="🎨") # Type: Ignore
-        formatting_button.callback = self.edit_formatting_callback
-        self.add_item(formatting_button)
-
         save_button = discord.ui.Button(label="Save and Exit", style=discord.ButtonStyle.success, row=4) # Type: Ignore
         save_button.callback = self.save_and_exit_callback
         self.add_item(save_button)
@@ -520,19 +454,14 @@ class RuleSettingsView(CustomView):
         source_channel_mention = "Not Set"
         dest_channel_mention = "Not Set"
         if guild:
-            source_id = rule.get("source_channel_id")
+            source_id = normalize_channel_id(rule.get("source_channel_id"))
             if source_id:
-                # MongoDB's BSON format for 64-bit integers may be a dict, so we handle it here.
-                if isinstance(source_id, dict) and "$numberLong" in source_id:
-                    source_id = int(source_id["$numberLong"])
-                ch = guild.get_channel(int(source_id))
+                ch = guild.get_channel(source_id)
                 source_channel_mention = ch.mention if ch else f"ID: {source_id} (Not Found)"
-            
-            dest_id = rule.get("destination_channel_id")
+
+            dest_id = normalize_channel_id(rule.get("destination_channel_id"))
             if dest_id:
-                if isinstance(dest_id, dict) and "$numberLong" in dest_id:
-                    dest_id = int(dest_id["$numberLong"])
-                ch = guild.get_channel(int(dest_id))
+                ch = guild.get_channel(dest_id)
                 dest_channel_mention = ch.mention if ch else f"ID: {dest_id} (Not Found)"
 
         embed = discord.Embed(
@@ -556,7 +485,7 @@ class RuleSettingsView(CustomView):
         
         async def modal_callback(modal_interaction: discord.Interaction, name: str):
             self.session.current_rule["rule_name"] = name
-            await state_manager.update_session(str(modal_interaction.guild_id), {"current_rule": self.session.current_rule})
+            await state_manager.update_session(modal_interaction.guild_id, {"current_rule": self.session.current_rule})
             
             view = RuleSettingsView(self.session, self.cog)
             embed = await view.create_settings_embed(modal_interaction.guild)
@@ -580,20 +509,11 @@ class RuleSettingsView(CustomView):
         """
         current_status = self.session.current_rule.get("is_active", True)
         self.session.current_rule["is_active"] = not current_status
-        await state_manager.update_session(str(interaction.guild_id), {"current_rule": self.session.current_rule})
+        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
 
         new_view = RuleSettingsView(self.session, self.cog)
         embed = await new_view.create_settings_embed(interaction.guild)
         await interaction.response.edit_message(embed=embed, view=new_view) # Type: Ignore
-
-    async def edit_formatting_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the edit formatting button. It displays the
-        `FormattingSettingsView`.
-        """
-        view = FormattingSettingsView(self.session, self.cog)
-        embed = view.create_embed()
-        await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
 
     async def back_to_preview_callback(self, interaction: discord.Interaction):
         """
@@ -627,14 +547,12 @@ class ForwardCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.logger = None
+        self.logger = logging.getLogger("Forward")
         self.guild_manager = guild_manager
         self.rule_creation_flow = RuleCreationFlow(bot, self)
 
     async def cog_load(self):
-        """Initializes the logger for this cog when it's loaded."""
-        from logger.logger_setup import get_logger
-        self.logger = get_logger("Forward", level=20, json_format=False, colored_console=True)
+        """Called when the cog is loaded."""
         self.logger.info("Forward cog loaded")
 
     @forward.command(name="edit", description="Edit an existing forwarding rule.")
@@ -645,7 +563,7 @@ class ForwardCog(commands.Cog):
         This command is the entry point for editing rules.
         """
         try:
-            rules = await self.guild_manager.get_all_rules(str(interaction.guild_id))
+            rules = await self.guild_manager.get_all_rules(interaction.guild_id)
 
             if not rules:
                 await interaction.response.send_message( # Type: Ignore
@@ -683,15 +601,39 @@ class ForwardCog(commands.Cog):
                 )
                 return
 
-            session = await state_manager.create_session(str(interaction.guild_id), interaction.user.id)
+            # Check if guild has reached rule limit (premium-aware)
+            guild_limits = await guild_manager.get_guild_limits(str(interaction.guild_id))
+            current_rules = await guild_manager.get_guild_rules(str(interaction.guild_id))
+            active_rules = [r for r in current_rules if r.get("is_active", False)]
+
+            if len(active_rules) >= guild_limits.get("max_rules", 3):
+                is_premium = guild_limits.get("is_premium", False)
+                max_rules = guild_limits.get("max_rules", 3)
+
+                if is_premium:
+                    await interaction.response.send_message( # Type: Ignore
+                        f"❌ You have reached the maximum number of rules ({max_rules}) for your premium tier.\n"
+                        "Please delete an existing rule before creating a new one.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message( # Type: Ignore
+                        f"❌ You have reached the maximum number of rules ({max_rules}) for the free tier.\n"
+                        f"Upgrade to premium to create up to 20 rules!\n\n"
+                        "Use `/premium-status` to learn more about premium benefits.",
+                        ephemeral=True
+                    )
+                return
+
+            session = await state_manager.create_session(interaction.guild_id, interaction.user.id)
             
             # Pre-fill existing settings
-            guild_settings = await self.guild_manager.get_guild_settings(str(interaction.guild_id))
+            guild_settings = await self.guild_manager.get_guild_settings(interaction.guild_id)
             if guild_settings:
                 log_channel_id = guild_settings.get("master_log_channel_id")
                 if log_channel_id:
                     session.master_log_channel = log_channel_id
-                    await state_manager.update_session(str(interaction.guild_id), {"master_log_channel_id": log_channel_id})
+                    await state_manager.update_session(interaction.guild_id, {"master_log_channel_id": log_channel_id})
 
             await self.show_welcome_step(interaction, session)
 
@@ -991,7 +933,7 @@ class ForwardCog(commands.Cog):
             else:
                 raise e
 
-        await state_manager.update_session(str(interaction.guild_id), {
+        await state_manager.update_session(interaction.guild_id, {
             "step": "welcome",
             "setup_message_id": None,  # Will be set if we can get message ID
             "setup_channel_id": interaction.channel_id
@@ -1044,7 +986,7 @@ class ForwardCog(commands.Cog):
             else:
                 raise e
 
-        await state_manager.update_session(str(interaction.guild_id), {
+        await state_manager.update_session(interaction.guild_id, {
             "step": "permissions"
         })
 
@@ -1213,7 +1155,7 @@ class ForwardCog(commands.Cog):
             else:
                 raise e
 
-        await state_manager.update_session(str(interaction.guild_id), {
+        await state_manager.update_session(interaction.guild_id, {
             "step": "log_channel"
         })
 
@@ -1231,7 +1173,7 @@ class ForwardCog(commands.Cog):
                 # If already acknowledged, we can't defer, so just proceed
                 self.logger.debug("Interaction already acknowledged, proceeding without defer")
 
-            session = await state_manager.get_session(str(interaction.guild_id))
+            session = await state_manager.get_session(interaction.guild_id)
             if not session:
                 await interaction.followup.send("Session expired. Please run `/setup` again.", ephemeral=True)
                 return
@@ -1251,10 +1193,10 @@ class ForwardCog(commands.Cog):
 
             # Update session
             session.master_log_channel = channel_id
-            await state_manager.update_session(str(interaction.guild_id), {"master_log_channel_id": channel_id})
+            await state_manager.update_session(interaction.guild_id, {"master_log_channel_id": channel_id})
 
             # Persist to database
-            await self.guild_manager.update_guild_settings(str(interaction.guild_id),
+            await self.guild_manager.update_guild_settings(interaction.guild_id,
                                                            {"master_log_channel_id": channel_id})
 
             # Send confirmation message
@@ -1267,15 +1209,15 @@ class ForwardCog(commands.Cog):
             self.logger.error(f"Error handling log channel select: {e}", exc_info=True)
             try:
                 await interaction.followup.send("❌ An error occurred. Please try again.", ephemeral=True)
-            except:
-                pass  # If we can't send followup, just log the error
+            except (discord.HTTPException, discord.NotFound, discord.Forbidden) as followup_error:
+                self.logger.debug(f"Failed to send error followup message: {followup_error}")
 
     async def _handle_log_channel_continue(self, interaction: discord.Interaction):
         """Handle continue button in log channel step"""
         try:
             await interaction.response.defer(ephemeral=True) # Type: Ignore
 
-            session = await state_manager.get_session(str(interaction.guild_id))
+            session = await state_manager.get_session(interaction.guild_id)
             if not session:
                 await interaction.followup.send("Session expired. Please run `/setup` again.", ephemeral=True)
                 return
@@ -1360,7 +1302,7 @@ class ForwardCog(commands.Cog):
             else:
                 raise e
 
-        await state_manager.update_session(str(interaction.guild_id), {
+        await state_manager.update_session(interaction.guild_id, {
             "step": "first_rule"
         })
 
@@ -1421,10 +1363,20 @@ class ForwardCog(commands.Cog):
         async def modal_callback(modal_interaction: discord.Interaction, name: str):
             try:
                 self.logger.info(f"Rule name modal submitted: '{name}' for guild {modal_interaction.guild_id}")
+
+                # Validate session and current_rule exist
+                if not session or not session.current_rule:
+                    self.logger.error(f"Session or current_rule is None in modal callback for guild {modal_interaction.guild_id}")
+                    await modal_interaction.followup.send(
+                        "❌ Session expired. Please run `/forward setup` again.",
+                        ephemeral=True
+                    )
+                    return
+
                 session.current_rule["rule_name"] = name
                 session.current_rule["step"] = "rule_preview"
 
-                await state_manager.update_session(str(modal_interaction.guild_id), {
+                await state_manager.update_session(modal_interaction.guild_id, {
                     "current_rule": session.current_rule
                 })
                 self.logger.debug(f"Session updated with rule name: {name}")
@@ -1468,7 +1420,7 @@ class ForwardCog(commands.Cog):
             if not interaction.response.is_done(): # Type: Ignore
                 await interaction.response.defer(ephemeral=True) # Type: Ignore
 
-            session = await state_manager.get_session(str(interaction.guild_id))
+            session = await state_manager.get_session(interaction.guild_id)
             if not session:
                 await interaction.followup.send("Session expired. Please run `/setup` again.", ephemeral=True)
                 return
@@ -1497,7 +1449,7 @@ class ForwardCog(commands.Cog):
             return
 
         try:
-            session = await state_manager.get_session(str(interaction.guild_id))
+            session = await state_manager.get_session(interaction.guild_id)
             if not session:
                 self.logger.warning(f"No session found for guild {interaction.guild_id}")
                 # If no session, we can't defer, so send ephemeral message directly
@@ -1587,9 +1539,9 @@ class ForwardCog(commands.Cog):
                 await self.show_rule_edit_step(interaction, session)
             elif custom_id == "rule_start_over":
                 self.logger.info(f"Restarting rule creation for guild {interaction.guild_id}")
-                await state_manager.cleanup_session(str(interaction.guild_id))
+                await state_manager.cleanup_session(interaction.guild_id)
                 session.current_rule = None
-                await state_manager.update_session(str(interaction.guild_id), {"current_rule": None})
+                await state_manager.update_session(interaction.guild_id, {"current_rule": None})
                 await self.rule_creation_flow.start_rule_creation(interaction)
 
             # --- Navigation (Back/Cancel) ---
@@ -1642,7 +1594,7 @@ class ForwardCog(commands.Cog):
             if not interaction.response.is_done(): # Type: Ignore
                 await interaction.response.defer(ephemeral=True) # Type: Ignore
 
-            session = await state_manager.get_session(str(interaction.guild_id))
+            session = await state_manager.get_session(interaction.guild_id)
             if not session:
                 await interaction.followup.send("Setup session expired. Please run `/setup` again.", ephemeral=True)
                 return
@@ -1695,7 +1647,7 @@ class ForwardCog(commands.Cog):
         rule_id = updated_rule["rule_id"]
 
         # Fetch all rules and find the original one for logging
-        all_rules = await self.guild_manager.get_all_rules(str(interaction.guild_id))
+        all_rules = await self.guild_manager.get_all_rules(interaction.guild_id)
         original_rule = None
         if all_rules:
             for r in all_rules:
@@ -1741,7 +1693,7 @@ class ForwardCog(commands.Cog):
             description=description,
             color=discord.Color.green()
         )
-        await state_manager.cleanup_session(str(interaction.guild_id))
+        await state_manager.cleanup_session(interaction.guild_id)
 
         try:
             await interaction.edit_original_response(embed=embed, view=None)
@@ -1773,7 +1725,7 @@ class ForwardCog(commands.Cog):
         This method is called when the user clicks a cancel button in the setup
         wizard.
         """
-        await state_manager.cleanup_session(str(interaction.guild_id))
+        await state_manager.cleanup_session(interaction.guild_id)
 
         embed = discord.Embed(
             title="❌ Setup Cancelled",

@@ -6,8 +6,9 @@ import logging
 from dotenv import load_dotenv
 from bot import get_bot, set_error_notifier
 from core.sync import load_cogs
-from logger.logger_setup import setup_application_logging, EmailErrorHandler
-from logger.log_dispacher import EnhancedErrorNotifier, Severity
+from logger.log_config import setup_logging
+from logger.error_reporter import ErrorReporter
+from logger.reporting_types import Severity
 from status.idle import rotate_status
 from database import db_core, guild_manager
 
@@ -23,36 +24,16 @@ LOG_DIR = "log"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # --- Setup Logging ---
-app_logger = setup_application_logging(
-    app_name="StygianRelay",
-    log_level=logging.INFO,
-    log_dir=LOG_DIR,
-    enable_performance_logging=True
-)
+app_logger = logging.getLogger()
 
 bot = get_bot()
 
-error_notifier = None
-if EMAIL_ADDRESS and EMAIL_PASSWORD:
-    error_notifier = EnhancedErrorNotifier(
-        email=EMAIL_ADDRESS,
-        app_password=EMAIL_PASSWORD,
-        bot_instance=bot,
-        interval=300,  # Send error reports every 5 minutes
-        enable_html=True,
-        enable_attachments=True,
-        severity_threshold=Severity.LOW  # Report all errors
-    )
-    set_error_notifier(error_notifier)
-
-    from logger.logger_setup import add_global_handler
-    email_handler = EmailErrorHandler(error_notifier)
-    add_global_handler(email_handler)
-
-    app_logger.info("Email error notification enabled.")
-else:
-    set_error_notifier(None)
-    app_logger.warning("EMAIL or PASSWORD not set in .env. Email error notification disabled.")
+error_notifier = setup_logging(
+    app_name="StygianRelay",
+    bot_instance=bot,
+    default_level=logging.INFO
+)
+set_error_notifier(error_notifier)
 
 
 async def initialize_database():
@@ -104,7 +85,7 @@ async def main():
 
         if error_notifier:
             # Start the error notification loop after the event loop is running
-            asyncio.create_task(error_notifier.start_loop(bot))
+            asyncio.create_task(error_notifier.start_loop())
             app_logger.info("Error notification loop started.")
 
         await load_cogs()
@@ -172,7 +153,9 @@ def handle_exception(loop, context):
 
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
+    # Create a new event loop to avoid deprecation warning in Python 3.10+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     loop.set_exception_handler(handle_exception)
 
     try:
