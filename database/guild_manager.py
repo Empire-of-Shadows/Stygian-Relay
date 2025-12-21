@@ -276,8 +276,19 @@ class GuildManager:
         return count
 
     async def is_premium_guild(self, guild_id: str) -> bool:
-        """Check if a guild has an active premium subscription."""
+        """Check if a guild has an active premium subscription (including lifetime)."""
         collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
+
+        # Check for lifetime subscription
+        lifetime = await collection.find_one({
+            "guild_id": guild_id,
+            "is_active": True,
+            "is_lifetime": True
+        })
+        if lifetime:
+            return True
+
+        # Check for time-limited subscription
         premium = await collection.find_one({
             "guild_id": guild_id,
             "is_active": True,
@@ -354,16 +365,16 @@ class GuildManager:
 
     # ==================== Premium Code Management ====================
 
-    async def generate_premium_code(self, duration_days: int = 30, tier: str = "premium",
-                                    created_by: str = None, guild_id: str = None) -> Dict[str, Any]:
+    async def generate_premium_code(self, duration_days: int = 30,
+                                    created_by: str = None, guild_id: str = None, is_lifetime: bool = False) -> Dict[str, Any]:
         """
         Generate a premium activation code.
 
         Args:
-            duration_days: How long the premium subscription lasts (default: 30 days)
-            tier: Premium tier ("premium" or "enterprise")
+            duration_days: How long the premium subscription lasts (default: 30 days, ignored if is_lifetime=True)
             created_by: User ID who created the code
             guild_id: Optional guild ID to restrict code to specific guild
+            is_lifetime: If True, creates a lifetime subscription code (default: False)
 
         Returns:
             Dictionary with code details including the activation code
@@ -382,8 +393,8 @@ class GuildManager:
 
         code_data = {
             "code": activation_code,
-            "tier": tier,
-            "duration_days": duration_days,
+            "duration_days": duration_days if not is_lifetime else None,
+            "is_lifetime": is_lifetime,
             "is_redeemed": False,
             "created_by": created_by,
             "created_at": datetime.now(timezone.utc),
@@ -396,7 +407,8 @@ class GuildManager:
 
         try:
             await collection.insert_one(code_data)
-            logger.info(f"✅ Generated premium code: {activation_code} (tier: {tier}, duration: {duration_days} days)")
+            duration_str = "LIFETIME" if is_lifetime else f"{duration_days} days"
+            logger.info(f"✅ Generated premium code: {activation_code} (duration: {duration_str})")
             return code_data
         except Exception as e:
             logger.error(f"❌ Failed to generate premium code: {e}", exc_info=True)
@@ -433,11 +445,18 @@ class GuildManager:
         if code_data.get("restricted_to_guild") and code_data["restricted_to_guild"] != guild_id:
             raise ValueError("This code is restricted to a different server")
 
-        # Calculate expiration date
-        duration_days = code_data.get("duration_days", 30)
+        # Check if this is a lifetime code
+        is_lifetime = code_data.get("is_lifetime", False)
         activated_at = datetime.now(timezone.utc)
         from datetime import timedelta
-        expires_at = activated_at + timedelta(days=duration_days)
+
+        # Calculate expiration date (None for lifetime codes)
+        if is_lifetime:
+            expires_at = None
+            duration_days = None
+        else:
+            duration_days = code_data.get("duration_days", 30)
+            expires_at = activated_at + timedelta(days=duration_days)
 
         # Mark code as redeemed
         await codes_collection.update_one(
@@ -454,34 +473,50 @@ class GuildManager:
         existing_sub = await subs_collection.find_one({"guild_id": guild_id, "is_active": True})
 
         if existing_sub:
-            # Extend existing subscription
-            current_expires = existing_sub.get("expires_at", datetime.now(timezone.utc))
-
-            # Ensure current_expires is timezone-aware (MongoDB returns naive datetimes)
-            if current_expires and current_expires.tzinfo is None:
-                current_expires = current_expires.replace(tzinfo=timezone.utc)
-
-            # If current subscription is still active, add to it
-            if current_expires and current_expires > activated_at:
-                new_expires = current_expires + timedelta(days=duration_days)
+            # If redeeming a lifetime code, upgrade to lifetime
+            if is_lifetime:
+                await subs_collection.update_one(
+                    {"guild_id": guild_id, "is_active": True},
+                    {"$set": {
+                        "expires_at": None,
+                        "is_lifetime": True,
+                        "updated_at": activated_at
+                    }}
+                )
+                logger.info(f"✅ Upgraded to LIFETIME premium subscription for guild {guild_id}")
             else:
-                new_expires = expires_at
+                # Extend existing subscription
+                current_expires = existing_sub.get("expires_at", datetime.now(timezone.utc))
+                existing_is_lifetime = existing_sub.get("is_lifetime", False)
 
-            await subs_collection.update_one(
-                {"guild_id": guild_id, "is_active": True},
-                {"$set": {
-                    "expires_at": new_expires,
-                    "tier": code_data.get("tier", "premium"),
-                    "updated_at": activated_at
-                }}
-            )
-            logger.info(f"✅ Extended premium subscription for guild {guild_id} until {new_expires}")
+                # Don't downgrade from lifetime to time-limited
+                if existing_is_lifetime:
+                    raise ValueError("This server already has a lifetime subscription and cannot be downgraded")
+
+                # Ensure current_expires is timezone-aware (MongoDB returns naive datetimes)
+                if current_expires and current_expires.tzinfo is None:
+                    current_expires = current_expires.replace(tzinfo=timezone.utc)
+
+                # If current subscription is still active, add to it
+                if current_expires and current_expires > activated_at:
+                    new_expires = current_expires + timedelta(days=duration_days)
+                else:
+                    new_expires = expires_at
+
+                await subs_collection.update_one(
+                    {"guild_id": guild_id, "is_active": True},
+                    {"$set": {
+                        "expires_at": new_expires,
+                        "updated_at": activated_at
+                    }}
+                )
+                logger.info(f"✅ Extended premium subscription for guild {guild_id} until {new_expires}")
         else:
             # Create new subscription
             subscription_data = {
                 "guild_id": guild_id,
-                "tier": code_data.get("tier", "premium"),
                 "is_active": True,
+                "is_lifetime": is_lifetime,
                 "activated_at": activated_at,
                 "expires_at": expires_at,
                 "activated_by": redeemed_by,
@@ -491,25 +526,34 @@ class GuildManager:
             }
 
             await subs_collection.insert_one(subscription_data)
-            logger.info(f"✅ Created premium subscription for guild {guild_id} until {expires_at}")
-
-        # Update guild settings to reflect premium status
-        await self.update_guild_settings(guild_id, {"premium_tier": code_data.get("tier", "premium")})
+            duration_str = "LIFETIME" if is_lifetime else f"until {expires_at}"
+            logger.info(f"✅ Created premium subscription for guild {guild_id} {duration_str}")
 
         return {
-            "tier": code_data.get("tier", "premium"),
             "expires_at": expires_at,
-            "duration_days": duration_days
+            "duration_days": duration_days,
+            "is_lifetime": is_lifetime
         }
 
     async def get_premium_subscription(self, guild_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get active premium subscription for a guild.
+        Get active premium subscription for a guild (including lifetime).
 
         Returns:
             Subscription data if active, None otherwise
         """
         collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
+
+        # Check for lifetime subscription first
+        subscription = await collection.find_one({
+            "guild_id": guild_id,
+            "is_active": True,
+            "is_lifetime": True
+        })
+        if subscription:
+            return subscription
+
+        # Check for time-limited subscription
         subscription = await collection.find_one({
             "guild_id": guild_id,
             "is_active": True,
@@ -535,7 +579,6 @@ class GuildManager:
         )
 
         if result.modified_count > 0:
-            await self.update_guild_settings(guild_id, {"premium_tier": "free"})
             logger.info(f"✅ Deactivated premium subscription for guild {guild_id}")
             return True
 

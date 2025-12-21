@@ -55,7 +55,8 @@ def setup_logging(app_name: str, bot_instance: Optional[commands.Bot] = None, de
         filename=log_file,
         when="midnight",
         backupCount=5,
-        encoding="utf-8"
+        encoding="utf-8",
+        delay=True
     )
     file_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     file_handler.setFormatter(IndentedFormatter(file_format))

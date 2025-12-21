@@ -46,9 +46,9 @@ class Premium(commands.Cog):
             )
 
             if is_premium and subscription:
-                tier = subscription.get("tier", "premium").capitalize()
                 expires_at = subscription.get("expires_at")
                 activated_at = subscription.get("activated_at")
+                is_lifetime = subscription.get("is_lifetime", False)
 
                 # Ensure datetimes are timezone-aware (MongoDB returns naive datetimes)
                 if expires_at and expires_at.tzinfo is None:
@@ -56,16 +56,17 @@ class Premium(commands.Cog):
                 if activated_at and activated_at.tzinfo is None:
                     activated_at = activated_at.replace(tzinfo=timezone.utc)
 
-                # Calculate days remaining
-                if expires_at:
+                # Display expiration based on whether it's lifetime
+                if is_lifetime:
+                    expires_str = "🌟 **LIFETIME**"
+                elif expires_at:
                     days_remaining = (expires_at - datetime.now(timezone.utc)).days
                     expires_str = f"<t:{int(expires_at.timestamp())}:R> ({days_remaining} days remaining)"
                 else:
                     expires_str = "Unknown"
 
-                embed.add_field(name="Status", value="✅ Active", inline=True)
-                embed.add_field(name="Tier", value=tier, inline=True)
-                embed.add_field(name="Expires", value=expires_str, inline=False)
+                embed.add_field(name="Status", value="✅ Premium Active", inline=True)
+                embed.add_field(name="Expires", value=expires_str, inline=True)
 
                 if activated_at:
                     embed.add_field(
@@ -81,7 +82,6 @@ class Premium(commands.Cog):
                 embed.set_footer(text="Thank you for supporting Stygian Relay!")
             else:
                 embed.add_field(name="Status", value="❌ Free Tier", inline=True)
-                embed.add_field(name="Tier", value="Free", inline=True)
 
                 limits = await guild_manager.get_guild_limits(guild_id)
                 embed.add_field(name="Max Rules", value=str(limits.get("max_rules", 3)), inline=True)
@@ -124,25 +124,33 @@ class Premium(commands.Cog):
             result = await guild_manager.redeem_premium_code(code, guild_id, user_id)
 
             # Create success embed
+            is_lifetime = result.get("is_lifetime", False)
             embed = discord.Embed(
                 title="✅ Premium Activated!",
-                description=f"Successfully activated **{result['tier'].capitalize()}** tier premium!",
+                description="Successfully activated premium for this server!",
                 color=discord.Color.gold()
             )
 
-            expires_at = result.get("expires_at")
-            if expires_at:
-                days = result.get("duration_days", 30)
+            if is_lifetime:
                 embed.add_field(
                     name="Duration",
-                    value=f"{days} days",
+                    value="🌟 **LIFETIME**",
                     inline=True
                 )
-                embed.add_field(
-                    name="Expires",
-                    value=f"<t:{int(expires_at.timestamp())}:R>",
-                    inline=True
-                )
+            else:
+                expires_at = result.get("expires_at")
+                if expires_at:
+                    days = result.get("duration_days", 30)
+                    embed.add_field(
+                        name="Duration",
+                        value=f"{days} days",
+                        inline=True
+                    )
+                    embed.add_field(
+                        name="Expires",
+                        value=f"<t:{int(expires_at.timestamp())}:R>",
+                        inline=True
+                    )
 
             embed.set_footer(text=f"Activated by {interaction.user.name}")
             embed.timestamp = datetime.now(timezone.utc)
@@ -182,20 +190,16 @@ class Premium(commands.Cog):
     @app_commands.command(name="premium-generate", description="[ADMIN] Generate a premium activation code")
     @app_commands.guilds(ADMIN_GUILD_ID)
     @app_commands.describe(
-        duration_days="Duration in days (default: 30)",
-        tier="Premium tier (default: premium)",
-        restrict_guild="Restrict code to this server only (default: False)"
+        duration_days="Duration in days (default: 30, ignored if lifetime=True)",
+        restrict_guild="Restrict code to this server only (default: False)",
+        lifetime="Generate a lifetime premium code (default: False)"
     )
-    @app_commands.choices(tier=[
-        app_commands.Choice(name="Premium", value="premium"),
-        app_commands.Choice(name="Enterprise", value="enterprise")
-    ])
     async def premium_generate(
         self,
         interaction: discord.Interaction,
         duration_days: int = 30,
-        tier: str = "premium",
-        restrict_guild: bool = False
+        restrict_guild: bool = False,
+        lifetime: bool = False
     ):
         """Generate a premium code. Only available to bot owner."""
         await interaction.response.defer(ephemeral=True)
@@ -215,9 +219,9 @@ class Premium(commands.Cog):
             # Generate the code
             code_data = await guild_manager.generate_premium_code(
                 duration_days=duration_days,
-                tier=tier,
                 created_by=user_id,
-                guild_id=guild_id
+                guild_id=guild_id,
+                is_lifetime=lifetime
             )
 
             # Create response embed
@@ -232,8 +236,12 @@ class Premium(commands.Cog):
                 value=f"||{code_data['code']}||",
                 inline=False
             )
-            embed.add_field(name="Tier", value=tier.capitalize(), inline=True)
-            embed.add_field(name="Duration", value=f"{duration_days} days", inline=True)
+
+            # Display duration based on whether it's lifetime
+            if lifetime:
+                embed.add_field(name="Duration", value="🌟 **LIFETIME**", inline=True)
+            else:
+                embed.add_field(name="Duration", value=f"{duration_days} days", inline=True)
 
             if restrict_guild:
                 guild_name = interaction.guild.name if interaction.guild else "Unknown"
@@ -335,12 +343,18 @@ class Premium(commands.Cog):
 
             for i, code in enumerate(codes[:10], 1):  # Limit to 10 codes
                 status = "✅ Redeemed" if code.get("is_redeemed") else "⏳ Available"
-                tier = code.get("tier", "premium").capitalize()
-                duration = code.get("duration_days", 30)
+                is_lifetime = code.get("is_lifetime", False)
+
+                # Display duration
+                if is_lifetime:
+                    duration_str = "🌟 LIFETIME"
+                else:
+                    duration = code.get("duration_days", 30)
+                    duration_str = f"{duration} days"
 
                 value_lines = [
                     f"**Code:** ||{code['code']}||",
-                    f"**Tier:** {tier} ({duration} days)",
+                    f"**Duration:** {duration_str}",
                     f"**Status:** {status}"
                 ]
 
