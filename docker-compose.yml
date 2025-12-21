@@ -1,0 +1,48 @@
+services:
+  stygian-relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: StygianRelay
+    image: stygian-relay
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - HEALTHCHECK_DEBUG=true
+    volumes:
+      # Mount a named volume to persist logs outside the container.
+      # The target path inside the container must match the non-root user's home directory.
+      - /home/eosofficial/Bots/Discord-Bots/bot_logs/stygian:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # Resource limits prevent the container from consuming too many host resources.
+    # Adjust these values based on your bot's performance needs.
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    # Configure logging to prevent log files from growing infinitely.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - imperial_network
+
+networks:
+  imperial_network:
+    external: true
+# Define the named volume for persistent log storage.
+volumes:
+  bot_logs:
+    driver: local
