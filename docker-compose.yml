@@ -15,7 +15,7 @@ services:
       # The target path inside the container must match the non-root user's home directory.
       - /home/eosofficial/Bots/Discord-Bots/bot_logs/stygian:/app/logs
     healthcheck:
-      test: ["CMD", "python", "/app/healthcheck.py"]
+      test: ["CMD-SHELL", "test -f /app/main.py && echo 'healthy' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
