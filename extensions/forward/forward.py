@@ -4,6 +4,8 @@ from discord.ext import commands
 from discord import app_commands, ui
 from database import guild_manager
 import logging
+import random
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,10 @@ class Forwarding(commands.Cog):
     It also provides a context menu command for manually forwarding messages.
     """
 
+    # Branding configuration
+    BRANDING_PROBABILITY = 0.20  # 20% chance to show branding
+    BRANDING_COOLDOWN_MINUTES = 10  # Minimum 10 minutes between branding messages
+
     def __init__(self, bot):
         self.bot = bot
         self.ctx_menu = app_commands.ContextMenu(
@@ -105,6 +111,10 @@ class Forwarding(commands.Cog):
             callback=self.forward_message_context_menu,
         )
         self.bot.tree.add_command(self.ctx_menu)
+
+        # Track last branding time per guild to prevent back-to-back branding
+        # Format: {guild_id: datetime}
+        self._last_branding_time = {}
 
     async def cog_unload(self):
         """
@@ -194,6 +204,31 @@ class Forwarding(commands.Cog):
 
         except Exception as e:
             logger.error(f"Error in on_message for guild {message.guild.id}: {e}", exc_info=True)
+
+    def _should_show_branding(self, guild_id: int) -> bool:
+        """
+        Determines if branding should be shown for this message.
+
+        Uses a combination of:
+        1. Random probability (BRANDING_PROBABILITY chance)
+        2. Cooldown period to prevent back-to-back branding
+
+        Args:
+            guild_id: The guild ID to check
+
+        Returns:
+            bool: True if branding should be shown, False otherwise
+        """
+        # Check if we're still in cooldown period
+        last_branding = self._last_branding_time.get(guild_id)
+        if last_branding:
+            time_since_last = datetime.now(timezone.utc) - last_branding
+            if time_since_last < timedelta(minutes=self.BRANDING_COOLDOWN_MINUTES):
+                # Still in cooldown, don't show branding
+                return False
+
+        # Random chance to show branding
+        return random.random() < self.BRANDING_PROBABILITY
 
     def _contains_embeddable_url(self, content: str) -> bool:
         """
@@ -359,7 +394,7 @@ class Forwarding(commands.Cog):
             if destination.guild.premium_tier >= 2:
                 max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
             else:
-                max_total_size = 10 * 1024 * 1024  # 8MB for non-boosted servers
+                max_total_size = 10 * 1024 * 1024  # 10MB for non-boosted servers
             total_attachment_size = 0
             allowed_types = formatting.get("allowed_attachment_types")
 
@@ -386,13 +421,16 @@ class Forwarding(commands.Cog):
         if omitted_attachments:
             quoted_content += "\n*(Some attachments were not forwarded due to size limits.)*"
 
-        # Add "Powered by" footer for non-premium guilds
+        # Add "Powered by" footer for non-premium guilds (occasionally, with cooldown)
         is_premium = await guild_manager.is_premium_guild(str(destination.guild.id))
-        if not is_premium:
+        if not is_premium and self._should_show_branding(destination.guild.id):
             # Discord server invite link for Empire of Shadows community
             # Angle brackets suppress embed preview
             server_invite_link = "https://discord.gg/NaK74Wf7vE"
             quoted_content += f"\n-# Powered by Empire of Shadows\n-# Gaming Community • <{server_invite_link}>"
+
+            # Update last branding time for this guild
+            self._last_branding_time[destination.guild.id] = datetime.now(timezone.utc)
 
         # The key insight: Send the quoted content as text along with the original files
         # Discord will automatically detect URLs in the quoted content and generate fresh embeds

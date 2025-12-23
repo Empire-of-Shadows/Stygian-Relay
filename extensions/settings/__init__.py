@@ -1,0 +1,3 @@
+"""
+Guild settings management extension.
+"""

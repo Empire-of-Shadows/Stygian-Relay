@@ -18,6 +18,7 @@ from .setup_helpers.rule_creation_flow import RuleCreationFlow
 from .models.setup_state import SetupState
 from .views import CustomView
 from database import guild_manager
+from database.permissions import can_manage_guild_settings, get_permission_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -563,6 +564,13 @@ class ForwardCog(commands.Cog):
         This command is the entry point for editing rules.
         """
         try:
+            # Check if user has permission (manage_guild or manager role)
+            if not interaction.user.guild_permissions.manage_guild:
+                if not await can_manage_guild_settings(interaction):
+                    error_msg = await get_permission_error_message(interaction)
+                    await interaction.response.send_message(error_msg, ephemeral=True)
+                    return
+
             rules = await self.guild_manager.get_all_rules(interaction.guild_id)
 
             if not rules:
@@ -594,12 +602,12 @@ class ForwardCog(commands.Cog):
         This command is the entry point for creating new rules.
         """
         try:
+            # Check if user has permission (manage_guild or manager role)
             if not interaction.user.guild_permissions.manage_guild:
-                await interaction.response.send_message( # Type: Ignore
-                    "❌ You need the 'Manage Server' permission to run setup.",
-                    ephemeral=True
-                )
-                return
+                if not await can_manage_guild_settings(interaction):
+                    error_msg = await get_permission_error_message(interaction)
+                    await interaction.response.send_message(error_msg, ephemeral=True)
+                    return
 
             # Check if guild has reached rule limit (premium-aware)
             guild_limits = await guild_manager.get_guild_limits(str(interaction.guild_id))
@@ -763,15 +771,14 @@ class ForwardCog(commands.Cog):
     async def delete_forwarding_rule(self, interaction: discord.Interaction):
         """
         Slash command to delete a forwarding rule using a select menu.
-        Only users with manage_guild permission can use this command.
+        Only users with manage_guild permission or manager role can use this command.
         """
-        # Check if user has permission to manage the server
+        # Check if user has permission to manage the server (manage_guild or manager role)
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message(
-                "❌ You need the 'Manage Server' permission to delete forwarding rules.",
-                ephemeral=True
-            )
-            return
+            if not await can_manage_guild_settings(interaction):
+                error_msg = await get_permission_error_message(interaction)
+                await interaction.response.send_message(error_msg, ephemeral=True)
+                return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -815,13 +822,12 @@ class ForwardCog(commands.Cog):
         Slash command to list all forwarding rules in the current guild.
         This helps users identify rule IDs for deletion.
         """
-        # Check if user has permission to manage the server
+        # Check if user has permission to manage the server (manage_guild or manager role)
         if not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message(
-                "❌ You need the 'Manage Server' permission to view forwarding rules.",
-                ephemeral=True
-            )
-            return
+            if not await can_manage_guild_settings(interaction):
+                error_msg = await get_permission_error_message(interaction)
+                await interaction.response.send_message(error_msg, ephemeral=True)
+                return
 
         await interaction.response.defer(ephemeral=True)
 

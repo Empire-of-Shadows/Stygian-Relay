@@ -38,6 +38,7 @@ DEFAULT_BOT_SETTINGS = {
 # This template is used to create the settings for a new guild.
 DEFAULT_GUILD_SETTINGS_TEMPLATE = {
     "master_log_channel_id": None,
+    "manager_role_id": None,
     "is_enabled": True,
     "premium_tier": "free",
     "auto_setup_complete": True,
