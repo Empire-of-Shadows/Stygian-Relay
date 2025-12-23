@@ -105,22 +105,14 @@ class Premium(commands.Cog):
     @app_commands.command(name="premium-redeem", description="Redeem a premium activation code")
     @app_commands.describe(code="The premium activation code (format: XXXX-XXXX-XXXX)")
     async def premium_redeem(self, interaction: discord.Interaction, code: str):
-        """Redeem a premium code for the current guild."""
+        """Redeem a premium code for the current guild. Available to all members."""
         await interaction.response.defer(ephemeral=True)
 
         try:
             guild_id = str(interaction.guild_id)
             user_id = str(interaction.user.id)
 
-            # Check if user has permission (admin only)
-            if not interaction.user.guild_permissions.administrator:
-                await interaction.followup.send(
-                    "❌ You must be a server administrator to redeem premium codes.",
-                    ephemeral=True
-                )
-                return
-
-            # Redeem the code
+            # Redeem the code (no permission check - anyone can redeem)
             result = await guild_manager.redeem_premium_code(code, guild_id, user_id)
 
             # Create success embed
