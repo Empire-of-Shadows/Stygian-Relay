@@ -228,7 +228,7 @@ class RuleDeleteConfirmView(discord.ui.LayoutView):
         if self.on_exit is not None:
             session = await state_manager.get_session(interaction.guild_id)
             if session and session.current_rule:
-                view = RuleSettingsView(session, self.cog)
+                view = RuleSettingsView(session, self.cog, interaction.guild)
                 await interaction.response.edit_message(view=view)
                 return
         await self._show_terminal(
@@ -335,240 +335,232 @@ class RuleSelectView(CustomView):
         await self.cog.rule_creation_flow.show_rule_preview_step(interaction, session)
 
 
-class EditChannelsView(CustomView):
-    """A view for editing the source and destination channels of a rule."""
+class EditChannelsView(discord.ui.LayoutView):
+    """Components v2 LayoutView for editing source/destination channels of a rule."""
+
     def __init__(self, session: SetupState, cog: 'ForwardCog'):
         super().__init__(timeout=300)
         self.session = session
         self.cog = cog
+        self._build()
 
-        # Source Channel Select
+    def _build(self):
+        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
+        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
+        src_text = f"<#{source_id}>" if source_id else "Not Set"
+        dst_text = f"<#{dest_id}>" if dest_id else "Not Set"
+
+        self.add_item(discord.ui.TextDisplay("## 🔄 Edit Channels"))
+        self.add_item(discord.ui.TextDisplay(
+            "Select new source and destination channels for this rule."
+        ))
+        self.add_item(discord.ui.Separator())
+        self.add_item(discord.ui.TextDisplay(
+            f"**Current Source:** {src_text}\n**Current Destination:** {dst_text}"
+        ))
+        self.add_item(discord.ui.Separator())
+
         source_select = discord.ui.ChannelSelect(
             placeholder="Select new source channel...",
             channel_types=[discord.ChannelType.text],
-            custom_id="edit_source_channel_select"
         )
         source_select.callback = self.source_select_callback
-        self.add_item(source_select)
+        src_row = discord.ui.ActionRow()
+        src_row.add_item(source_select)
+        self.add_item(src_row)
 
-        # Destination Channel Select
         dest_select = discord.ui.ChannelSelect(
             placeholder="Select new destination channel...",
             channel_types=[discord.ChannelType.text],
-            custom_id="edit_dest_channel_select"
         )
         dest_select.callback = self.dest_select_callback
-        self.add_item(dest_select)
+        dst_row = discord.ui.ActionRow()
+        dst_row.add_item(dest_select)
+        self.add_item(dst_row)
 
-        # Back button
-        back_button = discord.ui.Button(label="Back to Main Settings", style=discord.ButtonStyle.primary, row=4)
+        nav_row = discord.ui.ActionRow()
+        back_button = discord.ui.Button(
+            label="Back to Main Settings", style=discord.ButtonStyle.primary
+        )
         back_button.callback = self.back_to_main_settings_callback
-        self.add_item(back_button)
-
-    def create_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Creates the embed for the channel editing view."""
-        embed = discord.Embed(title="🔄 Edit Channels", description="Select new source and destination channels for this rule.")
-
-        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
-        source_ch = guild.get_channel(source_id) if source_id else None
-        embed.add_field(name="Current Source", value=source_ch.mention if source_ch else "Not Set", inline=True)
-
-        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
-        dest_ch = guild.get_channel(dest_id) if dest_id else None
-        embed.add_field(name="Current Destination", value=dest_ch.mention if dest_ch else "Not Set", inline=True)
-
-        return embed
+        nav_row.add_item(back_button)
+        self.add_item(nav_row)
 
     async def source_select_callback(self, interaction: discord.Interaction):
-        """Callback for source channel selection."""
         channel_id = int(interaction.data['values'][0])
-        
-        dest_id = self.session.current_rule.get("destination_channel_id")
-        if isinstance(dest_id, dict) and "$numberLong" in dest_id:
-            dest_id = int(dest_id["$numberLong"])
+        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
 
         if channel_id == dest_id:
-            await interaction.response.send_message("Source and destination channels cannot be the same.", ephemeral=True)
+            await interaction.response.send_message(
+                "Source and destination channels cannot be the same.", ephemeral=True
+            )
             return
 
         self.session.current_rule["source_channel_id"] = channel_id
-        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
-        
-        view = EditChannelsView(self.session, self.cog)
-        embed = view.create_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await state_manager.update_session(
+            interaction.guild_id, {"current_rule": self.session.current_rule}
+        )
+
+        await interaction.response.edit_message(view=EditChannelsView(self.session, self.cog))
 
     async def dest_select_callback(self, interaction: discord.Interaction):
-        """Callback for destination channel selection."""
         channel_id = int(interaction.data['values'][0])
-
-        source_id = self.session.current_rule.get("source_channel_id")
-        if isinstance(source_id, dict) and "$numberLong" in source_id:
-            source_id = int(source_id["$numberLong"])
+        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
 
         if channel_id == source_id:
-            await interaction.response.send_message("Source and destination channels cannot be the same.", ephemeral=True)
+            await interaction.response.send_message(
+                "Source and destination channels cannot be the same.", ephemeral=True
+            )
             return
 
         self.session.current_rule["destination_channel_id"] = channel_id
-        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
+        await state_manager.update_session(
+            interaction.guild_id, {"current_rule": self.session.current_rule}
+        )
 
-        view = EditChannelsView(self.session, self.cog)
-        embed = view.create_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(view=EditChannelsView(self.session, self.cog))
 
     async def back_to_main_settings_callback(self, interaction: discord.Interaction):
-        """Returns to the main rule settings view."""
-        view = RuleSettingsView(self.session, self.cog)
-        embed = await view.create_settings_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(
+            view=RuleSettingsView(self.session, self.cog, interaction.guild)
+        )
 
 
-class RuleSettingsView(CustomView):
-    """
-    A hub view for editing all settings of a rule, acting as a control panel.
-    This view is used when the user clicks the "Edit Settings" button in the
-    rule preview step.
-    """
-    def __init__(self, session: SetupState, cog: 'ForwardCog'):
+class RuleSettingsView(discord.ui.LayoutView):
+    """Components v2 LayoutView for editing all settings of a rule."""
+
+    def __init__(self, session: SetupState, cog: 'ForwardCog', guild: discord.Guild | None = None):
         super().__init__(timeout=300)
         self.session = session
         self.cog = cog
+        self._guild = guild
+        self._build()
 
-        name_button = discord.ui.Button(label="Name", style=discord.ButtonStyle.secondary, emoji="📝") # Type: Ignore
-        name_button.callback = self.edit_name_callback
-        self.add_item(name_button)
-
-        channels_button = discord.ui.Button(label="Channels", style=discord.ButtonStyle.secondary, emoji="🔄") # Type: Ignore
-        channels_button.callback = self.edit_channels_callback
-        self.add_item(channels_button)
-        
-        active_label = "Deactivate" if self.session.current_rule.get("is_active", True) else "Activate"
-        active_style = discord.ButtonStyle.danger if self.session.current_rule.get("is_active", True) else discord.ButtonStyle.success
-        active_button = discord.ui.Button(label=active_label, style=active_style, emoji="⚡")
-        active_button.callback = self.toggle_active_callback
-        self.add_item(active_button)
-
-        save_button = discord.ui.Button(label="Save and Exit", style=discord.ButtonStyle.success, row=4) # Type: Ignore
-        save_button.callback = self.save_and_exit_callback
-        self.add_item(save_button)
-
-        back_button = discord.ui.Button(label="Back to Preview", style=discord.ButtonStyle.primary, row=4) # Type: Ignore
-        back_button.callback = self.back_to_preview_callback
-        self.add_item(back_button)
-
-        delete_button = discord.ui.Button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
-        delete_button.callback = self.delete_callback
-        self.add_item(delete_button)
-
-    async def create_settings_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Creates the embed for the main settings view."""
+    def _build(self):
         rule = self.session.current_rule
         rule_name = rule.get("rule_name", "Not Set")
-        is_active = "Active" if rule.get("is_active", True) else "Inactive"
-        
-        source_channel_mention = "Not Set"
-        dest_channel_mention = "Not Set"
-        if guild:
+        is_active_text = "🟢 Active" if rule.get("is_active", True) else "🔴 Inactive"
+
+        source_text = "Not Set"
+        dest_text = "Not Set"
+        if self._guild:
             source_id = normalize_channel_id(rule.get("source_channel_id"))
             if source_id:
-                ch = guild.get_channel(source_id)
-                source_channel_mention = ch.mention if ch else f"ID: {source_id} (Not Found)"
-
+                ch = self._guild.get_channel(source_id)
+                source_text = ch.mention if ch else f"ID: {source_id} (Not Found)"
             dest_id = normalize_channel_id(rule.get("destination_channel_id"))
             if dest_id:
-                ch = guild.get_channel(dest_id)
-                dest_channel_mention = ch.mention if ch else f"ID: {dest_id} (Not Found)"
+                ch = self._guild.get_channel(dest_id)
+                dest_text = ch.mention if ch else f"ID: {dest_id} (Not Found)"
+        else:
+            source_id = normalize_channel_id(rule.get("source_channel_id"))
+            dest_id = normalize_channel_id(rule.get("destination_channel_id"))
+            if source_id:
+                source_text = f"<#{source_id}>"
+            if dest_id:
+                dest_text = f"<#{dest_id}>"
 
-        embed = discord.Embed(
-            title=f"Editing Rule: {rule_name}",
-            description="Select a category to edit. Your changes are saved to the session automatically.\n"
-                        "Go back to the preview screen to save them to the database.",
-            color=discord.Color.blue()
+        self.add_item(discord.ui.TextDisplay(f"## Editing Rule: {rule_name}"))
+        self.add_item(discord.ui.TextDisplay(
+            "Select a category to edit. Changes are saved to the session automatically.\n"
+            "Go back to the preview screen to save them to the database."
+        ))
+        self.add_item(discord.ui.Separator())
+        self.add_item(discord.ui.TextDisplay(
+            f"**Status:** {is_active_text}\n"
+            f"**Source:** {source_text}\n"
+            f"**Destination:** {dest_text}"
+        ))
+        self.add_item(discord.ui.Separator())
+
+        edit_row = discord.ui.ActionRow()
+        name_button = discord.ui.Button(
+            label="Name", style=discord.ButtonStyle.secondary, emoji="📝"
         )
-        embed.add_field(name="Status", value=is_active, inline=True)
-        embed.add_field(name="Source", value=source_channel_mention, inline=True)
-        embed.add_field(name="Destination", value=dest_channel_mention, inline=True)
-        
-        return embed
+        name_button.callback = self.edit_name_callback
+        edit_row.add_item(name_button)
+
+        channels_button = discord.ui.Button(
+            label="Channels", style=discord.ButtonStyle.secondary, emoji="🔄"
+        )
+        channels_button.callback = self.edit_channels_callback
+        edit_row.add_item(channels_button)
+
+        active_label = "Deactivate" if rule.get("is_active", True) else "Activate"
+        active_style = (
+            discord.ButtonStyle.danger if rule.get("is_active", True)
+            else discord.ButtonStyle.success
+        )
+        active_button = discord.ui.Button(label=active_label, style=active_style, emoji="⚡")
+        active_button.callback = self.toggle_active_callback
+        edit_row.add_item(active_button)
+        self.add_item(edit_row)
+
+        nav_row = discord.ui.ActionRow()
+        save_button = discord.ui.Button(
+            label="Save and Exit", style=discord.ButtonStyle.success
+        )
+        save_button.callback = self.save_and_exit_callback
+        nav_row.add_item(save_button)
+
+        back_button = discord.ui.Button(
+            label="Back to Preview", style=discord.ButtonStyle.primary
+        )
+        back_button.callback = self.back_to_preview_callback
+        nav_row.add_item(back_button)
+
+        delete_button = discord.ui.Button(
+            label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️"
+        )
+        delete_button.callback = self.delete_callback
+        nav_row.add_item(delete_button)
+        self.add_item(nav_row)
 
     async def edit_name_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the edit name button. It displays a modal for the user
-        to enter a new name for the rule.
-        """
         from .models.rule_modals import RuleNameModal
-        
+
         async def modal_callback(modal_interaction: discord.Interaction, name: str):
             self.session.current_rule["rule_name"] = name
-            await state_manager.update_session(modal_interaction.guild_id, {"current_rule": self.session.current_rule})
-            
-            view = RuleSettingsView(self.session, self.cog)
-            embed = await view.create_settings_embed(modal_interaction.guild)
-            await modal_interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
+            await state_manager.update_session(
+                modal_interaction.guild_id, {"current_rule": self.session.current_rule}
+            )
+            await modal_interaction.response.edit_message(
+                view=RuleSettingsView(self.session, self.cog, modal_interaction.guild)
+            )
 
-        modal = RuleNameModal(modal_callback, current_name=self.session.current_rule.get("rule_name"))
-        await interaction.response.send_modal(modal) # Type: Ignore
+        modal = RuleNameModal(
+            modal_callback, current_name=self.session.current_rule.get("rule_name")
+        )
+        await interaction.response.send_modal(modal)
 
     async def edit_channels_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the edit channels button. Displays the EditChannelsView.
-        """
-        view = EditChannelsView(self.session, self.cog)
-        embed = view.create_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(view=EditChannelsView(self.session, self.cog))
 
     async def toggle_active_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the toggle active button. It toggles the rule's active
-        status in the user's session.
-        """
         current_status = self.session.current_rule.get("is_active", True)
         self.session.current_rule["is_active"] = not current_status
-        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
-
-        new_view = RuleSettingsView(self.session, self.cog)
-        embed = await new_view.create_settings_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=new_view) # Type: Ignore
+        await state_manager.update_session(
+            interaction.guild_id, {"current_rule": self.session.current_rule}
+        )
+        await interaction.response.edit_message(
+            view=RuleSettingsView(self.session, self.cog, interaction.guild)
+        )
 
     async def back_to_preview_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the back to preview button. It returns the user to the
-        rule preview step.
-        """
         await self.cog.rule_creation_flow.show_rule_preview_step(interaction, self.session)
 
     async def save_and_exit_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the save and exit button. It saves the rule to the
-        database and ends the setup session.
-        """
-        await interaction.response.defer() # Type: Ignore
-
+        await interaction.response.defer()
         success, message = await self.cog.update_final_rule(interaction, self.session)
-
         if success:
             await self.cog.show_setup_complete(interaction, self.session, is_editing=True)
         else:
             await interaction.followup.send(f"❌ Save failed: {message}", ephemeral=True)
 
     async def delete_callback(self, interaction: discord.Interaction):
-        """Show a confirmation prompt for permanently deleting this rule."""
         rule = self.session.current_rule
-        rule_name = rule.get("rule_name", "Unnamed Rule")
-
         confirm_view = RuleDeleteConfirmView(rule, self.cog, on_exit=self.session.on_exit)
-
-        embed = discord.Embed(
-            title="⚠️ Confirm Rule Deletion",
-            description=(
-                f"Are you sure you want to delete **{rule_name}**?\n\n"
-                "**Deactivate** keeps the rule but stops it from forwarding.\n"
-                "**Permanently Delete** removes the rule entirely (cannot be undone)."
-            ),
-            color=discord.Color.orange(),
-        )
-        await interaction.response.edit_message(embed=embed, view=confirm_view)
+        await interaction.response.edit_message(view=confirm_view)
 
 
 class ForwardCog(commands.Cog):
@@ -1254,13 +1246,14 @@ class ForwardCog(commands.Cog):
 
     async def show_rule_edit_step(self, interaction: discord.Interaction, session: SetupState):
         """
-        Show the rule settings editor.
-        This step is displayed when the user clicks the "Edit Settings" button
-        in the rule preview step.
+        Show the rule settings editor (Components v2).
+        Displayed when the user clicks "Edit Settings" in the rule preview step.
         """
-        view = RuleSettingsView(session, self)
-        embed = await view.create_settings_embed(interaction.guild)
-        await interaction.edit_original_response(embed=embed, view=view) # Type: Ignore
+        view = RuleSettingsView(session, self, interaction.guild)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(view=view)
+        else:
+            await interaction.response.edit_message(view=view)
 
     async def _handle_log_channel_back(self, interaction: discord.Interaction):
         """Handle back button in log channel step"""
@@ -1318,9 +1311,11 @@ class ForwardCog(commands.Cog):
                 await self.show_rule_name_modal(interaction, session)
                 return # Exit after sending modal
 
-            # For all other buttons, defer the interaction
+            # For all other buttons, defer as an update so the wizard's
+            # ephemeral host message is edited in place (not replaced with a
+            # new ephemeral followup).
             if not interaction.response.is_done(): # Type: Ignore
-                await interaction.response.defer(ephemeral=True) # Type: Ignore
+                await interaction.response.defer() # Type: Ignore
 
             # --- Welcome & Learn More Flow ---
             if custom_id == "setup_start":
@@ -1439,9 +1434,10 @@ class ForwardCog(commands.Cog):
         Router for all select menu interactions that don't have direct callbacks.
         """
         try:
-            # Defer the interaction immediately to prevent timeout
+            # Defer as an update so the wizard's ephemeral host message is
+            # edited in place rather than producing a new ephemeral.
             if not interaction.response.is_done(): # Type: Ignore
-                await interaction.response.defer(ephemeral=True) # Type: Ignore
+                await interaction.response.defer() # Type: Ignore
 
             session = await state_manager.get_session(interaction.guild_id)
             if not session:
@@ -1547,17 +1543,15 @@ class ForwardCog(commands.Cog):
         title = "✅ Rule Updated!" if is_editing else "✅ Setup Complete!"
         description = "Your message forwarding rule has been updated." if is_editing else "Your message forwarding rules are now active."
 
-        embed = discord.Embed(
-            title=title,
-            description=description,
-            color=discord.Color.green()
-        )
+        layout = discord.ui.LayoutView()
+        layout.add_item(discord.ui.TextDisplay(f"## {title}"))
+        layout.add_item(discord.ui.TextDisplay(description))
 
         try:
-            await interaction.edit_original_response(embed=embed, view=None)
+            await interaction.edit_original_response(view=layout)
         except discord.HTTPException:
             try:
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(view=layout, ephemeral=True)
             except discord.HTTPException as followup_error:
                 self.logger.error(f"Failed to send followup message after original response failed: {followup_error}")
         except Exception as e:
@@ -1595,17 +1589,17 @@ class ForwardCog(commands.Cog):
             except Exception as e:
                 self.logger.error(f"on_exit callback failed in handle_cancel_button: {e}", exc_info=True)
 
-        embed = discord.Embed(
-            title="❌ Setup Cancelled",
-            description="Your setup progress has been cancelled. You can run `/setup` again anytime.",
-            color=discord.Color.red()
-        )
+        layout = discord.ui.LayoutView()
+        layout.add_item(discord.ui.TextDisplay("## ❌ Setup Cancelled"))
+        layout.add_item(discord.ui.TextDisplay(
+            "Your setup progress has been cancelled. You can run `/setup` again anytime."
+        ))
 
         try:
-            await interaction.edit_original_response(embed=embed, view=None)
+            await interaction.edit_original_response(view=layout)
         except discord.HTTPException:
             try:
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(view=layout, ephemeral=True)
             except discord.HTTPException as followup_error:
                 self.logger.error(f"Failed to send followup message after original response failed: {followup_error}")
         except Exception as e:

@@ -232,10 +232,10 @@ async def _enter_create_flow(
     except Exception as e:
         logger.debug(f"Pre-fill log channel failed: {e}")
 
-    # Do NOT defer — let show_source_channel_step send a new ephemeral
-    # followup. msg2 (LayoutView rules panel) cannot host an embed-based
-    # wizard in place (Components V2 forbids mixing embeds), so the wizard
-    # runs as its own ephemeral message and closes on completion.
+    # Defer ephemerally so the wizard renders into its own ephemeral message
+    # rather than overwriting the rules panel (msg2). The Components v2 wizard
+    # then edits this ephemeral via edit_original_response on every step.
+    await interaction.response.defer(ephemeral=True)
     await forward_cog.rule_creation_flow.start_rule_creation(interaction)
 
 
@@ -263,6 +263,7 @@ async def _enter_edit_flow(
     })
 
     # See _enter_create_flow: wizard runs in a separate ephemeral, not msg2.
+    await interaction.response.defer(ephemeral=True)
     await forward_cog.rule_creation_flow.show_rule_preview_step(interaction, session)
 
 
