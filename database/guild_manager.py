@@ -1,13 +1,43 @@
 import os
 import asyncio
+import time
 import uuid
-from typing import Dict, Any, List, Callable, Optional
+from typing import Dict, Any, List, Callable, Optional, Tuple
 from datetime import datetime, timezone
 import logging
+import pymongo
 from .exceptions import DatabaseOperationError
 from .constants import DEFAULT_BOT_SETTINGS, DEFAULT_GUILD_SETTINGS_TEMPLATE
 
 logger = logging.getLogger("GuildManager")
+
+
+class GuildSettingsCache:
+    """In-memory cache for guild settings docs with per-entry TTL."""
+
+    def __init__(self, ttl_seconds: int = 300):
+        self.ttl = ttl_seconds
+        self._store: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._lock = asyncio.Lock()
+
+    def get(self, guild_id: str) -> Optional[Dict[str, Any]]:
+        entry = self._store.get(guild_id)
+        if not entry:
+            return None
+        expiry, data = entry
+        if time.monotonic() > expiry:
+            self._store.pop(guild_id, None)
+            return None
+        return data
+
+    def set(self, guild_id: str, data: Dict[str, Any]) -> None:
+        self._store[guild_id] = (time.monotonic() + self.ttl, data)
+
+    def invalidate(self, guild_id: str) -> None:
+        self._store.pop(guild_id, None)
+
+    def clear(self) -> None:
+        self._store.clear()
 
 
 class GuildManager:
@@ -21,6 +51,13 @@ class GuildManager:
         # Observer pattern listeners: other parts of the bot can subscribe to these events.
         self._guild_join_listeners: List[Callable] = []
         self._guild_leave_listeners: List[Callable] = []
+
+        # Settings cache (5-min TTL) to dedupe redundant fetches in hot paths.
+        self.settings_cache = GuildSettingsCache(ttl_seconds=300)
+
+        # Whether MongoDB supports multi-doc transactions (replica set / mongos).
+        # Probed on first use; results cached.
+        self._transactions_supported: Optional[bool] = None
 
         self.metrics = {
             "guilds_auto_configured": 0,
@@ -106,6 +143,73 @@ class GuildManager:
             else:
                 logger.info("✅ Bot settings already exist and are up-to-date")
 
+        await self._ensure_indexes()
+        await self._probe_transactions()
+
+    async def _ensure_indexes(self):
+        """Create indexes used by hot read paths and TTL collections."""
+        try:
+            db = self.db.db_client["discord_forwarding_bot"]
+
+            await db["guild_settings"].create_index("rules.rule_id")
+            await db["guild_settings"].create_index("rules.source_channel_id")
+
+            # message_logs: hot query (guild_id, forwarded_at) + TTL 90 days.
+            await db["message_logs"].create_index(
+                [("guild_id", pymongo.ASCENDING), ("forwarded_at", pymongo.DESCENDING)]
+            )
+            await db["message_logs"].create_index(
+                "forwarded_at", expireAfterSeconds=90 * 24 * 3600
+            )
+
+            await db["premium_codes"].create_index("code", unique=True)
+            await db["premium_codes"].create_index("created_by")
+
+            await db["premium_subscriptions"].create_index(
+                [("guild_id", pymongo.ASCENDING), ("is_active", pymongo.ASCENDING)]
+            )
+
+            # audit_logs: query by (guild_id, created_at) + TTL 365 days.
+            await db["audit_logs"].create_index(
+                [("guild_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)]
+            )
+            await db["audit_logs"].create_index(
+                "created_at", expireAfterSeconds=365 * 24 * 3600
+            )
+
+            # runtime_state: ephemeral key/value per guild (branding, daily_warn).
+            # TTL 24h on updated_at keeps the collection lean.
+            await db["runtime_state"].create_index(
+                [("guild_id", pymongo.ASCENDING), ("key", pymongo.ASCENDING)],
+                unique=True
+            )
+            await db["runtime_state"].create_index(
+                "updated_at", expireAfterSeconds=24 * 3600
+            )
+
+            logger.info("✅ Database indexes verified")
+        except Exception as e:
+            logger.warning(f"Failed to ensure indexes (non-fatal): {e}")
+
+    async def _probe_transactions(self):
+        """Detect whether the connected Mongo deployment supports transactions."""
+        try:
+            info = await self.db.db_client.admin.command("hello")
+            # Replica sets advertise `setName`; sharded clusters report `msg`==`isdbgrid`.
+            self._transactions_supported = bool(
+                info.get("setName") or info.get("msg") == "isdbgrid"
+            )
+            if self._transactions_supported:
+                logger.info("✅ MongoDB transactions supported")
+            else:
+                logger.info("ℹ️ MongoDB standalone — transactions disabled, falling back to non-atomic writes")
+        except Exception as e:
+            self._transactions_supported = False
+            logger.warning(f"Transaction probe failed, assuming unsupported: {e}")
+
+    def transactions_supported(self) -> bool:
+        return bool(self._transactions_supported)
+
     async def setup_new_guild(self, guild_id: str, guild_name: str) -> Dict[str, Any]:
         """
         Sets up default settings for a new guild. If the guild already exists,
@@ -165,22 +269,30 @@ class GuildManager:
             logger.error(f"❌ Failed to remove guild data for {guild_name}: {e}")
             return False
 
-    async def get_guild_settings(self, guild_id: str) -> Dict[str, Any]:
+    async def get_guild_settings(self, guild_id: str, use_cache: bool = True) -> Dict[str, Any]:
         """
         Get guild settings or create default if not exists.
-        This is the primary method for accessing guild settings.
+        Checks the in-memory cache first; falls through to MongoDB on miss.
         """
+        if use_cache:
+            cached = self.settings_cache.get(guild_id)
+            if cached is not None:
+                return cached
+
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         settings = await collection.find_one({"_id": guild_id})
         if not settings:
             logger.info(f"Guild {guild_id} not found, creating default settings...")
-            return await self.setup_new_guild(guild_id, "Unknown Guild")
+            settings = await self.setup_new_guild(guild_id, "Unknown Guild")
+
+        if settings is not None:
+            self.settings_cache.set(guild_id, settings)
         return settings
 
     async def update_guild_settings(self, guild_id: str, updates: Dict[str, Any]) -> bool:
         """
         Update top-level fields in a guild's settings document.
-        This is used for general settings updates.
+        Invalidates the settings cache for this guild.
         """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
@@ -188,13 +300,28 @@ class GuildManager:
             {"_id": guild_id},
             {"$set": updates}
         )
+        self.settings_cache.invalidate(guild_id)
         return result.modified_count > 0
 
-    async def get_all_guilds(self) -> List[Dict[str, Any]]:
-        """Get all guilds that have settings in the database."""
+    async def get_all_guilds(self, batch_size: int = 500) -> List[Dict[str, Any]]:
+        """
+        Get all guilds that have settings in the database.
+
+        Streams in batches to avoid loading the full collection into memory at once.
+        """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-        cursor = collection.find({})
-        return await cursor.to_list(length=None)
+        cursor = collection.find({}).batch_size(batch_size)
+        guilds: List[Dict[str, Any]] = []
+        async for doc in cursor:
+            guilds.append(doc)
+        return guilds
+
+    async def iter_all_guilds(self, batch_size: int = 500):
+        """Async iterator over all guild settings — preferred for large deployments."""
+        collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+        cursor = collection.find({}).batch_size(batch_size)
+        async for doc in cursor:
+            yield doc
 
     async def get_all_rules(self, guild_id: str) -> List[Dict[str, Any]]:
         """Get all forwarding rules for a specific guild."""
@@ -224,18 +351,22 @@ class GuildManager:
     async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
         """
         Updates fields of a specific rule within a guild's `rules` array.
+        Invalidates the cache for the owning guild.
         """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
 
-        # This uses the '$' positional operator to update the specific element
-        # in the 'rules' array that was matched by the query filter.
         update_fields = {f"rules.$.{key}": value for key, value in updates.items()}
+
+        # Resolve guild_id first so we can invalidate the right cache key.
+        owner = await collection.find_one({"rules.rule_id": rule_id}, {"_id": 1})
 
         result = await collection.update_one(
             {"rules.rule_id": rule_id},
             {"$set": update_fields}
         )
+        if owner:
+            self.settings_cache.invalidate(owner["_id"])
         return result.modified_count > 0
 
     async def delete_rule(self, rule_id: str) -> bool:
@@ -250,6 +381,7 @@ class GuildManager:
                 {"_id": guild_id},
                 {"$pull": {"rules": {"rule_id": rule_id}}}
             )
+            self.settings_cache.invalidate(guild_id)
             return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error permanently deleting rule {rule_id} from guild {guild_id}: {e}", exc_info=True)
@@ -315,15 +447,54 @@ class GuildManager:
         """Get guild management metrics."""
         return self.metrics.copy()
 
-    async def add_rule(self, guild_id: int, rule_name: str, source_channel_id: int,
-                                  destination_channel_id: int, enabled: bool = True,
-                                  settings: dict = None) -> bool:
-        """
-        Adds a new forwarding rule to a guild's settings. If the guild document
-        does not exist, it will be created first.
-        """
+    # ==================== Runtime state (ephemeral, TTL'd) ====================
+
+    async def get_runtime_state(self, guild_id: str, key: str) -> Optional[datetime]:
+        """Return the `updated_at` timestamp for a (guild_id, key) entry, or None."""
         try:
-            logger.info(f"Adding forwarding rule '{rule_name}' for guild {guild_id}")
+            collection = self.db.get_collection("discord_forwarding_bot", "runtime_state")
+            doc = await collection.find_one({"guild_id": guild_id, "key": key})
+            if not doc:
+                return None
+            ts = doc.get("updated_at")
+            if ts and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            return ts
+        except Exception as e:
+            logger.warning(f"get_runtime_state failed ({guild_id}/{key}): {e}")
+            return None
+
+    async def touch_runtime_state(self, guild_id: str, key: str) -> None:
+        """Upsert a (guild_id, key) entry with updated_at=now."""
+        try:
+            collection = self.db.get_collection("discord_forwarding_bot", "runtime_state")
+            await collection.update_one(
+                {"guild_id": guild_id, "key": key},
+                {"$set": {
+                    "guild_id": guild_id,
+                    "key": key,
+                    "updated_at": datetime.now(timezone.utc),
+                }},
+                upsert=True
+            )
+        except Exception as e:
+            logger.warning(f"touch_runtime_state failed ({guild_id}/{key}): {e}")
+
+    async def add_rule(self, guild_id, rule_name: str, source_channel_id: int,
+                                  destination_channel_id: int, enabled: bool = True,
+                                  settings: dict = None) -> Tuple[bool, str]:
+        """
+        Atomically add a forwarding rule, enforcing the per-guild active-rule
+        cap from get_guild_limits.
+
+        Returns (success, reason). Reasons: "ok", "limit_reached", "error".
+        """
+        gid = str(guild_id)
+        try:
+            limits = await self.get_guild_limits(gid)
+            max_rules = int(limits.get("max_rules", 3))
+
+            logger.info(f"Adding forwarding rule '{rule_name}' for guild {gid} (cap={max_rules})")
             rule_data = {
                 "rule_id": str(uuid.uuid4()),
                 "rule_name": rule_name,
@@ -336,53 +507,78 @@ class GuildManager:
             }
 
             collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+
+            # Atomic guard: only push if active rule count < cap.
+            # $expr with $size lets us count active rules in the same op.
+            active_filter = {
+                "$expr": {
+                    "$lt": [
+                        {"$size": {
+                            "$filter": {
+                                "input": {"$ifNull": ["$rules", []]},
+                                "as": "r",
+                                "cond": {"$eq": ["$$r.is_active", True]}
+                            }
+                        }},
+                        max_rules
+                    ]
+                }
+            }
+
             result = await collection.update_one(
-                {"_id": str(guild_id)},
-                {"$push": {"rules": rule_data}, "$set": {"updated_at": datetime.now(timezone.utc)}}
+                {"_id": gid, **active_filter},
+                {"$push": {"rules": rule_data},
+                 "$set": {"updated_at": datetime.now(timezone.utc)}}
             )
 
             if result.modified_count > 0:
-                logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id}")
-                return True
-            else:
-                # If the update failed, it might be because the guild document doesn't exist.
-                # We'll create it and try adding the rule again.
-                logger.warning(f"Guild {guild_id} not found. Creating settings and retrying rule addition.")
-                guild_settings = await self.get_guild_settings(str(guild_id))
-                if guild_settings:
-                    result = await collection.update_one(
-                        {"_id": str(guild_id)},
-                        {"$push": {"rules": rule_data}, "$set": {"updated_at": datetime.now(timezone.utc)}}
-                    )
-                    if result.modified_count > 0:
-                        logger.info(f"✅ Successfully added rule '{rule_name}' for guild {guild_id} after creating settings.")
-                        return True
-                logger.error(f"Failed to add rule for guild {guild_id} even after attempting to create settings.")
-                return False
+                self.settings_cache.invalidate(gid)
+                logger.info(f"✅ Added rule '{rule_name}' for guild {gid}")
+                return True, "ok"
+
+            # Either the doc doesn't exist, or the cap was reached. Disambiguate.
+            existing = await collection.find_one({"_id": gid}, {"rules": 1})
+            if existing is None:
+                # First-time guild — create defaults and retry once (still atomic on retry).
+                logger.warning(f"Guild {gid} not found. Creating defaults and retrying rule addition.")
+                await self.get_guild_settings(gid)
+                retry = await collection.update_one(
+                    {"_id": gid, **active_filter},
+                    {"$push": {"rules": rule_data},
+                     "$set": {"updated_at": datetime.now(timezone.utc)}}
+                )
+                if retry.modified_count > 0:
+                    self.settings_cache.invalidate(gid)
+                    return True, "ok"
+                # Still failed — must be cap.
+                return False, "limit_reached"
+
+            active_count = sum(1 for r in existing.get("rules", []) if r.get("is_active"))
+            if active_count >= max_rules:
+                logger.info(f"Rule cap reached for guild {gid} ({active_count}/{max_rules})")
+                return False, "limit_reached"
+
+            logger.error(f"add_rule update reported no modification for guild {gid} despite cap not reached")
+            return False, "error"
         except Exception as e:
             logger.error(f"❌ Error adding forwarding rule: {e}", exc_info=True)
-            return False
+            return False, "error"
 
     # ==================== Premium Code Management ====================
 
     async def generate_premium_code(self, duration_days: int = 30,
-                                    created_by: str = None, guild_id: str = None, is_lifetime: bool = False) -> Dict[str, Any]:
+                                    created_by: str = None, guild_id: str = None,
+                                    is_lifetime: bool = False,
+                                    code_validity_days: Optional[int] = None) -> Dict[str, Any]:
         """
         Generate a premium activation code.
 
-        Args:
-            duration_days: How long the premium subscription lasts (default: 30 days, ignored if is_lifetime=True)
-            created_by: User ID who created the code
-            guild_id: Optional guild ID to restrict code to specific guild
-            is_lifetime: If True, creates a lifetime subscription code (default: False)
-
-        Returns:
-            Dictionary with code details including the activation code
+        code_validity_days: how long the unredeemed code is valid. Defaults to
+        bot_settings.code_default_validity_days (90). 0 or None disables expiry.
         """
         import secrets
         import string
 
-        # Generate a secure random code (format: XXXX-XXXX-XXXX)
         code_parts = []
         for _ in range(3):
             part = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
@@ -391,24 +587,42 @@ class GuildManager:
 
         collection = self.db.get_collection("discord_forwarding_bot", "premium_codes")
 
+        # Resolve default validity from bot_settings if caller didn't override.
+        if code_validity_days is None:
+            try:
+                bot_settings = await self.db.get_collection(
+                    "discord_forwarding_bot", "bot_settings"
+                ).find_one({"_id": "global_config"})
+                code_validity_days = (bot_settings or {}).get("code_default_validity_days", 90)
+            except Exception:
+                code_validity_days = 90
+
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        expires_at_unredeemed = (
+            now + timedelta(days=int(code_validity_days)) if code_validity_days else None
+        )
+
         code_data = {
             "code": activation_code,
             "duration_days": duration_days if not is_lifetime else None,
             "is_lifetime": is_lifetime,
             "is_redeemed": False,
             "created_by": created_by,
-            "created_at": datetime.now(timezone.utc),
+            "created_at": now,
             "redeemed_by": None,
             "redeemed_at": None,
             "redeemed_guild_id": None,
-            "restricted_to_guild": guild_id,  # If set, code can only be used in this guild
-            "expires_at": None  # Code doesn't expire until redeemed
+            "restricted_to_guild": guild_id,
+            "expires_at": None,
+            "expires_at_unredeemed": expires_at_unredeemed,
         }
 
         try:
             await collection.insert_one(code_data)
             duration_str = "LIFETIME" if is_lifetime else f"{duration_days} days"
-            logger.info(f"✅ Generated premium code: {activation_code} (duration: {duration_str})")
+            validity_str = f"unredeemed expires {expires_at_unredeemed.isoformat()}" if expires_at_unredeemed else "no unredeemed expiry"
+            logger.info(f"✅ Generated premium code: {activation_code} (duration: {duration_str}, {validity_str})")
             return code_data
         except Exception as e:
             logger.error(f"❌ Failed to generate premium code: {e}", exc_info=True)
@@ -416,24 +630,27 @@ class GuildManager:
 
     async def redeem_premium_code(self, code: str, guild_id: str, redeemed_by: str) -> Dict[str, Any]:
         """
-        Redeem a premium code for a guild.
+        Redeem a premium code for a guild. Atomic where MongoDB supports
+        multi-doc transactions; otherwise the claim is atomic but the
+        subscription upsert is best-effort.
 
-        Args:
-            code: The activation code to redeem
-            guild_id: The guild ID to activate premium for
-            redeemed_by: User ID who redeemed the code
-
-        Returns:
-            Dictionary with subscription details
-
-        Raises:
-            ValueError: If code is invalid, already redeemed, or restricted to another guild
+        Raises ValueError for any user-actionable failure (bad format,
+        invalid/expired/redeemed code, guild restriction, lifetime downgrade).
         """
+        import re
+        from datetime import timedelta
+
+        normalized_code = code.upper().strip()
+        if not re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", normalized_code):
+            raise ValueError("Invalid code format. Expected XXXX-XXXX-XXXX.")
+
         codes_collection = self.db.get_collection("discord_forwarding_bot", "premium_codes")
         subs_collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
 
-        # Find the code
-        code_data = await codes_collection.find_one({"code": code.upper()})
+        activated_at = datetime.now(timezone.utc)
+
+        # Peek for accurate error messages + expiry compute before atomic claim.
+        code_data = await codes_collection.find_one({"code": normalized_code})
 
         if not code_data:
             raise ValueError("Invalid premium code")
@@ -441,16 +658,19 @@ class GuildManager:
         if code_data.get("is_redeemed", False):
             raise ValueError("This code has already been redeemed")
 
-        # Check if code is restricted to a specific guild
         if code_data.get("restricted_to_guild") and code_data["restricted_to_guild"] != guild_id:
             raise ValueError("This code is restricted to a different server")
 
-        # Check if this is a lifetime code
-        is_lifetime = code_data.get("is_lifetime", False)
-        activated_at = datetime.now(timezone.utc)
-        from datetime import timedelta
+        # Unredeemed-expiry check.
+        unredeemed_expiry = code_data.get("expires_at_unredeemed")
+        if unredeemed_expiry:
+            if unredeemed_expiry.tzinfo is None:
+                unredeemed_expiry = unredeemed_expiry.replace(tzinfo=timezone.utc)
+            if unredeemed_expiry < activated_at:
+                raise ValueError("This code has expired and can no longer be redeemed")
 
-        # Calculate expiration date (None for lifetime codes)
+        is_lifetime = code_data.get("is_lifetime", False)
+
         if is_lifetime:
             expires_at = None
             duration_days = None
@@ -458,76 +678,86 @@ class GuildManager:
             duration_days = code_data.get("duration_days", 30)
             expires_at = activated_at + timedelta(days=duration_days)
 
-        # Mark code as redeemed
-        await codes_collection.update_one(
-            {"code": code.upper()},
-            {"$set": {
-                "is_redeemed": True,
-                "redeemed_by": redeemed_by,
-                "redeemed_at": activated_at,
-                "redeemed_guild_id": guild_id
-            }}
-        )
+        # Pre-check existing subscription so we can reject lifetime->time-limited
+        # downgrades BEFORE consuming the code.
+        existing_sub_peek = await subs_collection.find_one({"guild_id": guild_id, "is_active": True})
+        if existing_sub_peek and existing_sub_peek.get("is_lifetime") and not is_lifetime:
+            raise ValueError("This server already has a lifetime subscription and cannot be downgraded")
 
-        # Create or update premium subscription
-        existing_sub = await subs_collection.find_one({"guild_id": guild_id, "is_active": True})
+        async def _do_redeem(session=None):
+            kw = {"session": session} if session else {}
 
-        if existing_sub:
-            # If redeeming a lifetime code, upgrade to lifetime
-            if is_lifetime:
-                await subs_collection.update_one(
-                    {"guild_id": guild_id, "is_active": True},
-                    {"$set": {
-                        "expires_at": None,
-                        "is_lifetime": True,
-                        "updated_at": activated_at
-                    }}
-                )
-                logger.info(f"✅ Upgraded to LIFETIME premium subscription for guild {guild_id}")
-            else:
-                # Extend existing subscription
-                current_expires = existing_sub.get("expires_at", datetime.now(timezone.utc))
-                existing_is_lifetime = existing_sub.get("is_lifetime", False)
+            claim = await codes_collection.find_one_and_update(
+                {"code": normalized_code, "is_redeemed": False},
+                {"$set": {
+                    "is_redeemed": True,
+                    "redeemed_by": redeemed_by,
+                    "redeemed_at": activated_at,
+                    "redeemed_guild_id": guild_id
+                }},
+                **kw
+            )
+            if claim is None:
+                raise ValueError("This code has already been redeemed")
 
-                # Don't downgrade from lifetime to time-limited
-                if existing_is_lifetime:
-                    raise ValueError("This server already has a lifetime subscription and cannot be downgraded")
+            existing_sub = await subs_collection.find_one(
+                {"guild_id": guild_id, "is_active": True}, **kw
+            )
 
-                # Ensure current_expires is timezone-aware (MongoDB returns naive datetimes)
-                if current_expires and current_expires.tzinfo is None:
-                    current_expires = current_expires.replace(tzinfo=timezone.utc)
-
-                # If current subscription is still active, add to it
-                if current_expires and current_expires > activated_at:
-                    new_expires = current_expires + timedelta(days=duration_days)
+            if existing_sub:
+                if is_lifetime:
+                    await subs_collection.update_one(
+                        {"guild_id": guild_id, "is_active": True},
+                        {"$set": {
+                            "expires_at": None,
+                            "is_lifetime": True,
+                            "updated_at": activated_at
+                        }},
+                        **kw
+                    )
+                    logger.info(f"✅ Upgraded to LIFETIME premium subscription for guild {guild_id}")
                 else:
-                    new_expires = expires_at
+                    current_expires = existing_sub.get("expires_at") or activated_at
+                    if current_expires and current_expires.tzinfo is None:
+                        current_expires = current_expires.replace(tzinfo=timezone.utc)
+                    new_expires = (
+                        current_expires + timedelta(days=duration_days)
+                        if current_expires > activated_at
+                        else expires_at
+                    )
+                    await subs_collection.update_one(
+                        {"guild_id": guild_id, "is_active": True},
+                        {"$set": {"expires_at": new_expires, "updated_at": activated_at}},
+                        **kw
+                    )
+                    logger.info(f"✅ Extended premium subscription for guild {guild_id} until {new_expires}")
+            else:
+                await subs_collection.insert_one({
+                    "guild_id": guild_id,
+                    "is_active": True,
+                    "is_lifetime": is_lifetime,
+                    "activated_at": activated_at,
+                    "expires_at": expires_at,
+                    "activated_by": redeemed_by,
+                    "activation_code": normalized_code,
+                    "created_at": activated_at,
+                    "updated_at": activated_at
+                }, **kw)
+                duration_str = "LIFETIME" if is_lifetime else f"until {expires_at}"
+                logger.info(f"✅ Created premium subscription for guild {guild_id} {duration_str}")
 
-                await subs_collection.update_one(
-                    {"guild_id": guild_id, "is_active": True},
-                    {"$set": {
-                        "expires_at": new_expires,
-                        "updated_at": activated_at
-                    }}
-                )
-                logger.info(f"✅ Extended premium subscription for guild {guild_id} until {new_expires}")
+        if self.transactions_supported():
+            try:
+                async with await self.db.db_client.start_session() as session:
+                    async with session.start_transaction():
+                        await _do_redeem(session=session)
+            except ValueError:
+                raise
+            except Exception as e:
+                logger.warning(f"Transaction redeem failed, falling back to non-atomic: {e}")
+                await _do_redeem()
         else:
-            # Create new subscription
-            subscription_data = {
-                "guild_id": guild_id,
-                "is_active": True,
-                "is_lifetime": is_lifetime,
-                "activated_at": activated_at,
-                "expires_at": expires_at,
-                "activated_by": redeemed_by,
-                "activation_code": code.upper(),
-                "created_at": activated_at,
-                "updated_at": activated_at
-            }
-
-            await subs_collection.insert_one(subscription_data)
-            duration_str = "LIFETIME" if is_lifetime else f"until {expires_at}"
-            logger.info(f"✅ Created premium subscription for guild {guild_id} {duration_str}")
+            await _do_redeem()
 
         return {
             "expires_at": expires_at,

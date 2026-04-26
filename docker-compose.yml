@@ -10,16 +10,18 @@ services:
       - .env
     environment:
       - HEALTHCHECK_DEBUG=true
+    expose:
+      - "50006"
     volumes:
       # Mount a named volume to persist logs outside the container.
       # The target path inside the container must match the non-root user's home directory.
       - /home/eosofficial/Bots/Discord-Bots/bot_logs/stygian:/app/logs
     healthcheck:
-      test: ["CMD-SHELL", "test -f /app/main.py && echo 'healthy' || exit 1"]
+      test: ["CMD", "python", "/app/healthcheck.py"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
     # Resource limits prevent the container from consuming too many host resources.
     # Adjust these values based on your bot's performance needs.
     deploy:

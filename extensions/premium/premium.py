@@ -1,38 +1,53 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from database import guild_manager
+from database import guild_manager, audit_log
+from database.utils import ensure_utc
 from datetime import datetime, timezone
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
-# Get bot owner ID from environment
 BOT_OWNER_ID = os.getenv("BOT_OWNER_ID", "")
 
-# Admin guild ID for owner-only commands
-ADMIN_GUILD_ID = 1326375497122320416
+
+def _parse_admin_guild_ids() -> list[int]:
+    """
+    Comma-separated PREMIUM_ADMIN_GUILD_IDS env var. Falls back to the
+    historical hard-coded admin guild for backward-compat.
+    """
+    raw = os.getenv("PREMIUM_ADMIN_GUILD_IDS", "").strip()
+    if not raw:
+        return [1326375497122320416]
+    ids: list[int] = []
+    for piece in raw.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            ids.append(int(piece))
+        except ValueError:
+            logger.warning(f"Ignoring invalid PREMIUM_ADMIN_GUILD_IDS entry: {piece!r}")
+    return ids or [1326375497122320416]
+
+
+ADMIN_GUILD_IDS = _parse_admin_guild_ids()
+_ADMIN_GUILD_OBJS = [discord.Object(id=g) for g in ADMIN_GUILD_IDS]
+
+CODE_REGEX = re.compile(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}")
 
 
 class Premium(commands.Cog):
-    """
-    Premium subscription management cog.
-
-    Provides commands for:
-    - Generating premium codes (admin only)
-    - Redeeming premium codes
-    - Checking premium status
-    - Managing premium subscriptions
-    """
+    """Premium subscription commands."""
 
     def __init__(self, bot):
         self.bot = bot
-        logger.info("Premium cog initialized")
+        logger.info(f"Premium cog initialized (admin guilds: {ADMIN_GUILD_IDS})")
 
     @app_commands.command(name="premium-status", description="Check the premium status of this server")
     async def premium_status(self, interaction: discord.Interaction):
-        """Check if the current guild has an active premium subscription."""
         await interaction.response.defer(ephemeral=True)
 
         try:
@@ -46,17 +61,10 @@ class Premium(commands.Cog):
             )
 
             if is_premium and subscription:
-                expires_at = subscription.get("expires_at")
-                activated_at = subscription.get("activated_at")
+                expires_at = ensure_utc(subscription.get("expires_at"))
+                activated_at = ensure_utc(subscription.get("activated_at"))
                 is_lifetime = subscription.get("is_lifetime", False)
 
-                # Ensure datetimes are timezone-aware (MongoDB returns naive datetimes)
-                if expires_at and expires_at.tzinfo is None:
-                    expires_at = expires_at.replace(tzinfo=timezone.utc)
-                if activated_at and activated_at.tzinfo is None:
-                    activated_at = activated_at.replace(tzinfo=timezone.utc)
-
-                # Display expiration based on whether it's lifetime
                 if is_lifetime:
                     expires_str = "🌟 **LIFETIME**"
                 elif expires_at:
@@ -78,7 +86,6 @@ class Premium(commands.Cog):
                 limits = await guild_manager.get_guild_limits(guild_id)
                 embed.add_field(name="Max Rules", value=str(limits.get("max_rules", 20)), inline=True)
                 embed.add_field(name="Daily Limit", value=str(limits.get("daily_limit", 5000)), inline=True)
-
                 embed.set_footer(text="Thank you for supporting Stygian Relay!")
             else:
                 embed.add_field(name="Status", value="❌ Free Tier", inline=True)
@@ -87,35 +94,41 @@ class Premium(commands.Cog):
                 embed.add_field(name="Max Rules", value=str(limits.get("max_rules", 3)), inline=True)
                 embed.add_field(name="Daily Limit", value=str(limits.get("daily_limit", 100)), inline=True)
 
-                embed.description = "Upgrade to Premium to unlock:\n" \
-                                  "• More forwarding rules\n" \
-                                  "• Higher daily message limits\n" \
-                                  "• Remove branding from forwarded messages\n" \
-                                  "• Priority support"
+                embed.description = (
+                    "Upgrade to Premium to unlock:\n"
+                    "• More forwarding rules\n"
+                    "• Higher daily message limits\n"
+                    "• Remove branding from forwarded messages\n"
+                    "• Priority support"
+                )
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         except Exception as e:
             logger.error(f"Error checking premium status: {e}", exc_info=True)
-            await interaction.followup.send(
-                "An error occurred while checking premium status.",
-                ephemeral=True
-            )
+            await interaction.followup.send("An error occurred while checking premium status.", ephemeral=True)
 
     @app_commands.command(name="premium-redeem", description="Redeem a premium activation code")
     @app_commands.describe(code="The premium activation code (format: XXXX-XXXX-XXXX)")
     async def premium_redeem(self, interaction: discord.Interaction, code: str):
-        """Redeem a premium code for the current guild. Available to all members."""
+        """Redeem a premium code for the current guild."""
         await interaction.response.defer(ephemeral=True)
 
+        guild_id = str(interaction.guild_id)
+        user_id = str(interaction.user.id)
+
+        # Quick format reject so we don't audit malformed attempts as errors.
+        normalized = code.upper().strip()
+        if not CODE_REGEX.fullmatch(normalized):
+            await interaction.followup.send(
+                "❌ Invalid code format. Expected `XXXX-XXXX-XXXX`.",
+                ephemeral=True
+            )
+            return
+
         try:
-            guild_id = str(interaction.guild_id)
-            user_id = str(interaction.user.id)
+            result = await guild_manager.redeem_premium_code(normalized, guild_id, user_id)
 
-            # Redeem the code (no permission check - anyone can redeem)
-            result = await guild_manager.redeem_premium_code(code, guild_id, user_id)
-
-            # Create success embed
             is_lifetime = result.get("is_lifetime", False)
             embed = discord.Embed(
                 title="✅ Premium Activated!",
@@ -124,54 +137,52 @@ class Premium(commands.Cog):
             )
 
             if is_lifetime:
-                embed.add_field(
-                    name="Duration",
-                    value="🌟 **LIFETIME**",
-                    inline=True
-                )
+                embed.add_field(name="Duration", value="🌟 **LIFETIME**", inline=True)
             else:
                 expires_at = result.get("expires_at")
                 if expires_at:
                     days = result.get("duration_days", 30)
-                    embed.add_field(
-                        name="Duration",
-                        value=f"{days} days",
-                        inline=True
-                    )
-                    embed.add_field(
-                        name="Expires",
-                        value=f"<t:{int(expires_at.timestamp())}:R>",
-                        inline=True
-                    )
+                    embed.add_field(name="Duration", value=f"{days} days", inline=True)
+                    embed.add_field(name="Expires", value=f"<t:{int(expires_at.timestamp())}:R>", inline=True)
 
             embed.set_footer(text=f"Activated by {interaction.user.name}")
             embed.timestamp = datetime.now(timezone.utc)
 
             await interaction.followup.send(embed=embed, ephemeral=True)
 
-            # Log to guild's log channel if configured
+            await audit_log.log(
+                category="premium",
+                guild_id=guild_id,
+                actor_id=user_id,
+                action="redeem",
+                payload={"code": normalized, "is_lifetime": is_lifetime,
+                         "duration_days": result.get("duration_days")}
+            )
+
             guild_settings = await guild_manager.get_guild_settings(guild_id)
             log_channel_id = guild_settings.get("master_log_channel_id")
             if log_channel_id:
                 log_channel = self.bot.get_channel(int(log_channel_id))
                 if log_channel:
                     log_embed = embed.copy()
-                    log_embed.add_field(
-                        name="Code",
-                        value=f"||{code}||",
-                        inline=False
-                    )
+                    log_embed.add_field(name="Code", value=f"||{normalized}||", inline=False)
                     try:
                         await log_channel.send(embed=log_embed)
-                    except Exception:
-                        pass  # Silently fail if we can't send to log channel
+                    except Exception as log_err:
+                        logger.warning(
+                            f"Failed to post premium redeem to log channel {log_channel_id} "
+                            f"for guild {guild_id}: {log_err}"
+                        )
 
         except ValueError as e:
-            # Invalid code or already redeemed
-            await interaction.followup.send(
-                f"❌ {str(e)}",
-                ephemeral=True
+            await audit_log.log(
+                category="premium",
+                guild_id=guild_id,
+                actor_id=user_id,
+                action="redeem_failed",
+                payload={"reason": str(e), "code": normalized}
             )
+            await interaction.followup.send(f"❌ {str(e)}", ephemeral=True)
         except Exception as e:
             logger.error(f"Error redeeming premium code: {e}", exc_info=True)
             await interaction.followup.send(
@@ -180,23 +191,23 @@ class Premium(commands.Cog):
             )
 
     @app_commands.command(name="premium-generate", description="[ADMIN] Generate a premium activation code")
-    @app_commands.guilds(ADMIN_GUILD_ID)
+    @app_commands.guilds(*_ADMIN_GUILD_OBJS)
     @app_commands.describe(
         duration_days="Duration in days (default: 30, ignored if lifetime=True)",
         restrict_guild="Restrict code to this server only (default: False)",
-        lifetime="Generate a lifetime premium code (default: False)"
+        lifetime="Generate a lifetime premium code (default: False)",
+        code_validity_days="How long the unredeemed code is valid (default: 90, 0 = no expiry)"
     )
     async def premium_generate(
         self,
         interaction: discord.Interaction,
         duration_days: int = 30,
         restrict_guild: bool = False,
-        lifetime: bool = False
+        lifetime: bool = False,
+        code_validity_days: int = 90,
     ):
-        """Generate a premium code. Only available to bot owner."""
         await interaction.response.defer(ephemeral=True)
 
-        # Check if user is bot owner
         if str(interaction.user.id) != BOT_OWNER_ID:
             await interaction.followup.send(
                 "❌ This command is only available to the bot owner.",
@@ -208,51 +219,60 @@ class Premium(commands.Cog):
             guild_id = str(interaction.guild_id) if restrict_guild else None
             user_id = str(interaction.user.id)
 
-            # Generate the code
             code_data = await guild_manager.generate_premium_code(
                 duration_days=duration_days,
                 created_by=user_id,
                 guild_id=guild_id,
-                is_lifetime=lifetime
+                is_lifetime=lifetime,
+                code_validity_days=code_validity_days if code_validity_days > 0 else None,
             )
 
-            # Create response embed
             embed = discord.Embed(
                 title="✅ Premium Code Generated",
-                description=f"A new premium code has been created!",
+                description="A new premium code has been created!",
                 color=discord.Color.green()
             )
+            embed.add_field(name="Code", value=f"||{code_data['code']}||", inline=False)
 
-            embed.add_field(
-                name="Code",
-                value=f"||{code_data['code']}||",
-                inline=False
-            )
-
-            # Display duration based on whether it's lifetime
             if lifetime:
                 embed.add_field(name="Duration", value="🌟 **LIFETIME**", inline=True)
             else:
                 embed.add_field(name="Duration", value=f"{duration_days} days", inline=True)
 
-            if restrict_guild:
-                guild_name = interaction.guild.name if interaction.guild else "Unknown"
+            unredeemed_expiry = code_data.get("expires_at_unredeemed")
+            if unredeemed_expiry:
                 embed.add_field(
-                    name="Restricted To",
-                    value=f"{guild_name} ({guild_id})",
-                    inline=False
+                    name="Code Expires (unredeemed)",
+                    value=f"<t:{int(unredeemed_expiry.timestamp())}:R>",
+                    inline=True
                 )
             else:
-                embed.add_field(
-                    name="Usable In",
-                    value="Any server",
-                    inline=False
-                )
+                embed.add_field(name="Code Expires (unredeemed)", value="Never", inline=True)
+
+            if restrict_guild:
+                guild_name = interaction.guild.name if interaction.guild else "Unknown"
+                embed.add_field(name="Restricted To", value=f"{guild_name} ({guild_id})", inline=False)
+            else:
+                embed.add_field(name="Usable In", value="Any server", inline=False)
 
             embed.set_footer(text=f"Generated by {interaction.user.name}")
             embed.timestamp = datetime.now(timezone.utc)
 
             await interaction.followup.send(embed=embed, ephemeral=True)
+
+            await audit_log.log(
+                category="premium",
+                guild_id=guild_id,
+                actor_id=user_id,
+                action="generate",
+                payload={
+                    "code": code_data["code"],
+                    "is_lifetime": lifetime,
+                    "duration_days": duration_days,
+                    "code_validity_days": code_validity_days,
+                    "restrict_guild": restrict_guild,
+                }
+            )
 
         except Exception as e:
             logger.error(f"Error generating premium code: {e}", exc_info=True)
@@ -262,12 +282,10 @@ class Premium(commands.Cog):
             )
 
     @app_commands.command(name="premium-deactivate", description="[ADMIN] Deactivate premium for this server")
-    @app_commands.guilds(ADMIN_GUILD_ID)
+    @app_commands.guilds(*_ADMIN_GUILD_OBJS)
     async def premium_deactivate(self, interaction: discord.Interaction):
-        """Deactivate premium subscription for the current guild. Bot owner only."""
         await interaction.response.defer(ephemeral=True)
 
-        # Check if user is bot owner
         if str(interaction.user.id) != BOT_OWNER_ID:
             await interaction.followup.send(
                 "❌ This command is only available to the bot owner.",
@@ -284,6 +302,13 @@ class Premium(commands.Cog):
                     "✅ Premium subscription has been deactivated for this server.",
                     ephemeral=True
                 )
+                await audit_log.log(
+                    category="premium",
+                    guild_id=guild_id,
+                    actor_id=str(interaction.user.id),
+                    action="deactivate",
+                    payload={}
+                )
             else:
                 await interaction.followup.send(
                     "ℹ️ This server does not have an active premium subscription.",
@@ -298,13 +323,11 @@ class Premium(commands.Cog):
             )
 
     @app_commands.command(name="premium-codes", description="[ADMIN] List all premium codes")
-    @app_commands.guilds(ADMIN_GUILD_ID)
+    @app_commands.guilds(*_ADMIN_GUILD_OBJS)
     @app_commands.describe(show_redeemed="Show redeemed codes (default: False)")
     async def premium_codes(self, interaction: discord.Interaction, show_redeemed: bool = False):
-        """List all premium codes created by the bot owner."""
         await interaction.response.defer(ephemeral=True)
 
-        # Check if user is bot owner
         if str(interaction.user.id) != BOT_OWNER_ID:
             await interaction.followup.send(
                 "❌ This command is only available to the bot owner.",
@@ -320,51 +343,48 @@ class Premium(commands.Cog):
             )
 
             if not codes:
-                await interaction.followup.send(
-                    "ℹ️ No premium codes found.",
-                    ephemeral=True
-                )
+                await interaction.followup.send("ℹ️ No premium codes found.", ephemeral=True)
                 return
 
-            # Create embed with code list
-            embed = discord.Embed(
-                title="Premium Codes",
-                description=f"Showing {'all' if show_redeemed else 'unredeemed'} codes",
-                color=discord.Color.blue()
-            )
+            from extensions.common.views import PaginatedEmbedView
 
-            for i, code in enumerate(codes[:10], 1):  # Limit to 10 codes
-                status = "✅ Redeemed" if code.get("is_redeemed") else "⏳ Available"
-                is_lifetime = code.get("is_lifetime", False)
-
-                # Display duration
-                if is_lifetime:
-                    duration_str = "🌟 LIFETIME"
-                else:
-                    duration = code.get("duration_days", 30)
-                    duration_str = f"{duration} days"
-
-                value_lines = [
-                    f"**Code:** ||{code['code']}||",
-                    f"**Duration:** {duration_str}",
-                    f"**Status:** {status}"
-                ]
-
-                if code.get("is_redeemed"):
-                    redeemed_at = code.get("redeemed_at")
-                    if redeemed_at:
-                        value_lines.append(f"**Redeemed:** <t:{int(redeemed_at.timestamp())}:R>")
-
-                embed.add_field(
-                    name=f"Code #{i}",
-                    value="\n".join(value_lines),
-                    inline=False
+            def render(page_items, page_idx, total_pages):
+                e = discord.Embed(
+                    title="Premium Codes",
+                    description=f"Showing {'all' if show_redeemed else 'unredeemed'} codes ({len(codes)} total)",
+                    color=discord.Color.blue()
                 )
+                start_no = page_idx * 10 + 1
+                for offset, code in enumerate(page_items):
+                    status = "✅ Redeemed" if code.get("is_redeemed") else "⏳ Available"
+                    is_lifetime = code.get("is_lifetime", False)
+                    duration_str = "🌟 LIFETIME" if is_lifetime else f"{code.get('duration_days', 30)} days"
 
-            if len(codes) > 10:
-                embed.set_footer(text=f"Showing 10 of {len(codes)} codes")
+                    value_lines = [
+                        f"**Code:** ||{code['code']}||",
+                        f"**Duration:** {duration_str}",
+                        f"**Status:** {status}",
+                    ]
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+                    unredeemed_expiry = ensure_utc(code.get("expires_at_unredeemed"))
+                    if unredeemed_expiry and not code.get("is_redeemed"):
+                        value_lines.append(f"**Expires:** <t:{int(unredeemed_expiry.timestamp())}:R>")
+
+                    if code.get("is_redeemed"):
+                        redeemed_at = ensure_utc(code.get("redeemed_at"))
+                        if redeemed_at:
+                            value_lines.append(f"**Redeemed:** <t:{int(redeemed_at.timestamp())}:R>")
+
+                    e.add_field(
+                        name=f"Code #{start_no + offset}",
+                        value="\n".join(value_lines),
+                        inline=False
+                    )
+                e.set_footer(text=f"Page {page_idx + 1}/{total_pages}")
+                return e
+
+            view = PaginatedEmbedView(codes, render, page_size=10, author_id=interaction.user.id)
+            await interaction.followup.send(embed=await view.initial_embed(), view=view, ephemeral=True)
 
         except Exception as e:
             logger.error(f"Error listing premium codes: {e}", exc_info=True)
@@ -375,6 +395,5 @@ class Premium(commands.Cog):
 
 
 async def setup(bot):
-    """Setup function to add the cog to the bot."""
     await bot.add_cog(Premium(bot))
     logger.info("Premium cog loaded")

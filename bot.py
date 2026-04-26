@@ -1,7 +1,15 @@
-import discord
-from discord.ext import commands
+import json
+import os
+import tempfile
+import time
 
-from database import db_core, guild_manager, ensure_database_connection, get_guild_settings
+import discord
+from discord.ext import commands, tasks
+
+from database import db_core, guild_manager, audit_log, ensure_database_connection, get_guild_settings
+from database.utils import normalize_channel_id
+
+HEARTBEAT_PATH = os.environ.get("HEARTBEAT_PATH", "/app/healthcheck.state")
 
 error_notifier = None
 
@@ -44,6 +52,36 @@ bot = commands.AutoShardedBot(
 )
 
 
+def _write_heartbeat(db_healthy: bool) -> None:
+    """Atomically write the heartbeat file consumed by healthcheck.py."""
+    payload = {
+        "ts": time.time(),
+        "db_healthy": db_healthy,
+        "bot_ready": bot.is_ready() if bot else False,
+    }
+    try:
+        directory = os.path.dirname(HEARTBEAT_PATH) or "."
+        os.makedirs(directory, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=directory, delete=False
+        ) as fh:
+            json.dump(payload, fh)
+            tmp_path = fh.name
+        os.replace(tmp_path, HEARTBEAT_PATH)
+    except OSError as exc:
+        print(f"⚠️ Failed to write heartbeat: {exc}")
+
+
+@tasks.loop(seconds=30)
+async def heartbeat_task():
+    _write_heartbeat(db_core.is_healthy())
+
+
+@heartbeat_task.before_loop
+async def _heartbeat_before():
+    await bot.wait_until_ready()
+
+
 @bot.event
 async def on_ready():
     """Called when the bot is ready and connected to Discord."""
@@ -64,6 +102,12 @@ async def on_ready():
 
     except Exception as e:
         print(f'❌ Database connection error: {e}')
+
+    if not heartbeat_task.is_running():
+        heartbeat_task.start()
+        print('💓 Heartbeat task started')
+    # Write an initial heartbeat so the container is healthy immediately on connect.
+    _write_heartbeat(db_core.is_healthy())
 
 
 async def initialize_existing_guilds():
@@ -94,6 +138,65 @@ async def on_guild_join(guild):
 
     except Exception as e:
         print(f'❌ Failed to setup guild {guild.name}: {e}')
+
+
+@bot.event
+async def on_guild_role_delete(role):
+    """If the deleted role was the manager_role_id, clear it."""
+    try:
+        guild_id = str(role.guild.id)
+        settings = await guild_manager.get_guild_settings(guild_id)
+        manager_role_id = settings.get("manager_role_id")
+        if manager_role_id and str(manager_role_id) == str(role.id):
+            await guild_manager.update_guild_settings(guild_id, {"manager_role_id": None})
+            await audit_log.log(
+                "settings", guild_id, "system",
+                "auto_clear_manager_role",
+                {"prior_role_id": str(role.id), "reason": "role deleted"}
+            )
+            print(f"🧹 Cleared dangling manager_role_id {role.id} for guild {role.guild.name}")
+    except Exception as e:
+        print(f"❌ Error in on_guild_role_delete: {e}")
+
+
+@bot.event
+async def on_guild_channel_delete(channel):
+    """Clear master_log_channel_id and deactivate rules referencing this channel."""
+    try:
+        guild_id = str(channel.guild.id)
+        settings = await guild_manager.get_guild_settings(guild_id)
+
+        # Clear log channel if it pointed here.
+        log_channel_id = settings.get("master_log_channel_id")
+        if log_channel_id and str(log_channel_id) == str(channel.id):
+            await guild_manager.update_guild_settings(guild_id, {"master_log_channel_id": None})
+            await audit_log.log(
+                "settings", guild_id, "system",
+                "auto_clear_log_channel",
+                {"prior_channel_id": str(channel.id), "reason": "channel deleted"}
+            )
+
+        # Deactivate any rule whose source or destination matched this channel.
+        affected = []
+        for rule in settings.get("rules", []):
+            src = normalize_channel_id(rule.get("source_channel_id"))
+            dst = normalize_channel_id(rule.get("destination_channel_id"))
+            if (src == channel.id or dst == channel.id) and rule.get("is_active"):
+                affected.append(rule.get("rule_id"))
+
+        for rule_id in affected:
+            await guild_manager.update_rule(rule_id, {"is_active": False})
+            await audit_log.log(
+                "rule", guild_id, "system",
+                "auto_deactivate_rule",
+                {"rule_id": rule_id, "reason": "referenced channel deleted",
+                 "channel_id": str(channel.id)}
+            )
+
+        if affected:
+            print(f"🧹 Deactivated {len(affected)} rule(s) in {channel.guild.name} (channel {channel.id} deleted)")
+    except Exception as e:
+        print(f"❌ Error in on_guild_channel_delete: {e}")
 
 
 @bot.event
@@ -214,13 +317,17 @@ async def ping_command(ctx):
     db_healthy = db_core.is_healthy()
     db_status = "✅ Connected" if db_healthy else "❌ Disconnected"
 
-    try:
-        settings = await get_guild_settings(str(ctx.guild.id))
-        prefix = settings.get("command_prefix", "!")
-        guild_status = "✅ Configured"
-    except Exception as e:
+    if ctx.guild is None:
         prefix = "!"
-        guild_status = f"❌ Error: {e}"
+        guild_status = "ℹ️ DM (no guild)"
+    else:
+        try:
+            settings = await get_guild_settings(str(ctx.guild.id))
+            prefix = settings.get("command_prefix", "!")
+            guild_status = "✅ Configured"
+        except Exception as e:
+            prefix = "!"
+            guild_status = f"❌ Error: {e}"
 
     embed = discord.Embed(
         title="🏓 Pong!",

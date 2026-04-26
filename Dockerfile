@@ -29,4 +29,6 @@ RUN mkdir -p logs
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
+EXPOSE 50006
+
 CMD ["python", "main.py"]

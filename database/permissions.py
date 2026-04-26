@@ -48,11 +48,16 @@ async def can_manage_guild_settings(
         manager_role_id = guild_settings.get("manager_role_id")
 
         if manager_role_id:
-            # Check if user has the manager role
-            user_role_ids = [role.id for role in interaction.user.roles]
-            if int(manager_role_id) in user_role_ids:
+            # The stored id may be a string (current) or int (legacy); normalize before comparing.
+            try:
+                manager_role_id_int = int(manager_role_id)
+            except (TypeError, ValueError):
+                logger.warning(f"Malformed manager_role_id in guild {gid}: {manager_role_id!r}")
+                return False
+
+            if any(role.id == manager_role_id_int for role in interaction.user.roles):
                 logger.info(
-                    f"User {interaction.user.id} has manager role {manager_role_id} "
+                    f"User {interaction.user.id} has manager role {manager_role_id_int} "
                     f"in guild {gid}"
                 )
                 return True

@@ -11,6 +11,7 @@ from logger.error_reporter import ErrorReporter
 from logger.reporting_types import Severity
 from status.idle import rotate_status
 from database import db_core, guild_manager
+from health_endpoint import initialize_health_server, stop_health_server
 
 load_dotenv()
 
@@ -91,6 +92,9 @@ async def main():
         await load_cogs()
         app_logger.info("Cogs loaded successfully")
 
+        initialize_health_server(port=50006, bot=bot, db_manager=db_core)
+        app_logger.info("Health endpoint started on port 50006")
+
         app_logger.info("Connecting to Discord...")
         await bot.start(DISCORD_TOKEN)
 
@@ -115,6 +119,8 @@ async def shutdown_bot():
     app_logger.info("Initiating bot shutdown...")
 
     try:
+        stop_health_server()
+
         if not bot.is_closed():
             await bot.close()
             app_logger.info("✅ Discord connection closed")

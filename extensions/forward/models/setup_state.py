@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional
+from typing import Awaitable, Callable, Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 
@@ -29,6 +29,11 @@ class SetupState:
         # References to the interactive UI message for editing
         self.setup_message_id: Optional[int] = None
         self.setup_channel_id: Optional[int] = None
+
+        # Restore callback invoked on terminal actions (cancel / completion).
+        # Set when the wizard runs hosted inside another panel (e.g. /admin
+        # forwarding_rules). Not persisted to MongoDB — in-memory only.
+        self.on_exit: Optional[Callable[[Any], Awaitable[None]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """

@@ -3,6 +3,7 @@ This module contains the primary user-facing setup wizard for configuring
 message forwarding rules. It uses a state machine and various discord.ui
 components to guide the user through a multi-step configuration process.
 """
+import asyncio
 import discord
 import json
 from discord.ext import commands
@@ -137,60 +138,63 @@ class RuleDeleteView(CustomView):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class RuleDeleteConfirmView(CustomView):
+class RuleDeleteConfirmView(discord.ui.LayoutView):
     """
-    Confirmation view for rule deletion with Deactivate/Delete options.
+    Confirmation LayoutView (Components v2) for rule deletion with
+    Deactivate / Permanently Delete / Cancel options.
     """
 
-    def __init__(self, rule: dict, cog: 'ForwardCog'):
+    def __init__(self, rule: dict, cog: 'ForwardCog', on_exit=None):
         super().__init__(timeout=60)
         self.rule = rule
         self.cog = cog
+        self.on_exit = on_exit
 
-        # Deactivate button (soft delete)
+        rule_name = rule.get("rule_name", "Unnamed Rule")
+        self.add_item(discord.ui.TextDisplay("## ⚠️ Confirm Rule Deletion"))
+        self.add_item(discord.ui.TextDisplay(
+            f"Are you sure you want to delete **{rule_name}**?\n\n"
+            "**Deactivate** keeps the rule but stops it from forwarding.\n"
+            "**Permanently Delete** removes the rule entirely (cannot be undone)."
+        ))
+        self.add_item(discord.ui.Separator())
+
+        row = discord.ui.ActionRow()
         deactivate_button = discord.ui.Button(
-            label="Deactivate Rule",
-            style=discord.ButtonStyle.secondary,
-            emoji="🔴"
+            label="Deactivate Rule", style=discord.ButtonStyle.secondary, emoji="🔴"
         )
         deactivate_button.callback = self.deactivate_callback
-        self.add_item(deactivate_button)
+        row.add_item(deactivate_button)
 
-        # Permanently delete button
         delete_button = discord.ui.Button(
-            label="Permanently Delete",
-            style=discord.ButtonStyle.danger,
-            emoji="🗑️"
+            label="Permanently Delete", style=discord.ButtonStyle.danger, emoji="🗑️"
         )
         delete_button.callback = self.delete_callback
-        self.add_item(delete_button)
+        row.add_item(delete_button)
 
-        # Cancel button
         cancel_button = discord.ui.Button(
-            label="Cancel",
-            style=discord.ButtonStyle.primary,
-            emoji="❌"
+            label="Cancel", style=discord.ButtonStyle.primary, emoji="❌"
         )
         cancel_button.callback = self.cancel_callback
-        self.add_item(cancel_button)
+        row.add_item(cancel_button)
+        self.add_item(row)
 
     async def deactivate_callback(self, interaction: discord.Interaction):
-        """Deactivate (soft delete) the rule"""
-        await interaction.response.defer(ephemeral=True)
-
+        await interaction.response.defer()
         try:
             rule_id = self.rule.get('rule_id')
-            success = await guild_manager.delete_rule(rule_id)  # This does soft delete
-
+            success = await guild_manager.delete_rule(rule_id)
             if success:
-                rule_name = self.rule.get('rule_name', 'Unnamed Rule')
-                embed = discord.Embed(
-                    title="✅ Rule Deactivated",
-                    description=f"The forwarding rule **{rule_name}** has been deactivated and will no longer forward messages.\n\n*You can reactivate it later using the edit command.*",
-                    color=discord.Color.orange()
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
                 logger.info(f"Rule {rule_id} deactivated in guild {interaction.guild.id}")
+                await state_manager.cleanup_session(interaction.guild_id)
+                if self.on_exit is not None:
+                    await self.on_exit(interaction)
+                    return
+                await self._show_terminal(
+                    interaction,
+                    "## ✅ Rule Deactivated",
+                    f"**{self.rule.get('rule_name', 'Unnamed Rule')}** is now inactive and will not forward messages.",
+                )
             else:
                 await self._show_error(interaction, "Failed to deactivate the rule.")
         except Exception as e:
@@ -198,23 +202,22 @@ class RuleDeleteConfirmView(CustomView):
             await self._show_error(interaction, "An error occurred while deactivating the rule.")
 
     async def delete_callback(self, interaction: discord.Interaction):
-        """Permanently delete the rule"""
-        await interaction.response.defer(ephemeral=True)
-
+        await interaction.response.defer()
         try:
             rule_id = self.rule.get('rule_id')
             guild_id = str(interaction.guild.id)
             success = await guild_manager.permanently_delete_rule(guild_id, rule_id)
-
             if success:
-                rule_name = self.rule.get('rule_name', 'Unnamed Rule')
-                embed = discord.Embed(
-                    title="✅ Rule Permanently Deleted",
-                    description=f"The forwarding rule **{rule_name}** has been permanently deleted from the database.\n\n*This action cannot be undone.*",
-                    color=discord.Color.green()
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
                 logger.info(f"Rule {rule_id} permanently deleted from guild {guild_id}")
+                await state_manager.cleanup_session(interaction.guild_id)
+                if self.on_exit is not None:
+                    await self.on_exit(interaction)
+                    return
+                await self._show_terminal(
+                    interaction,
+                    "## ✅ Rule Permanently Deleted",
+                    f"**{self.rule.get('rule_name', 'Unnamed Rule')}** has been removed from the database.",
+                )
             else:
                 await self._show_error(interaction, "Failed to permanently delete the rule.")
         except Exception as e:
@@ -222,22 +225,30 @@ class RuleDeleteConfirmView(CustomView):
             await self._show_error(interaction, "An error occurred while deleting the rule.")
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        """Cancel the deletion"""
-        embed = discord.Embed(
-            title="❌ Action Cancelled",
-            description="No changes were made to the rule.",
-            color=discord.Color.red()
+        if self.on_exit is not None:
+            session = await state_manager.get_session(interaction.guild_id)
+            if session and session.current_rule:
+                view = RuleSettingsView(session, self.cog)
+                await interaction.response.edit_message(view=view)
+                return
+        await self._show_terminal(
+            interaction,
+            "## ❌ Action Cancelled",
+            "No changes were made to the rule.",
+            edit=True,
         )
-        await interaction.response.edit_message(embed=embed, view=None)
+
+    async def _show_terminal(self, interaction: discord.Interaction, title: str, body: str, edit: bool = False):
+        layout = discord.ui.LayoutView()
+        layout.add_item(discord.ui.TextDisplay(title))
+        layout.add_item(discord.ui.TextDisplay(body))
+        if edit:
+            await interaction.response.edit_message(view=layout)
+        else:
+            await interaction.edit_original_response(view=layout)
 
     async def _show_error(self, interaction: discord.Interaction, message: str):
-        """Helper method to show error messages"""
-        embed = discord.Embed(
-            title="❌ Error",
-            description=message,
-            color=discord.Color.red()
-        )
-        await interaction.edit_original_response(embed=embed, view=None)
+        await self._show_terminal(interaction, "## ❌ Error", message)
 
 class LearnMoreView(CustomView):
     """View for the Learn More section with proper button callbacks"""
@@ -446,6 +457,10 @@ class RuleSettingsView(CustomView):
         back_button.callback = self.back_to_preview_callback
         self.add_item(back_button)
 
+        delete_button = discord.ui.Button(label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️", row=4)
+        delete_button.callback = self.delete_callback
+        self.add_item(delete_button)
+
     async def create_settings_embed(self, guild: discord.Guild) -> discord.Embed:
         """Creates the embed for the main settings view."""
         rule = self.session.current_rule
@@ -531,11 +546,29 @@ class RuleSettingsView(CustomView):
         await interaction.response.defer() # Type: Ignore
 
         success, message = await self.cog.update_final_rule(interaction, self.session)
-        
+
         if success:
             await self.cog.show_setup_complete(interaction, self.session, is_editing=True)
         else:
             await interaction.followup.send(f"❌ Save failed: {message}", ephemeral=True)
+
+    async def delete_callback(self, interaction: discord.Interaction):
+        """Show a confirmation prompt for permanently deleting this rule."""
+        rule = self.session.current_rule
+        rule_name = rule.get("rule_name", "Unnamed Rule")
+
+        confirm_view = RuleDeleteConfirmView(rule, self.cog, on_exit=self.session.on_exit)
+
+        embed = discord.Embed(
+            title="⚠️ Confirm Rule Deletion",
+            description=(
+                f"Are you sure you want to delete **{rule_name}**?\n\n"
+                "**Deactivate** keeps the rule but stops it from forwarding.\n"
+                "**Permanently Delete** removes the rule entirely (cannot be undone)."
+            ),
+            color=discord.Color.orange(),
+        )
+        await interaction.response.edit_message(embed=embed, view=confirm_view)
 
 
 class ForwardCog(commands.Cog):
@@ -551,106 +584,25 @@ class ForwardCog(commands.Cog):
         self.logger = logging.getLogger("Forward")
         self.guild_manager = guild_manager
         self.rule_creation_flow = RuleCreationFlow(bot, self)
+        self._session_cleanup_task = None
 
     async def cog_load(self):
         """Called when the cog is loaded."""
         self.logger.info("Forward cog loaded")
+        # Periodic eviction of idle setup sessions (TTL inside SetupState).
+        self._session_cleanup_task = asyncio.create_task(self._session_cleanup_loop())
 
-    @forward.command(name="edit", description="Edit an existing forwarding rule.")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def edit(self, interaction: discord.Interaction):
-        """
-        Starts an interactive UI to select and edit an existing forwarding rule.
-        This command is the entry point for editing rules.
-        """
+    async def _session_cleanup_loop(self):
+        """Run state_manager.cleanup_expired_sessions every 5 minutes."""
         try:
-            # Check if user has permission (manage_guild or manager role)
-            if not interaction.user.guild_permissions.manage_guild:
-                if not await can_manage_guild_settings(interaction):
-                    error_msg = await get_permission_error_message(interaction)
-                    await interaction.response.send_message(error_msg, ephemeral=True)
-                    return
-
-            rules = await self.guild_manager.get_all_rules(interaction.guild_id)
-
-            if not rules:
-                await interaction.response.send_message( # Type: Ignore
-                    "🤔 No forwarding rules found for this server. Use `/forward setup` to create one.",
-                    ephemeral=True
-                )
-                return
-
-            view = RuleSelectView(rules, self)
-            await interaction.response.send_message( # Type: Ignore
-                "Please select a rule to edit:",
-                view=view,
-                ephemeral=True
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error starting edit session: {e}", exc_info=True)
-            await interaction.response.send_message( # Type: Ignore
-                "❌ An error occurred while trying to edit a rule. Please try again.",
-                ephemeral=True
-            )
-
-    @forward.command(name="setup", description="Start interactive setup for message forwarding")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def setup(self, interaction: discord.Interaction):
-        """
-        Starts the interactive setup wizard for creating a new forwarding rule.
-        This command is the entry point for creating new rules.
-        """
-        try:
-            # Check if user has permission (manage_guild or manager role)
-            if not interaction.user.guild_permissions.manage_guild:
-                if not await can_manage_guild_settings(interaction):
-                    error_msg = await get_permission_error_message(interaction)
-                    await interaction.response.send_message(error_msg, ephemeral=True)
-                    return
-
-            # Check if guild has reached rule limit (premium-aware)
-            guild_limits = await guild_manager.get_guild_limits(str(interaction.guild_id))
-            current_rules = await guild_manager.get_guild_rules(str(interaction.guild_id))
-            active_rules = [r for r in current_rules if r.get("is_active", False)]
-
-            if len(active_rules) >= guild_limits.get("max_rules", 3):
-                is_premium = guild_limits.get("is_premium", False)
-                max_rules = guild_limits.get("max_rules", 3)
-
-                if is_premium:
-                    await interaction.response.send_message( # Type: Ignore
-                        f"❌ You have reached the maximum number of rules ({max_rules}) for your premium tier.\n"
-                        "Please delete an existing rule before creating a new one.",
-                        ephemeral=True
-                    )
-                else:
-                    await interaction.response.send_message( # Type: Ignore
-                        f"❌ You have reached the maximum number of rules ({max_rules}) for the free tier.\n"
-                        f"Upgrade to premium to create up to 20 rules!\n\n"
-                        "Use `/premium-status` to learn more about premium benefits.",
-                        ephemeral=True
-                    )
-                return
-
-            session = await state_manager.create_session(interaction.guild_id, interaction.user.id)
-            
-            # Pre-fill existing settings
-            guild_settings = await self.guild_manager.get_guild_settings(interaction.guild_id)
-            if guild_settings:
-                log_channel_id = guild_settings.get("master_log_channel_id")
-                if log_channel_id:
-                    session.master_log_channel = log_channel_id
-                    await state_manager.update_session(interaction.guild_id, {"master_log_channel_id": log_channel_id})
-
-            await self.show_welcome_step(interaction, session)
-
-        except Exception as e:
-            self.logger.error(f"Error starting setup: {e}", exc_info=True)
-            await interaction.response.send_message( # Type: Ignore
-                "❌ An error occurred starting setup. Please try again.",
-                ephemeral=True
-            )
+            while True:
+                await asyncio.sleep(300)
+                try:
+                    await state_manager.cleanup_expired_sessions()
+                except Exception as e:
+                    self.logger.warning(f"Session cleanup tick failed: {e}")
+        except asyncio.CancelledError:
+            pass
 
     @forward.command(name="create", description="Create a new forwarding rule directly.")
     @app_commands.describe(
@@ -710,10 +662,10 @@ class ForwardCog(commands.Cog):
             }
 
             # 5. Save to database
-            save_result = await guild_manager.add_rule(guild_id=str(interaction.guild.id), **rule_data_for_db)
+            save_ok, reason = await guild_manager.add_rule(guild_id=str(interaction.guild.id), **rule_data_for_db)
 
             # 6. Send confirmation
-            if save_result:
+            if save_ok:
                 embed = discord.Embed(
                     title="✅ Rule Created Successfully!",
                     description=f"I will now forward messages from {source_channel.mention} to {destination_channel.mention}.",
@@ -722,6 +674,14 @@ class ForwardCog(commands.Cog):
                 embed.add_field(name="Rule Name", value=final_rule_name, inline=False)
                 embed.set_footer(text="You can edit this rule with /forward edit.")
                 await interaction.followup.send(embed=embed, ephemeral=True)
+            elif reason == "limit_reached":
+                limits = await guild_manager.get_guild_limits(str(interaction.guild.id))
+                cap = limits.get("max_rules", 3)
+                await interaction.followup.send(
+                    f"❌ Active-rule limit reached ({cap}). Delete or disable an existing rule first, "
+                    f"or upgrade to premium for more.",
+                    ephemeral=True
+                )
             else:
                 await interaction.followup.send("❌ Failed to save the rule to the database. Please try again.",
                                                 ephemeral=True)
@@ -767,127 +727,10 @@ class ForwardCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @forward.command(name="delete_rule", description="Delete a forwarding rule")
-    async def delete_forwarding_rule(self, interaction: discord.Interaction):
-        """
-        Slash command to delete a forwarding rule using a select menu.
-        Only users with manage_guild permission or manager role can use this command.
-        """
-        # Check if user has permission to manage the server (manage_guild or manager role)
-        if not interaction.user.guild_permissions.manage_guild:
-            if not await can_manage_guild_settings(interaction):
-                error_msg = await get_permission_error_message(interaction)
-                await interaction.response.send_message(error_msg, ephemeral=True)
-                return
-
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # Get all rules for this guild
-            guild_settings = await guild_manager.get_guild_settings(str(interaction.guild.id))
-            rules = guild_settings.get("rules", [])
-
-            if not rules:
-                await interaction.followup.send(
-                    "📋 **No forwarding rules found for this server.**\n"
-                    "Create your first rule using `/forward setup`!",
-                    ephemeral=True
-                )
-                return
-
-            # Create the selection view
-            view = RuleDeleteView(rules, self)
-
-            embed = discord.Embed(
-                title="🗑️ Delete Forwarding Rule",
-                description=f"Select a rule to delete from the dropdown below.\n\n"
-                            f"**Found {len(rules)} rule(s) in this server.**",
-                color=discord.Color.orange()
-            )
-
-            embed.set_footer(text="⚠️ Deletion is permanent and cannot be undone!")
-
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-        except Exception as e:
-            logger.error(f"Error showing delete rule menu in guild {interaction.guild.id}: {e}", exc_info=True)
-            await interaction.followup.send(
-                "❌ An error occurred while retrieving forwarding rules. Please try again later.",
-                ephemeral=True
-            )
-
-    @forward.command(name="list_rules", description="List all forwarding rules for this server")
-    async def list_forwarding_rules(self, interaction: discord.Interaction):
-        """
-        Slash command to list all forwarding rules in the current guild.
-        This helps users identify rule IDs for deletion.
-        """
-        # Check if user has permission to manage the server (manage_guild or manager role)
-        if not interaction.user.guild_permissions.manage_guild:
-            if not await can_manage_guild_settings(interaction):
-                error_msg = await get_permission_error_message(interaction)
-                await interaction.response.send_message(error_msg, ephemeral=True)
-                return
-
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # Get guild settings and rules
-            guild_settings = await guild_manager.get_guild_settings(str(interaction.guild.id))
-            rules = guild_settings.get("rules", [])
-
-            if not rules:
-                await interaction.followup.send(
-                    "📋 **No forwarding rules found for this server.**\n"
-                    "Create your first rule to get started!",
-                    ephemeral=True
-                )
-                return
-
-            # Create an embed to display the rules
-            embed = discord.Embed(
-                title="📋 Forwarding Rules",
-                description=f"Found {len(rules)} forwarding rule(s)",
-                color=discord.Color.blue(),
-                timestamp=discord.utils.utcnow()
-            )
-
-            for i, rule in enumerate(rules[:10], 1):  # Limit to 10 rules to avoid embed limits
-                rule_id = rule.get("rule_id", "Unknown")
-                is_active = "🟢 Active" if rule.get("is_active", False) else "🔴 Inactive"
-
-                source_channel = self.bot.get_channel(int(rule.get("source_channel_id")))
-                destination_channel = self.bot.get_channel(int(rule.get("destination_channel_id")))
-
-                source_name = source_channel.mention if source_channel else f"<#{rule.get('source_channel_id')}>"
-                destination_name = destination_channel.mention if destination_channel else f"<#{rule.get('destination_channel_id')}>"
-
-                embed.add_field(
-                    name=f"Rule #{i} - {is_active}",
-                    value=f"**ID:** `{rule_id}`\n**From:** {source_name}\n**To:** {destination_name}",
-                    inline=True
-                )
-
-            if len(rules) > 10:
-                embed.set_footer(text=f"Showing first 10 of {len(rules)} rules")
-            else:
-                embed.set_footer(text="Use /delete_rule <rule_id> to delete a specific rule")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            logger.error(f"Error listing forwarding rules in guild {interaction.guild.id}: {e}", exc_info=True)
-            await interaction.followup.send(
-                "❌ An error occurred while retrieving forwarding rules. Please try again later.",
-                ephemeral=True
-            )
-
     async def cog_unload(self):
-        """
-        Called when the cog is unloaded.
-        This method removes the context menu command from the bot's tree.
-        """
-        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+        """Cancel background tasks owned by this cog."""
+        if self._session_cleanup_task and not self._session_cleanup_task.done():
+            self._session_cleanup_task.cancel()
 
     # ... existing code ...
 
@@ -1691,6 +1534,16 @@ class ForwardCog(commands.Cog):
         This method is called when the user has successfully created or edited
         a rule.
         """
+        on_exit = getattr(session, "on_exit", None) if session else None
+        await state_manager.cleanup_session(interaction.guild_id)
+
+        if on_exit is not None:
+            try:
+                await on_exit(interaction)
+                return
+            except Exception as e:
+                self.logger.error(f"on_exit callback failed in show_setup_complete: {e}", exc_info=True)
+
         title = "✅ Rule Updated!" if is_editing else "✅ Setup Complete!"
         description = "Your message forwarding rule has been updated." if is_editing else "Your message forwarding rules are now active."
 
@@ -1699,7 +1552,6 @@ class ForwardCog(commands.Cog):
             description=description,
             color=discord.Color.green()
         )
-        await state_manager.cleanup_session(interaction.guild_id)
 
         try:
             await interaction.edit_original_response(embed=embed, view=None)
@@ -1731,7 +1583,17 @@ class ForwardCog(commands.Cog):
         This method is called when the user clicks a cancel button in the setup
         wizard.
         """
+        if session is None:
+            session = await state_manager.get_session(interaction.guild_id)
+        on_exit = getattr(session, "on_exit", None) if session else None
         await state_manager.cleanup_session(interaction.guild_id)
+
+        if on_exit is not None:
+            try:
+                await on_exit(interaction)
+                return
+            except Exception as e:
+                self.logger.error(f"on_exit callback failed in handle_cancel_button: {e}", exc_info=True)
 
         embed = discord.Embed(
             title="❌ Setup Cancelled",

@@ -5,12 +5,14 @@ logger = logging.getLogger("Database")
 
 from .core import DatabaseCore
 from .guild_manager import GuildManager
+from .audit import AuditLog
 from .exceptions import DatabaseConnectionError, DatabaseOperationError
 from .constants import DATABASE_MAPPINGS, COLLECTION_REGISTRY
 
 # Global database manager instance
 db_core = DatabaseCore(auto_discover=True)
 guild_manager = GuildManager(db_core)
+audit_log = AuditLog(db_core)
 
 # Convenience functions
 async def ensure_database_connection() -> bool:
@@ -52,6 +54,8 @@ __all__ = [
     'DatabaseOperationError',
     'db_core',
     'guild_manager',
+    'audit_log',
+    'AuditLog',
     'ensure_database_connection',
     'setup_new_guild',
     'get_guild_settings',

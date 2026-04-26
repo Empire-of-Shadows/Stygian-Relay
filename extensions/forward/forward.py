@@ -1,8 +1,10 @@
 import asyncio
+import time
 import discord
 from discord.ext import commands
 from discord import app_commands, ui
 from database import guild_manager
+from database.utils import normalize_channel_id
 import logging
 import random
 from datetime import datetime, timedelta, timezone
@@ -10,14 +12,25 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger(__name__)
 
 
-def normalize_channel_id(channel_id):
-    """
-    Normalize channel ID from various formats (int, str, BSON) to int.
-    Handles MongoDB BSON format: {"$numberLong": "123456"}
-    """
-    if isinstance(channel_id, dict) and "$numberLong" in channel_id:
-        return int(channel_id["$numberLong"])
-    return int(channel_id) if channel_id else None
+class _TokenBucket:
+    """Per-guild token bucket. Capacity == burst; refills at rate/sec."""
+
+    __slots__ = ("rate", "capacity", "tokens", "last")
+
+    def __init__(self, rate: float, capacity: float):
+        self.rate = rate
+        self.capacity = capacity
+        self.tokens = capacity
+        self.last = time.monotonic()
+
+    def take(self) -> bool:
+        now = time.monotonic()
+        self.tokens = min(self.capacity, self.tokens + (now - self.last) * self.rate)
+        self.last = now
+        if self.tokens >= 1:
+            self.tokens -= 1
+            return True
+        return False
 
 
 class ForwardOptionsView(ui.View):
@@ -46,20 +59,11 @@ class ForwardOptionsView(ui.View):
         self.add_item(forward_button)
 
     async def channel_select_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the channel select menu.
-        This method is called when the user selects a destination channel.
-        """
         self.destination_channel = interaction.data['values'][0]
-        # The value is a channel ID; we need the actual channel object.
         self.destination_channel = interaction.guild.get_channel(int(self.destination_channel))
         await interaction.response.defer()
 
     async def forward_button_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the forward button.
-        This method is called when the user clicks the forward button.
-        """
         if not self.destination_channel:
             await interaction.response.send_message("Please select a destination channel.", ephemeral=True)
             return
@@ -70,7 +74,6 @@ class ForwardOptionsView(ui.View):
 
         await interaction.response.defer(ephemeral=True)
 
-        # Use default formatting for manual forwards, only changing the style.
         default_formatting = {
             "add_prefix": None,
             "include_author": True,
@@ -84,7 +87,6 @@ class ForwardOptionsView(ui.View):
             await self.cog_instance.forward_message(default_formatting, self.original_message, self.destination_channel)
             await interaction.followup.send(f"Message forwarded to {self.destination_channel.mention}!", ephemeral=True)
 
-            # Disable the view after successful forwarding.
             for item in self.children:
                 item.disabled = True
             await interaction.edit_original_response(view=self)
@@ -92,17 +94,14 @@ class ForwardOptionsView(ui.View):
             logger.error(f"Error forwarding message from view: {e}", exc_info=True)
             await interaction.followup.send("An error occurred while forwarding the message.", ephemeral=True)
 
+
 class Forwarding(commands.Cog):
     """
-    Cog for handling message forwarding based on guild-specific rules.
-    This cog is responsible for listening for messages, checking them against
-    forwarding rules, and forwarding them to the appropriate channels.
-    It also provides a context menu command for manually forwarding messages.
+    Listens for messages and applies guild forwarding rules.
     """
 
-    # Branding configuration
-    BRANDING_PROBABILITY = 0.20  # 20% chance to show branding
-    BRANDING_COOLDOWN_MINUTES = 10  # Minimum 10 minutes between branding messages
+    BRANDING_PROBABILITY = 0.20
+    DAILY_WARN_COOLDOWN_MINUTES = 10
 
     def __init__(self, bot):
         self.bot = bot
@@ -112,49 +111,52 @@ class Forwarding(commands.Cog):
         )
         self.bot.tree.add_command(self.ctx_menu)
 
-        # Track last branding time per guild to prevent back-to-back branding
-        # Format: {guild_id: datetime}
-        self._last_branding_time = {}
+        # Per-guild token buckets for forward rate limiting.
+        self._buckets: dict[int, _TokenBucket] = {}
+        self._bucket_rate: float = 10.0  # default; resolved on first use from bot_settings
+        self._bucket_resolved: bool = False
+        self._branding_cooldown_minutes: int = 10  # default; resolved from bot_settings
 
     async def cog_unload(self):
-        """
-        Called when the cog is unloaded.
-        This method removes the context menu command from the bot's tree.
-        """
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
 
     async def forward_message_context_menu(self, interaction: discord.Interaction, message: discord.Message):
-        """
-        Context menu command to manually forward a single message.
-        This command displays a view with options for forwarding the message.
-        """
         view = ForwardOptionsView(message, self)
         await interaction.response.send_message("Select forwarding options:", view=view, ephemeral=True)
 
+    async def _ensure_runtime_config(self):
+        """Load rate / branding cooldown from bot_settings once per process."""
+        if self._bucket_resolved:
+            return
+        try:
+            bot_settings = await guild_manager.db.get_collection(
+                "discord_forwarding_bot", "bot_settings"
+            ).find_one({"_id": "global_config"})
+            if bot_settings:
+                self._bucket_rate = float(bot_settings.get("forward_rate_per_second", 10))
+                self._branding_cooldown_minutes = int(
+                    bot_settings.get("branding_cooldown_minutes", 10)
+                )
+        except Exception as e:
+            logger.warning(f"Failed to load runtime config, using defaults: {e}")
+        self._bucket_resolved = True
+
+    def _bucket_for(self, guild_id: int) -> _TokenBucket:
+        b = self._buckets.get(guild_id)
+        if b is None:
+            b = _TokenBucket(rate=self._bucket_rate, capacity=max(self._bucket_rate, 1.0))
+            self._buckets[guild_id] = b
+        return b
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """
-        Listens for new messages and processes them against active forwarding rules.
-        This is the entry point for all automatic message forwarding.
-        """
-        # Ignore messages from bots and DMs.
         if message.author.bot or not message.guild:
-            logger.debug(
-                "Ignoring message %s from %s (id=%s, bot=%s, guild=%s, channel=%s)",
-                message.id,
-                str(message.author),
-                message.author.id,
-                message.author.bot,
-                message.guild.id if message.guild else "DM",
-                message.channel.id if message.channel else "Unknown",
-            )
             return
 
-        # Enhanced URL embed detection and waiting
+        # Wait briefly for URL embeds to populate before processing.
         if self._contains_embeddable_url(message.content) and not message.embeds:
-            # Wait longer for embeds to load, with multiple checks
             for attempt in range(3):
-                await asyncio.sleep(2 + attempt)  # 2s, 3s, 4s
+                await asyncio.sleep(2 + attempt)
                 try:
                     message = await message.channel.fetch_message(message.id)
                     if message.embeds:
@@ -163,10 +165,12 @@ class Forwarding(commands.Cog):
                     return
 
         try:
-            # Retrieve guild-specific settings from the database.
-            guild_settings = await guild_manager.get_guild_settings(str(message.guild.id))
+            await self._ensure_runtime_config()
+            gid_str = str(message.guild.id)
 
-            # Check if the forwarding feature is enabled for this guild.
+            # Single cached fetch — settings cache (5-min TTL) covers repeats.
+            guild_settings = await guild_manager.get_guild_settings(gid_str)
+
             if not guild_settings.get("features", {}).get("forwarding_enabled", False):
                 return
 
@@ -174,26 +178,39 @@ class Forwarding(commands.Cog):
             if not rules:
                 return
 
-            # Iterate through all rules for the guild.
-            for rule in rules:
-                # A rule is processed only if it's active and for the correct source channel.
-                source_channel_id = normalize_channel_id(rule.get("source_channel_id"))
-                if not rule.get("is_active") or source_channel_id != message.channel.id:
-                    continue
+            matching_rules = [
+                r for r in rules
+                if r.get("is_active") and normalize_channel_id(r.get("source_channel_id")) == message.channel.id
+            ]
+            if not matching_rules:
+                return
 
-                # Enforce the daily message forwarding limit for the guild (premium-aware).
-                guild_limits = await guild_manager.get_guild_limits(str(message.guild.id))
-                daily_limit = guild_limits.get("daily_limit", 100)
-                daily_count = await guild_manager.get_daily_message_count(str(message.guild.id))
-                if daily_count >= daily_limit:
-                    if guild_settings.get("features", {}).get("notify_on_error", True):
-                        await message.channel.send(f"Daily message forwarding limit of {daily_limit} reached.", delete_after=60)
-                    break  # Stop processing all rules since the guild-wide daily limit is reached.
+            # Rate limit per guild.
+            if not self._bucket_for(message.guild.id).take():
+                logger.debug(f"Rate-limited forward for guild {gid_str}")
+                return
 
-                # If the rule matches, process it and log the result.
+            guild_limits = await guild_manager.get_guild_limits(gid_str)
+            daily_limit = guild_limits.get("daily_limit", 100)
+            daily_count = await guild_manager.get_daily_message_count(gid_str)
+            if daily_count >= daily_limit:
+                if guild_settings.get("features", {}).get("notify_on_error", True):
+                    last_warn = await guild_manager.get_runtime_state(gid_str, "daily_warn")
+                    now = datetime.now(timezone.utc)
+                    if not last_warn or (now - last_warn) >= timedelta(minutes=self.DAILY_WARN_COOLDOWN_MINUTES):
+                        try:
+                            await message.channel.send(
+                                f"Daily message forwarding limit of {daily_limit} reached.", delete_after=60
+                            )
+                        except discord.HTTPException:
+                            pass
+                        await guild_manager.touch_runtime_state(gid_str, "daily_warn")
+                return
+
+            for rule in matching_rules:
                 if await self.process_rule(rule, message, guild_settings):
                     log_data = {
-                        "guild_id": str(message.guild.id),
+                        "guild_id": gid_str,
                         "rule_id": rule.get("rule_id"),
                         "source_channel_id": str(message.channel.id),
                         "destination_channel_id": str(rule.get("destination_channel_id")),
@@ -205,38 +222,20 @@ class Forwarding(commands.Cog):
         except Exception as e:
             logger.error(f"Error in on_message for guild {message.guild.id}: {e}", exc_info=True)
 
-    def _should_show_branding(self, guild_id: int) -> bool:
+    async def _should_show_branding(self, guild_id: int) -> bool:
         """
-        Determines if branding should be shown for this message.
-
-        Uses a combination of:
-        1. Random probability (BRANDING_PROBABILITY chance)
-        2. Cooldown period to prevent back-to-back branding
-
-        Args:
-            guild_id: The guild ID to check
-
-        Returns:
-            bool: True if branding should be shown, False otherwise
+        Cooldown via runtime_state (survives restart). Probability gate after cooldown.
         """
-        # Check if we're still in cooldown period
-        last_branding = self._last_branding_time.get(guild_id)
-        if last_branding:
-            time_since_last = datetime.now(timezone.utc) - last_branding
-            if time_since_last < timedelta(minutes=self.BRANDING_COOLDOWN_MINUTES):
-                # Still in cooldown, don't show branding
+        gid_str = str(guild_id)
+        last = await guild_manager.get_runtime_state(gid_str, "branding")
+        if last:
+            elapsed = datetime.now(timezone.utc) - last
+            if elapsed < timedelta(minutes=self._branding_cooldown_minutes):
                 return False
-
-        # Random chance to show branding
         return random.random() < self.BRANDING_PROBABILITY
 
     def _contains_embeddable_url(self, content: str) -> bool:
-        """
-        Check if content contains URLs that typically generate embeds.
-        """
         import re
-
-        # Common platforms that generate embeds
         embeddable_patterns = [
             r'https?://(?:www\.)?twitter\.com/\S+',
             r'https?://(?:www\.)?x\.com/\S+',
@@ -250,19 +249,12 @@ class Forwarding(commands.Cog):
             r'https?://(?:www\.)?spotify\.com/\S+',
             r'https?://\S+\.(jpg|jpeg|png|gif|webp|mp4|webm|mov)\b'
         ]
-
         for pattern in embeddable_patterns:
             if re.search(pattern, content, re.IGNORECASE):
                 return True
         return False
 
     async def process_rule(self, rule: dict, message: discord.Message, guild_settings: dict) -> bool:
-        """
-        Process a single rule against a message.
-        This method checks the message type and filters, and if they match,
-        it forwards the message to the destination channel.
-        Returns True if forwarded, False otherwise.
-        """
         settings = rule.get("settings", {})
         if not self.check_message_type(settings.get("message_types", {}), message):
             return False
@@ -271,8 +263,16 @@ class Forwarding(commands.Cog):
             return False
 
         destination_channel_id = normalize_channel_id(rule.get("destination_channel_id"))
-        destination_channel = self.bot.get_channel(destination_channel_id)
+        source_channel_id = normalize_channel_id(rule.get("source_channel_id"))
 
+        if destination_channel_id == source_channel_id or destination_channel_id == message.channel.id:
+            logger.warning(
+                f"Skipping rule {rule.get('rule_id')}: source and destination resolve to the same channel "
+                f"({destination_channel_id})."
+            )
+            return False
+
+        destination_channel = self.bot.get_channel(destination_channel_id)
         if not destination_channel:
             logger.warning(f"Destination channel {destination_channel_id} not found for rule {rule.get('rule_id')}")
             return False
@@ -281,52 +281,35 @@ class Forwarding(commands.Cog):
         return True
 
     def check_message_type(self, message_types: dict, message: discord.Message) -> bool:
-        """
-        Check if the message type is allowed by the rule.
-        This method checks the message content, attachments, embeds, and stickers
-        to determine if the message should be forwarded.
-        """
-        # Handle text content
         if message.content and message_types.get("text", False):
             return True
 
-        # Handle attachments (images, videos, files)
         if message.attachments:
             if message_types.get("media", False):
                 return True
             if message_types.get("files", False):
                 return True
 
-        # Handle embeds (including URL previews, videos, etc.)
         if message.embeds:
             if message_types.get("embeds", False):
                 return True
-            # Also check if embeds contain media content
             if message_types.get("media", False):
                 for embed in message.embeds:
                     if embed.image or embed.video or embed.thumbnail:
                         return True
 
-        # Handle stickers
         if message.stickers and message_types.get("stickers", False):
             return True
 
-        # Handle links in content
         if message.content and "http" in message.content and message_types.get("links", False):
             return True
 
-        # Allow messages without text content if they have other allowed content types
         if not message.content:
             return True
 
         return False
 
-
     def check_filters(self, filters: dict, message: discord.Message, advanced: dict) -> bool:
-        """
-        Check keyword and length filters.
-        This method checks the message content against the filters defined in the rule.
-        """
         content = message.content
         case_sensitive = advanced.get("case_sensitive", False)
         whole_word = advanced.get("whole_word_only", False)
@@ -339,8 +322,12 @@ class Forwarding(commands.Cog):
         if not (min_len <= len(message.content) <= max_len):
             return False
 
-        require_keywords = filters.get("require_keywords", [])
-        block_keywords = filters.get("block_keywords", [])
+        # Defensive cap so a runaway rule (50+ keywords, multi-KB strings) can't
+        # turn message handling into O(n*m) over the firehose.
+        MAX_KEYWORDS = 50
+        MAX_KW_LEN = 100
+        require_keywords = [str(k)[:MAX_KW_LEN] for k in filters.get("require_keywords", [])][:MAX_KEYWORDS]
+        block_keywords = [str(k)[:MAX_KW_LEN] for k in filters.get("block_keywords", [])][:MAX_KEYWORDS]
 
         if not case_sensitive:
             require_keywords = [k.lower() for k in require_keywords]
@@ -360,81 +347,84 @@ class Forwarding(commands.Cog):
 
         return True
 
-
-
     async def forward_as_native_style(self, formatting: dict, message: discord.Message,
                                       destination: discord.TextChannel):
         """
-        Replicates Discord's true native forward behavior with quoted message format.
-        Discord's native forward quotes the original content and lets Discord regenerate
-        fresh embeds from URLs, keeping video functionality intact.
+        Quoted-message style forwarding. Discord regenerates URL embeds in the
+        quoted text, preserving video previews. Per-attachment failure reasons
+        are surfaced to the user.
         """
-        # Build the quoted message content
         quote_lines = []
 
-        # Add author line in the quote
         if formatting.get("include_author", True):
             quote_lines.append(f"> -# **{message.author.display_name}** - ([original post]({message.jump_url}))")
 
-        # Add the message text content with quote formatting
         if message.content:
-            # Split content into lines and add quote prefix to each
-            content_lines = message.content.split('\n')
-            for line in content_lines:
+            for line in message.content.split('\n'):
                 quote_lines.append(f"> {line}")
 
-        # Join all quote lines
         quoted_content = '\n'.join(quote_lines)
 
-        # Prepare files to forward if attachment forwarding is enabled
         files_to_send = []
-        omitted_attachments = False
+        # Detailed reasons per omitted attachment, surfaced to the destination.
+        attachment_issues: list[str] = []
+
         if formatting.get("forward_attachments", True) and message.attachments:
-            max_size = formatting.get("max_attachment_size", 25) * 1024 * 1024  # MB to bytes
+            max_size = formatting.get("max_attachment_size", 25) * 1024 * 1024
             if destination.guild.premium_tier >= 2:
-                max_total_size = 50 * 1024 * 1024  # 50MB for boosted servers
+                max_total_size = 50 * 1024 * 1024
             else:
-                max_total_size = 10 * 1024 * 1024  # 10MB for non-boosted servers
-            total_attachment_size = 0
+                max_total_size = 10 * 1024 * 1024
             allowed_types = formatting.get("allowed_attachment_types")
 
+            candidates = []
             for attachment in message.attachments:
-                if total_attachment_size + attachment.size > max_total_size:
-                    omitted_attachments = True
-                    logger.warning(f"Total attachment size exceeds {max_total_size} bytes. "
-                                   f"Stopping attachment forwarding.")
-                    break  # Stop adding more attachments
+                if attachment.size > max_size:
+                    attachment_issues.append(
+                        f"`{attachment.filename}` too large ({attachment.size // 1024} KB > {max_size // 1024} KB)"
+                    )
+                    continue
+                if allowed_types and not any(
+                    attachment.filename.lower().endswith(ext) for ext in allowed_types
+                ):
+                    attachment_issues.append(f"`{attachment.filename}` filetype not allowed")
+                    continue
+                candidates.append(attachment)
+
+            running_total = 0
+            for attachment in candidates:
+                if running_total + attachment.size > max_total_size:
+                    attachment_issues.append(
+                        f"`{attachment.filename}` skipped: total attachment size cap "
+                        f"({max_total_size // (1024 * 1024)} MB) reached"
+                    )
+                    continue
 
                 try:
-                    if attachment.size > max_size:
-                        continue
-
-                    if allowed_types and not any(attachment.filename.lower().endswith(ext) for ext in allowed_types):
-                        continue
-
                     f = await attachment.to_file(spoiler=attachment.is_spoiler())
                     files_to_send.append(f)
-                    total_attachment_size += attachment.size
+                    running_total += attachment.size
                 except discord.HTTPException as e:
-                    logger.warning(f"Failed to forward attachment {attachment.filename}: {e}")
+                    attachment_issues.append(
+                        f"`{attachment.filename}` download failed (HTTP {getattr(e, 'status', '?')})"
+                    )
 
-        if omitted_attachments:
-            quoted_content += "\n*(Some attachments were not forwarded due to size limits.)*"
+        if attachment_issues:
+            # Cap the listed reasons so we don't blow Discord's 2000-char limit.
+            shown = attachment_issues[:5]
+            extra = len(attachment_issues) - len(shown)
+            issue_text = "\n".join(f"-# • {line}" for line in shown)
+            if extra > 0:
+                issue_text += f"\n-# • ...and {extra} more"
+            quoted_content += f"\n-# **Some attachments not forwarded:**\n{issue_text}"
 
-        # Add "Powered by" footer for non-premium guilds (occasionally, with cooldown)
+        # Branding (free guilds only, with cooldown).
         is_premium = await guild_manager.is_premium_guild(str(destination.guild.id))
-        if not is_premium and self._should_show_branding(destination.guild.id):
-            # Discord server invite link for Empire of Shadows community
-            # Angle brackets suppress embed preview
+        if not is_premium and await self._should_show_branding(destination.guild.id):
             server_invite_link = "https://discord.gg/NaK74Wf7vE"
             quoted_content += f"\n-# Powered by Empire of Shadows\n-# Gaming Community • <{server_invite_link}>"
+            await guild_manager.touch_runtime_state(str(destination.guild.id), "branding")
 
-            # Update last branding time for this guild
-            self._last_branding_time[destination.guild.id] = datetime.now(timezone.utc)
-
-        # The key insight: Send the quoted content as text along with the original files
-        # Discord will automatically detect URLs in the quoted content and generate fresh embeds
-        # This preserves video functionality while maintaining the quoted appearance
         try:
             await self._send_with_enhanced_handling(
                 destination=destination,
@@ -444,7 +434,6 @@ class Forwarding(commands.Cog):
                 formatting=formatting
             )
         finally:
-            # Ensure file handles are properly closed even if an exception occurs
             for file in files_to_send:
                 try:
                     if hasattr(file, 'close'):
@@ -453,20 +442,9 @@ class Forwarding(commands.Cog):
                     logger.debug(f"Error closing file handle: {cleanup_error}")
 
     async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
-        """
-        Forwards a message using the native Discord-style forwarding.
-        This method is the entry point for all message forwarding.
-        Other styles will be available in the future
-        """
-        # Always use native style for forwarding for now
         await self.forward_as_native_style(formatting, message, destination)
 
     async def _parse_template_variables(self, text: str, message: discord.Message) -> str:
-        """
-        Parse template variables in text with enhanced variables.
-        This method replaces variables like {author} and {channel} with their
-        corresponding values from the message.
-        """
         base_variables = {
             '{author}': message.author.display_name,
             '{author_mention}': message.author.mention,
@@ -496,12 +474,6 @@ class Forwarding(commands.Cog):
         return text
 
     def _get_embed_color(self, formatting: dict, message: discord.Message) -> discord.Color:
-        """
-        Determines the embed color based on a hierarchy:
-        1. A custom color defined in the rule's formatting.
-        2. The author's top role color (if in the same server).
-        3. The message content type (e.g., green for images, purple for embeds).
-        """
         if custom_color := formatting.get("embed_color"):
             if isinstance(custom_color, str):
                 try:
@@ -528,11 +500,6 @@ class Forwarding(commands.Cog):
             return discord.Color.blurple()
 
     def _should_filter_embed(self, embed: discord.Embed, filter_rules: list) -> bool:
-        """
-        Check if an embed should be filtered out based on a set of rules.
-        This method is used to prevent forwarding unwanted embeds, such as
-        ads or empty embeds.
-        """
         if not filter_rules:
             return False
 
@@ -555,11 +522,6 @@ class Forwarding(commands.Cog):
         return False
 
     def _sanitize_embed(self, embed: discord.Embed) -> discord.Embed:
-        """
-        Creates a safe, clean copy of an embed to prevent issues with forwarding
-        embeds from other bots, which can have problematic fields or references.
-        It also truncates fields to their maximum allowed lengths.
-        """
         safe_embed = discord.Embed(
             title=embed.title[:256] if embed.title else None,
             description=embed.description[:4096] if embed.description else None,
@@ -598,13 +560,9 @@ class Forwarding(commands.Cog):
 
     async def _send_with_enhanced_handling(self, destination: discord.TextChannel, message: discord.Message,
                                            **send_kwargs):
-        """
-        Wrapper for `destination.send` that includes advanced error handling,
-        such as message chunking and smart retries for oversized content.
-        """
         formatting = send_kwargs.pop('formatting', {})
+        forward_embeds = formatting.get("forward_embeds", True)
 
-        # If forwarding to the same channel, send as a reply.
         if message.channel.id == destination.id:
             send_kwargs["reference"] = message
             send_kwargs["mention_author"] = formatting.get("mention_author", False)
@@ -612,9 +570,8 @@ class Forwarding(commands.Cog):
         try:
             await destination.send(**send_kwargs)
         except discord.HTTPException as e:
-            # Handle payload too large error by retrying without files
-            if e.code == 40005:  # Discord error code for "Request entity too large"
-                logger.warning(f"Payload too large for message {message.id}. Retrying without attachments. Error: {e}")
+            if e.code == 40005:
+                logger.warning(f"Payload too large for message {message.id}. Retrying without attachments.")
                 send_kwargs.pop('files', None)
 
                 content = send_kwargs.get('content', '')
@@ -625,36 +582,27 @@ class Forwarding(commands.Cog):
                 try:
                     await destination.send(**send_kwargs)
                 except discord.HTTPException as e2:
-                    logger.error(f"Failed to send forwarded message {message.id} even after removing attachments: {e2}")
+                    logger.error(f"Failed to send forwarded message {message.id} after attachment removal: {e2}")
                     await self._send_minimal_version(destination, message, formatting)
 
-            # If the message content is too long, try to handle it gracefully.
             elif "message content too long" in str(e).lower():
                 logger.error(f"Failed to send forwarded message: {e}")
                 await self._handle_oversized_message(destination, message, send_kwargs, formatting)
 
             else:
                 logger.error(f"Failed to send forwarded message: {e}")
-                # For other errors, try sending a minimal version.
                 send_kwargs.pop('reference', None)
                 send_kwargs.pop('files', None)
+                fallback_embeds = send_kwargs.get('embeds', [])[:1] if forward_embeds else []
                 await destination.send(
                     content="📨 *Message forwarded (some content omitted due to size limits)*",
-                    embeds=send_kwargs.get('embeds', [])[:1]
+                    embeds=fallback_embeds
                 )
-
 
     async def _handle_oversized_message(self, destination: discord.TextChannel, message: discord.Message,
                                         send_kwargs: dict, formatting: dict):
-        """
-        Handles messages that exceed Discord's size limits by trying different strategies:
-        1. Split content into multiple messages (chunking).
-        2. Reduce the number of embeds.
-        3. Send a summary of files instead of the files themselves.
-        4. As a last resort, send a minimal text-only version.
-        """
         content = send_kwargs.get('content', '')
-        embeds = send_kwargs.get('embeds', [])
+        embeds = send_kwargs.get('embeds', []) if formatting.get("forward_embeds", True) else []
         files = send_kwargs.get('files', [])
 
         if content and len(content) > 2000:
@@ -665,19 +613,14 @@ class Forwarding(commands.Cog):
             await self._send_reduced_embeds(destination, message, content, embeds, files, formatting)
             return
 
-        if files and sum(f.size for f in files) > 25 * 1024 * 1024:  # 25MB total
+        if files and sum(f.size for f in files) > 25 * 1024 * 1024:
             await self._send_compressed_files(destination, message, content, embeds, files, formatting)
             return
 
         await self._send_minimal_version(destination, message, formatting)
 
-
     async def _send_chunked_content(self, destination: discord.TextChannel, message: discord.Message,
                                     content: str, embeds: list, files: list, formatting: dict):
-        """
-        Splits large content into multiple messages, sent as replies.
-        This method is used when the message content exceeds the 2000 character limit.
-        """
         chunks = self._split_content(content, max_length=1900)
 
         first_chunk = chunks[0]
@@ -685,7 +628,6 @@ class Forwarding(commands.Cog):
             first_chunk += f"\n\n*(Message continued... {len(chunks)} parts total)*"
 
         try:
-            # Send the first part with the most important attachments/embeds.
             first_message = await destination.send(
                 content=first_chunk,
                 embeds=embeds[:1] if embeds else [],
@@ -695,10 +637,9 @@ class Forwarding(commands.Cog):
             await self._send_ultra_minimal(destination, message, formatting)
             return
 
-        # Send subsequent parts as replies to the first message.
         for i, chunk in enumerate(chunks[1:], 2):
             chunk_content = f"**Part {i}/{len(chunks)}:**\n{chunk}"
-            if i == len(chunks):  # On the last chunk, add remaining media.
+            if i == len(chunks):
                 remaining_embeds = embeds[1:][:9]
                 remaining_files = files[1:][:9]
 
@@ -721,13 +662,8 @@ class Forwarding(commands.Cog):
                     mention_author=False
                 )
 
-
     async def _send_reduced_embeds(self, destination: discord.TextChannel, message: discord.Message,
                                    content: str, embeds: list, files: list, formatting: dict):
-        """
-        Handles messages with too many embeds by sending the first 10 and a summary.
-        This method is used when the message has more than 10 embeds.
-        """
         omitted_count = len(embeds) - 10
         summary_text = f"\n\n*📊 {omitted_count} additional embeds omitted*"
 
@@ -738,20 +674,14 @@ class Forwarding(commands.Cog):
                 files=files[:10]
             )
         except discord.HTTPException:
-            # If still too large, reduce further.
             await destination.send(
                 content=content + summary_text,
                 embeds=embeds[:5],
                 files=files[:3]
             )
 
-
     async def _send_compressed_files(self, destination: discord.TextChannel, message: discord.Message,
                                      content: str, embeds: list, files: list, formatting: dict):
-        """
-        Handles messages where the total file size is too large by sending a summary.
-        This method is used when the total size of the attachments exceeds 25MB.
-        """
         total_size = sum(f.size for f in files)
         size_mb = total_size / (1024 * 1024)
 
@@ -771,16 +701,11 @@ class Forwarding(commands.Cog):
 
         await destination.send(
             content=content + warning_msg,
-            embeds=embeds[:10]
+            embeds=embeds[:10] if formatting.get("forward_embeds", True) else []
         )
-
 
     async def _send_minimal_version(self, destination: discord.TextChannel, message: discord.Message,
                                     formatting: dict):
-        """
-        Sends a minimal, text-only version of the message as a fallback.
-        This method is used when all other sending attempts fail.
-        """
         author_info = f"**From {message.author.display_name}**"
         content_preview = message.content[:500] + "..." if len(message.content) > 500 else message.content
 
@@ -799,13 +724,8 @@ class Forwarding(commands.Cog):
 
         await destination.send(content=minimal_content)
 
-
     async def _send_ultra_minimal(self, destination: discord.TextChannel, message: discord.Message,
                                   formatting: dict):
-        """
-        Sends the absolute most minimal version when all other sending attempts fail.
-        This method is used as a last resort when all other sending attempts fail.
-        """
         ultra_minimal = (
             f"📨 **Message from {message.author.display_name}**\n"
             f"Content: {len(message.content)} chars"
@@ -816,17 +736,7 @@ class Forwarding(commands.Cog):
 
         await destination.send(content=ultra_minimal)
 
-
     def _split_content(self, content: str, max_length: int = 1900) -> list:
-        """
-        Splits a string into chunks of a maximum length, attempting to preserve
-        paragraphs, sentences, and words.
-
-        This uses a multi-pass approach:
-        1. Splits by paragraphs (`\n\n`).
-        2. If a paragraph is too long, it's split by sentences.
-        3. If a sentence is too long, it's split by words.
-        """
         if len(content) <= max_length:
             return [content]
 
@@ -867,7 +777,7 @@ class Forwarding(commands.Cog):
 
         return chunks
 
+
 async def setup(bot):
-    """Setup function to add the cog to the bot."""
     await bot.add_cog(Forwarding(bot))
     logger.info("Forwarding cog loaded.")

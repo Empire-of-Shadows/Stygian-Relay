@@ -9,6 +9,7 @@ from discord.ext import tasks
 from dotenv import load_dotenv
 
 import logging
+from bot import bot
 from logger.log_factory import log_performance, log_context
 
 load_dotenv()
@@ -17,7 +18,7 @@ logger = logging.getLogger("idle")
 
 # You can tweak these to your taste
 ROTATE_MIN_SECONDS = 120  # 2 minutes
-ROTATE_MAX_SECONDS = 140  # 10 minutes
+ROTATE_MAX_SECONDS = 140  # ~2.3 minutes
 NO_REPEAT_WINDOW = 15  # avoid repeating the same type within last N rotations
 
 # Heuristic weights per activity type (higher = more likely).
@@ -98,7 +99,6 @@ def _stream_url_ok(url: Optional[str]) -> bool:
 @log_performance("runtime_placeholders_calculation")
 def _runtime_placeholders() -> Dict[str, str]:
     """Calculate runtime placeholders with comprehensive logging."""
-    from bot import bot
     logger.debug("Starting runtime placeholders calculation")
 
     # Safe accessors for dynamic values
@@ -411,7 +411,6 @@ def _randomize_interval():
 @tasks.loop(seconds=ROTATE_MIN_SECONDS)
 async def rotate_status():
     """Main status rotation task with comprehensive logging."""
-    from bot import bot
     logger.debug("=== STATUS ROTATION CYCLE START ===")
 
     try:
@@ -452,7 +451,6 @@ async def rotate_status():
 @rotate_status.before_loop
 async def _rotate_status_before_loop():
     """Pre-loop setup with enhanced logging."""
-    from bot import bot
     logger.info("🔄 Status rotation system initializing...")
     logger.info("Waiting for bot to become ready...")
 

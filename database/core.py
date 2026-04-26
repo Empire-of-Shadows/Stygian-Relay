@@ -57,7 +57,9 @@ class DatabaseCore:
         self._initialized = False
         self._connection_healthy = False
         self._health_check_task: Optional[asyncio.Task] = None
-        self._shutdown_event = asyncio.Event()
+        # Created lazily inside the running loop. Constructing asyncio.Event() at import time
+        # binds it to whatever loop happens to be current and breaks under non-default loops.
+        self._shutdown_event: Optional[asyncio.Event] = None
 
         # Database registry
         self.databases: Dict[str, Any] = {}
@@ -348,25 +350,33 @@ class DatabaseCore:
         logger.info(f"  • Collections: {verification_stats['collections']}")
         logger.info(f"  • Total documents: {verification_stats['total_documents']:,}")
 
+    def _ensure_shutdown_event(self) -> asyncio.Event:
+        """Create the shutdown Event lazily on the running loop."""
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
+        return self._shutdown_event
+
     def _start_health_monitoring(self):
         """Start background health monitoring task"""
         if self._health_check_task and not self._health_check_task.done():
             logger.debug("Health monitoring already running")
             return
 
+        self._ensure_shutdown_event()
         logger.info(f"🔄 Starting database health monitoring (interval: {self.health_check_interval}s)")
         self._health_check_task = asyncio.create_task(self._health_monitor())
 
     async def _health_monitor(self):
         """Background task to monitor database health"""
         logger.debug("Health monitoring task started")
+        shutdown_event = self._ensure_shutdown_event()
 
         try:
-            while not self._shutdown_event.is_set():
+            while not shutdown_event.is_set():
                 try:
                     await asyncio.sleep(self.health_check_interval)
 
-                    if self._shutdown_event.is_set():
+                    if shutdown_event.is_set():
                         break
 
                     await self._perform_health_check()
@@ -581,7 +591,7 @@ class DatabaseCore:
 
         try:
             with log_context(logger, "database_cleanup", level=20):
-                self._shutdown_event.set()
+                self._ensure_shutdown_event().set()
 
                 if self._health_check_task and not self._health_check_task.done():
                     logger.debug("Cancelling health monitoring task...")
