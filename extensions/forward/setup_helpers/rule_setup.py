@@ -63,7 +63,8 @@ class RuleSetupHelper:
 
     @staticmethod
     async def validate_rule_configuration(rule: Dict[str, Any],
-                                          guild: discord.Guild) -> Tuple[bool, List[str]]:
+                                          guild: discord.Guild,
+                                          destination_guild: discord.Guild = None) -> Tuple[bool, List[str]]:
         """
         Validates a rule configuration to ensure it's logical and complete.
         This method is called before saving a rule to the database.
@@ -79,13 +80,15 @@ class RuleSetupHelper:
         elif not isinstance(source_channel, discord.TextChannel):
             errors.append("Source channel must be a text channel")
 
-        dest_channel = guild.get_channel(rule["destination_channel_id"])
+        dest_lookup_guild = destination_guild or guild
+        dest_channel = dest_lookup_guild.get_channel(rule["destination_channel_id"])
         if not dest_channel:
             errors.append("Destination channel not found")
         elif not isinstance(dest_channel, discord.TextChannel):
             errors.append("Destination channel must be a text channel")
 
-        if rule["source_channel_id"] == rule["destination_channel_id"]:
+        same_guild = destination_guild is None or destination_guild.id == guild.id
+        if same_guild and rule["source_channel_id"] == rule["destination_channel_id"]:
             errors.append("Source and destination channels cannot be the same")
 
         if not rule["name"] or len(rule["name"]) > 100:

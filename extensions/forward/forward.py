@@ -227,6 +227,11 @@ class Forwarding(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
+        logger.debug(
+            f"on_message gid={message.guild.id} ch={message.channel.id} "
+            f"author={message.author.id} mid={message.id}"
+        )
+
         # Dispatch off the listener thread — the embed-wait below can sleep
         # several seconds, and the listener should never block on it.
         task = asyncio.create_task(self._dispatch(message))
@@ -254,10 +259,12 @@ class Forwarding(commands.Cog):
         # Single cached fetch — settings cache (5-min TTL) covers repeats.
         guild_settings = await guild_manager.get_guild_settings(gid_str)
         if not guild_settings.get("features", {}).get("forwarding_enabled", False):
+            logger.debug(f"[{gid_str}] forwarding_enabled=False; skip mid={message.id}")
             return
 
         rules = guild_settings.get("rules", [])
         if not rules:
+            logger.debug(f"[{gid_str}] no rules configured; skip mid={message.id}")
             return
 
         matching_rules = [
@@ -265,7 +272,15 @@ class Forwarding(commands.Cog):
             if r.get("is_active") and normalize_channel_id(r.get("source_channel_id")) == message.channel.id
         ]
         if not matching_rules:
+            logger.debug(
+                f"[{gid_str}] no rule matches ch={message.channel.id}; "
+                f"rules={[(r.get('rule_id'), r.get('is_active'), r.get('source_channel_id')) for r in rules]}"
+            )
             return
+
+        logger.debug(
+            f"[{gid_str}] {len(matching_rules)} rule(s) matched for ch={message.channel.id} mid={message.id}"
+        )
 
         # Wait briefly for URL embeds to populate. Only matching rules pay this cost.
         if not message.embeds and self._contains_embeddable_url(message.content):
@@ -371,19 +386,58 @@ class Forwarding(commands.Cog):
 
         # Permission gate — without this, every source message produces a
         # Forbidden + log line. One warning per rule per cooldown window.
-        me = destination_channel.guild.me if destination_channel.guild else None
-        if me is None or not destination_channel.permissions_for(me).send_messages:
+        # `me is None` covers two distinct cross-guild failure modes: the
+        # bot was kicked from the destination guild, or the destination's
+        # member cache hasn't been populated yet.
+        target_guild = destination_channel.guild
+        me = target_guild.me if target_guild else None
+        if me is None:
+            await self._record_rule_misconfig(
+                rule, guild_settings,
+                f"bot is not a member of destination guild "
+                f"{getattr(target_guild, 'id', '?')} (channel {destination_channel_id})",
+            )
+            return False
+        if not destination_channel.permissions_for(me).send_messages:
             await self._record_rule_misconfig(
                 rule, guild_settings,
                 f"missing send_messages in destination {destination_channel_id}",
             )
             return False
 
+        # Cross-guild opt-in gate. Same-guild rules bypass — destination guild
+        # is the rule owner, so consent is implicit.
+        if target_guild.id != message.guild.id:
+            if not await guild_manager.is_inbound_allowed(
+                str(target_guild.id), message.guild.id
+            ):
+                await self._record_rule_misconfig(
+                    rule, guild_settings,
+                    f"destination guild {target_guild.id} has not opted in to "
+                    f"inbound forwards from guild {message.guild.id}",
+                )
+                return False
+
         await self.forward_message(settings.get("formatting", {}), message, destination_channel)
         # Successful forward — clear failure counter so a recovered rule
         # doesn't carry stale strikes from before the fix.
         self._perm_fail.pop(rule_id, None)
+
+        # Lazy v3 stamp: legacy rules created before schema v3 lack
+        # destination_guild_id. Backfill it now that we've resolved the
+        # destination channel — fire-and-forget so the hot path stays clean.
+        if not rule.get("destination_guild_id"):
+            asyncio.create_task(
+                self._stamp_destination_guild(rule_id, target_guild.id)
+            )
         return True
+
+    async def _stamp_destination_guild(self, rule_id: str, dest_guild_id: int) -> None:
+        """Fire-and-forget update_rule for the lazy v3 destination_guild_id stamp."""
+        try:
+            await guild_manager.update_rule(rule_id, {"destination_guild_id": int(dest_guild_id)})
+        except Exception as e:
+            logger.debug(f"Lazy destination_guild_id stamp failed for rule {rule_id}: {e}")
 
     async def _record_rule_misconfig(self, rule: dict, guild_settings: dict, reason: str) -> None:
         """
@@ -577,10 +631,10 @@ class Forwarding(commands.Cog):
 
         if formatting.get("forward_attachments", True) and message.attachments:
             max_size = formatting.get("max_attachment_size", 25) * 1024 * 1024
-            if destination.guild.premium_tier >= 2:
-                max_total_size = 50 * 1024 * 1024
-            else:
-                max_total_size = 10 * 1024 * 1024
+            # Destination dictates the upload ceiling — Discord enforces it
+            # regardless of source premium. `filesize_limit` already accounts
+            # for boost tier, so future Discord tier changes pick up cleanly.
+            max_total_size = destination.guild.filesize_limit
             allowed_types = formatting.get("allowed_attachment_types")
 
             candidates = []
@@ -638,12 +692,15 @@ class Forwarding(commands.Cog):
                 issue_text += f"\n-# • ...and {extra} more"
             quoted_content += f"\n-# **Some attachments not forwarded:**\n{issue_text}"
 
-        # Branding (free guilds only, with cooldown).
-        is_premium = await guild_manager.is_premium_guild(str(destination.guild.id))
-        if not is_premium and await self._should_show_branding(destination.guild.id):
+        # Branding (free SOURCE guilds only, with cooldown). A premium source
+        # forwards ad-free regardless of where the destination lives — the
+        # rule owner pays for the suppression, not the recipient guild.
+        source_gid = message.guild.id if message.guild else destination.guild.id
+        is_premium = await guild_manager.is_premium_guild(str(source_gid))
+        if not is_premium and await self._should_show_branding(source_gid):
             server_invite_link = "https://discord.gg/NaK74Wf7vE"
             quoted_content += f"\n-# Powered by Empire of Shadows\n-# Gaming Community • <{server_invite_link}>"
-            await guild_manager.touch_runtime_state(str(destination.guild.id), "branding")
+            await guild_manager.touch_runtime_state(str(source_gid), "branding")
 
         try:
             await self._send_with_enhanced_handling(
@@ -673,11 +730,16 @@ class Forwarding(commands.Cog):
             send_kwargs["reference"] = message
             send_kwargs["mention_author"] = formatting.get("mention_author", False)
 
+        # Metrics key off the source guild — that's the rule owner. A premium
+        # source guild forwarding into a free destination still attributes
+        # oversized fallbacks to source.
+        source_gid = message.guild.id if message.guild else destination.guild.id
+
         try:
             await destination.send(**send_kwargs)
         except discord.HTTPException as e:
             if e.code == 40005:
-                self._bump_metric(destination.guild.id, METRIC_OVERSIZED_FALLBACK)
+                self._bump_metric(source_gid, METRIC_OVERSIZED_FALLBACK)
                 logger.warning(f"Payload too large for message {message.id}. Retrying without attachments.")
                 send_kwargs.pop('files', None)
 
@@ -693,7 +755,7 @@ class Forwarding(commands.Cog):
                     await self._send_minimal_version(destination, message, formatting)
 
             elif "message content too long" in str(e).lower():
-                self._bump_metric(destination.guild.id, METRIC_OVERSIZED_FALLBACK)
+                self._bump_metric(source_gid, METRIC_OVERSIZED_FALLBACK)
                 logger.error(f"Failed to send forwarded message: {e}")
                 await self._handle_oversized_message(destination, message, send_kwargs, formatting)
 

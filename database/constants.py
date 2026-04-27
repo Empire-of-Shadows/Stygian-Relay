@@ -17,7 +17,12 @@ REQUIRED_COLLECTIONS = {
     'premium_subscriptions',
     'premium_codes',
     'audit_logs',
-    'runtime_state'
+    'runtime_state',
+    # Atomic per-(guild, day) forwarded counters; TTL'd 3 days after the
+    # day they cover. See guild_manager._ensure_indexes.
+    'daily_counters',
+    # Wizard setup-session persistence; TTL on expires_at handles eviction.
+    'setup_sessions',
 }
 
 # Default bot settings
@@ -27,7 +32,6 @@ DEFAULT_BOT_SETTINGS = {
     "max_rules_per_guild": 3,
     "max_rules_premium": 20,
     "rate_limit_per_channel": 50,
-    "default_prefix": "!forward",
     "maintenance_mode": False,
     "premium_enabled": True,
     "free_tier_daily_limit": 100,
@@ -64,5 +68,9 @@ DEFAULT_GUILD_SETTINGS_TEMPLATE = {
         "rule_creation_enabled": True
     },
     "rules": [
-    ]
+    ],
+    # Source guild IDs allowed to forward INTO this guild via cross-guild
+    # rules. Empty list = block all cross-guild inbound forwards. Same-guild
+    # rules are unaffected. Stored as ints.
+    "inbound_allowed_guilds": []
 }

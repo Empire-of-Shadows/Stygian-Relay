@@ -6,8 +6,7 @@ import time
 import discord
 from discord.ext import commands, tasks
 
-from database import db_core, guild_manager, audit_log, ensure_database_connection, get_guild_settings
-from database.utils import normalize_channel_id
+from database import db_core, guild_manager, audit_log
 
 HEARTBEAT_PATH = os.environ.get("HEARTBEAT_PATH", "/app/healthcheck.state")
 
@@ -20,24 +19,6 @@ def set_error_notifier(notifier):
     error_notifier = notifier
 
 
-async def get_prefix(bot, message):
-    """A callable to dynamically retrieve the command prefix for a guild."""
-    if not message.guild:
-        return commands.when_mentioned_or("!")(bot, message)
-
-    try:
-        if not await ensure_database_connection():
-            return commands.when_mentioned_or("!")(bot, message)
-
-        settings = await get_guild_settings(str(message.guild.id))
-        prefix = settings.get("command_prefix", "!")
-        return commands.when_mentioned_or(prefix)(bot, message)
-
-    except Exception as e:
-        print(f"Error getting prefix for guild {message.guild.id}: {e}")
-        return commands.when_mentioned_or("!")(bot, message)
-
-
 # Define intents required by the bot
 intents = discord.Intents.default()
 intents.message_content = True
@@ -45,10 +26,10 @@ intents.members = True
 intents.guilds = True
 
 bot = commands.AutoShardedBot(
-    command_prefix=get_prefix,
+    command_prefix=commands.when_mentioned,
     intents=intents,
     help_command=None,
-    case_insensitive=True
+    case_insensitive=True,
 )
 
 
@@ -161,40 +142,47 @@ async def on_guild_role_delete(role):
 
 @bot.event
 async def on_guild_channel_delete(channel):
-    """Clear master_log_channel_id and deactivate rules referencing this channel."""
-    try:
-        guild_id = str(channel.guild.id)
-        settings = await guild_manager.get_guild_settings(guild_id)
+    """
+    Clear master_log_channel_id and deactivate rules referencing this channel.
 
-        # Clear log channel if it pointed here.
+    Cross-guild rules can live in a different guild than the deleted channel,
+    so the rule scan goes through `find_rules_referencing_channel` which
+    queries every guild_settings doc by indexed channel id rather than
+    only the deleted channel's own guild.
+    """
+    try:
+        local_guild_id = str(channel.guild.id)
+        settings = await guild_manager.get_guild_settings(local_guild_id)
+
+        # Clear log channel if it pointed here. (Always local — log channels
+        # are stored per-guild and never reference foreign channels.)
         log_channel_id = settings.get("master_log_channel_id")
         if log_channel_id and str(log_channel_id) == str(channel.id):
-            await guild_manager.update_guild_settings(guild_id, {"master_log_channel_id": None})
+            await guild_manager.update_guild_settings(local_guild_id, {"master_log_channel_id": None})
             await audit_log.log(
-                "settings", guild_id, "system",
+                "settings", local_guild_id, "system",
                 "auto_clear_log_channel",
                 {"prior_channel_id": str(channel.id), "reason": "channel deleted"}
             )
 
-        # Deactivate any rule whose source or destination matched this channel.
-        affected = []
-        for rule in settings.get("rules", []):
-            src = normalize_channel_id(rule.get("source_channel_id"))
-            dst = normalize_channel_id(rule.get("destination_channel_id"))
-            if (src == channel.id or dst == channel.id) and rule.get("is_active"):
-                affected.append(rule.get("rule_id"))
-
-        for rule_id in affected:
+        # Cross-guild rule scan: a destination in this guild may belong to a
+        # rule stored under a different source guild's settings doc.
+        affected = await guild_manager.find_rules_referencing_channel(channel.id)
+        for owning_guild_id, rule_id in affected:
             await guild_manager.update_rule(rule_id, {"is_active": False})
             await audit_log.log(
-                "rule", guild_id, "system",
+                "rule", owning_guild_id, "system",
                 "auto_deactivate_rule",
                 {"rule_id": rule_id, "reason": "referenced channel deleted",
-                 "channel_id": str(channel.id)}
+                 "channel_id": str(channel.id),
+                 "deleted_in_guild_id": local_guild_id}
             )
 
         if affected:
-            print(f"🧹 Deactivated {len(affected)} rule(s) in {channel.guild.name} (channel {channel.id} deleted)")
+            print(
+                f"🧹 Deactivated {len(affected)} rule(s) referencing channel {channel.id} "
+                f"(deleted in {channel.guild.name})"
+            )
     except Exception as e:
         print(f"❌ Error in on_guild_channel_delete: {e}")
 
@@ -280,93 +268,6 @@ async def close():
             print(f'❌ Error shutting down error notifier: {e}')
 
     print('👋 Bot shutdown complete')
-
-
-@bot.event
-async def on_command_error(ctx, error):
-    """Global error handler for commands."""
-    if isinstance(error, commands.CommandNotFound):
-        return
-
-    print(f'❌ Command error in {ctx.guild.name if ctx.guild else "DM"}: {error}')
-
-    if isinstance(error, commands.BotMissingPermissions):
-        await ctx.send("❌ I don't have the required permissions to execute this command.")
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have the required permissions to use this command.")
-    elif isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏰ This command is on cooldown. Try again in {error.retry_after:.1f} seconds.")
-    else:
-        await ctx.send("❌ An error occurred while executing this command.")
-
-        if error_notifier:
-            try:
-                await error_notifier.notify_error(
-                    f"Command error in {ctx.guild.name if ctx.guild else 'DM'}",
-                    str(error),
-                    ctx.command.name if ctx.command else "Unknown"
-                )
-            except Exception as e:
-                print(f'❌ Failed to notify error: {e}')
-
-
-@bot.command(name="ping")
-async def ping_command(ctx):
-    """Checks bot latency and database connection status."""
-    latency = round(bot.latency * 1000)
-    db_healthy = db_core.is_healthy()
-    db_status = "✅ Connected" if db_healthy else "❌ Disconnected"
-
-    if ctx.guild is None:
-        prefix = "!"
-        guild_status = "ℹ️ DM (no guild)"
-    else:
-        try:
-            settings = await get_guild_settings(str(ctx.guild.id))
-            prefix = settings.get("command_prefix", "!")
-            guild_status = "✅ Configured"
-        except Exception as e:
-            prefix = "!"
-            guild_status = f"❌ Error: {e}"
-
-    embed = discord.Embed(
-        title="🏓 Pong!",
-        color=discord.Color.blue()
-    )
-    embed.add_field(name="Bot Latency", value=f"{latency}ms", inline=True)
-    embed.add_field(name="Database", value=db_status, inline=True)
-    embed.add_field(name="Guild Settings", value=guild_status, inline=True)
-    embed.add_field(name="Prefix", value=prefix, inline=True)
-    embed.add_field(name="Shards", value=bot.shard_count, inline=True)
-    embed.add_field(name="Guilds", value=len(bot.guilds), inline=True)
-
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="syncl")
-@commands.is_owner()
-async def sync_commands(ctx, guild_id: int = None):
-    """Syncs slash commands globally or to a specific guild. Owner only."""
-    try:
-        if guild_id:
-            # Sync to specific guild
-            guild = discord.Object(id=guild_id)
-            synced = await bot.tree.sync(guild=guild)
-            await ctx.send(f"✅ Successfully synced {len(synced)} slash commands to guild {guild_id}!")
-            print(f"Synced {len(synced)} slash commands to guild {guild_id}")
-        else:
-            # Sync globally
-            synced = await bot.tree.sync()
-            await ctx.send(f"✅ Successfully synced {len(synced)} slash commands globally!")
-            print(f"Synced {len(synced)} slash commands globally")
-
-        if synced:
-            command_names = [cmd.name for cmd in synced]
-            print(f"Synced commands: {', '.join(command_names)}")
-
-    except Exception as e:
-        await ctx.send(f"❌ Failed to sync commands: {e}")
-        print(f"Failed to sync commands: {e}")
 
 
 def get_bot():

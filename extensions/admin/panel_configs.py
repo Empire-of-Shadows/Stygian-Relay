@@ -5,6 +5,8 @@ Defines four sections (core, features, forwarding_rules, premium) wired to
 database.guild_manager. Each successful write also writes an audit_log entry.
 """
 
+import re
+
 import discord
 
 from database import audit_log, guild_manager
@@ -70,39 +72,6 @@ async def _clear_log_channel(guild_id: int) -> bool:
     return ok
 
 
-# ─── Core: command prefix ────────────────────────────────────────────────────
-
-async def _get_prefix(guild_id: int) -> list:
-    v = (await _settings(guild_id)).get("command_prefix")
-    return [v] if v else []
-
-
-async def _set_prefix(guild_id: int, values: list) -> bool:
-    val = values[0] if values else "!"
-    ok = await guild_manager.update_guild_settings(str(guild_id), {"command_prefix": val})
-    if ok:
-        await audit_log.log("settings", str(guild_id), "panel", "set_prefix", {"prefix": val})
-    return ok
-
-
-async def _clear_prefix(guild_id: int) -> bool:
-    ok = await guild_manager.update_guild_settings(str(guild_id), {"command_prefix": "!"})
-    if ok:
-        await audit_log.log("settings", str(guild_id), "panel", "reset_prefix", {})
-    return ok
-
-
-def _validate_prefix(raw: str):
-    raw = (raw or "").strip()
-    if not raw:
-        return False, None, "Prefix cannot be empty."
-    if any(c.isspace() for c in raw):
-        return False, None, "Prefix cannot contain whitespace."
-    if len(raw) > 5:
-        return False, None, "Prefix must be 5 characters or fewer."
-    return True, raw, None
-
-
 # ─── Feature toggles ─────────────────────────────────────────────────────────
 
 def _make_toggle_get(feature_key: str):
@@ -124,6 +93,53 @@ def _make_toggle_set(feature_key: str):
             )
         return ok
     return _set
+
+
+# ─── Cross-guild inbound allowlist ───────────────────────────────────────────
+
+async def _get_inbound_allow(guild_id: int) -> list:
+    ids = await guild_manager.get_inbound_allowed(str(guild_id))
+    if not ids:
+        return []
+    return [", ".join(str(x) for x in ids)]
+
+
+def _validate_inbound_allow(raw: str):
+    raw = (raw or "").strip()
+    if not raw:
+        return True, "", None
+    parts = [p for p in re.split(r"[\s,]+", raw) if p]
+    out = []
+    for p in parts:
+        if not p.isdigit():
+            return False, None, f"Invalid guild ID: {p[:32]}"
+        try:
+            out.append(int(p))
+        except ValueError:
+            return False, None, f"Invalid guild ID: {p[:32]}"
+    return True, ",".join(str(x) for x in out), None
+
+
+async def _set_inbound_allow(guild_id: int, values: list) -> bool:
+    raw = values[0] if values else ""
+    ids = [int(x) for x in raw.split(",") if x] if raw else []
+    ok = await guild_manager.set_inbound_allowed(str(guild_id), ids)
+    if ok:
+        await audit_log.log(
+            "settings", str(guild_id), "panel",
+            "set_inbound_allowed", {"guild_ids": ids},
+        )
+    return ok
+
+
+async def _clear_inbound_allow(guild_id: int) -> bool:
+    ok = await guild_manager.set_inbound_allowed(str(guild_id), [])
+    if ok:
+        await audit_log.log(
+            "settings", str(guild_id), "panel",
+            "clear_inbound_allowed", {},
+        )
+    return ok
 
 
 # ─── Async descriptions for read-only / informational sections ───────────────
@@ -184,7 +200,7 @@ CORE_NODE = PanelNode(
     key="core",
     label="Core",
     kind="menu",
-    description="Manager role, log channel, and command prefix.",
+    description="Manager role and log channel.",
     children={
         "manager_role": PanelNode(
             key="manager_role",
@@ -208,21 +224,6 @@ CORE_NODE = PanelNode(
             channel_types=[discord.ChannelType.text],
             min_values=0,
             max_values=1,
-        ),
-        "command_prefix": PanelNode(
-            key="command_prefix",
-            label="Command Prefix",
-            kind="modal_input",
-            description="Prefix for legacy text commands. Defaults to `!`.",
-            get_values=_get_prefix,
-            set_values=_set_prefix,
-            clear_values=_clear_prefix,
-            modal_title="Set Command Prefix",
-            modal_label="Prefix",
-            modal_placeholder="e.g. !",
-            modal_min_length=1,
-            modal_max_length=5,
-            modal_validator=_validate_prefix,
         ),
     },
 )
@@ -248,6 +249,28 @@ FEATURES_NODE = PanelNode(
             description="When enabled, the bot posts in-channel notices on forwarding errors and rate-limit hits.",
             toggle_get=_make_toggle_get("notify_on_error"),
             toggle_set=_make_toggle_set("notify_on_error"),
+        ),
+        "inbound_allowlist": PanelNode(
+            key="inbound_allowlist",
+            label="Inbound Forward Allowlist",
+            kind="modal_input",
+            description=(
+                "Source guild IDs allowed to forward messages INTO this server "
+                "via cross-guild rules. Comma- or space-separated. "
+                "Empty = block all cross-guild inbound forwards. "
+                "Same-server rules are unaffected."
+            ),
+            get_values=_get_inbound_allow,
+            set_values=_set_inbound_allow,
+            clear_values=_clear_inbound_allow,
+            modal_title="Inbound Forward Allowlist",
+            modal_label="Source Guild IDs",
+            modal_placeholder="123456789012345678, 234567890123456789",
+            modal_paragraph=True,
+            modal_min_length=0,
+            modal_max_length=2000,
+            modal_required=False,
+            modal_validator=_validate_inbound_allow,
         ),
     },
 )

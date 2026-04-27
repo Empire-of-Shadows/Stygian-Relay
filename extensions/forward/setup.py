@@ -552,9 +552,16 @@ class RuleSettingsView(discord.ui.LayoutView):
 
     async def save_and_exit_callback(self, interaction: discord.Interaction):
         await interaction.response.defer()
-        success, message = await self.cog.update_final_rule(interaction, self.session)
+        if self.session.is_editing and self.session.current_rule.get("rule_id"):
+            success, message = await self.cog.update_final_rule(interaction, self.session)
+        else:
+            success, message = await self.cog.rule_creation_flow.create_final_rule(
+                interaction, self.session
+            )
         if success:
-            await self.cog.show_setup_complete(interaction, self.session, is_editing=True)
+            await self.cog.show_setup_complete(
+                interaction, self.session, is_editing=self.session.is_editing
+            )
         else:
             await interaction.followup.send(f"❌ Save failed: {message}", ephemeral=True)
 
@@ -1360,6 +1367,10 @@ class ForwardCog(commands.Cog):
             # --- Rule Channel Selection ---
             if custom_id == "rule_source_select":
                 await self.rule_creation_flow.handle_channel_selection(interaction, session, "source", int(values[0]))
+            elif custom_id == "rule_dest_guild_select":
+                await self.rule_creation_flow.handle_destination_guild_selection(
+                    interaction, session, int(values[0])
+                )
             elif custom_id == "rule_dest_select":
                 await self.rule_creation_flow.handle_channel_selection(interaction, session, "destination", int(values[0]))
             else:

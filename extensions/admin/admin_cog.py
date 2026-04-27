@@ -49,8 +49,7 @@ SETUP_GUIDE_TEXT = (
     "\n"
     "**1. Manager Role** — assign a role that may manage settings alongside admins.\n"
     "**2. Log Channel** — pick a channel where the bot posts premium redeems, errors, and rate-limit notices.\n"
-    "**3. Command Prefix** — set the prefix for legacy text commands (defaults to `!`).\n"
-    "**4. Forwarding Rules** — open **Forwarding Rules** in this panel to create your first source → destination rule.\n"
+    "**3. Forwarding Rules** — open **Forwarding Rules** in this panel to create your first source → destination rule.\n"
     "\n"
     "Use the panel below to assign each one."
 )
@@ -345,6 +344,7 @@ class AdminCog(commands.Cog):
             _current_locked[0] = new_locked
             new_toggle = await category_node.toggle_get(guild.id) if category_node.toggle_get else None
             new_desc = await self._resolve_description(category_node, guild)
+            new_child_toggles = await self._gather_child_toggle_states(category_node, guild.id)
             return build_menu_view(
                 category_node, new_summary, on_child_select, on_back, new_locked,
                 toggle_state=new_toggle,
@@ -353,6 +353,7 @@ class AdminCog(commands.Cog):
                 description_override=new_desc,
                 guild_id=guild.id,
                 guild=guild,
+                child_toggle_states=new_child_toggles,
             )
 
         async def on_child_select(child_interaction: discord.Interaction, child_key: str):
@@ -451,6 +452,7 @@ class AdminCog(commands.Cog):
                     f"Failed to update **{category_node.label}**.", ephemeral=True
                 )
 
+        child_toggles = await self._gather_child_toggle_states(category_node, guild.id)
         layout = build_menu_view(
             category_node, summary_map, on_child_select, on_back, locked_keys,
             toggle_state=toggle_state,
@@ -459,6 +461,7 @@ class AdminCog(commands.Cog):
             description_override=desc_override,
             guild_id=guild.id,
             guild=guild,
+            child_toggle_states=child_toggles,
         )
         session.register_view(layout)
         await sel_interaction.response.send_message(view=layout, ephemeral=True)
@@ -592,6 +595,7 @@ class AdminCog(commands.Cog):
             _current_locked[0] = new_locked
             new_toggle = await node.toggle_get(guild.id) if node.toggle_get else None
             new_desc = await self._resolve_description(node, guild)
+            new_child_toggles = await self._gather_child_toggle_states(node, guild.id)
             return build_menu_view(
                 node, new_summary, on_select, on_cancel, new_locked,
                 toggle_state=new_toggle,
@@ -600,6 +604,7 @@ class AdminCog(commands.Cog):
                 description_override=new_desc,
                 guild_id=guild.id,
                 guild=guild,
+                child_toggle_states=new_child_toggles,
             )
 
         async def on_select(sel_interaction: discord.Interaction, child_key: str):
@@ -686,6 +691,7 @@ class AdminCog(commands.Cog):
                     f"Failed to update **{node.label}**.", ephemeral=True
                 )
 
+        child_toggles = await self._gather_child_toggle_states(node, guild.id)
         layout = build_menu_view(
             node, summary_map, on_select, on_cancel, locked_keys,
             toggle_state=toggle_state,
@@ -694,6 +700,7 @@ class AdminCog(commands.Cog):
             description_override=desc_override,
             guild_id=guild.id,
             guild=guild,
+            child_toggle_states=child_toggles,
         )
         if session:
             session.register_view(layout)
@@ -1006,10 +1013,12 @@ class AdminCog(commands.Cog):
                 new_summary = await self._gather_summaries(parent_menu, guild.id)
                 locked = await self._compute_locked_keys(parent_menu, guild.id)
                 new_desc = await self._resolve_description(parent_menu, guild)
+                new_child_toggles = await self._gather_child_toggle_states(parent_menu, guild.id)
                 new_layout = build_menu_view(
                     parent_menu, new_summary, on_select, on_cancel, locked,
                     description_override=new_desc,
                     guild_id=guild.id, guild=guild,
+                    child_toggle_states=new_child_toggles,
                 )
                 await sel_interaction.edit_original_response(view=new_layout)
                 if refresh_parent:
@@ -1090,6 +1099,18 @@ class AdminCog(commands.Cog):
             return str(vals[0]) if vals[0] else "Not set"
 
         return _child_summary(node, vals)
+
+    async def _gather_child_toggle_states(self, node: PanelNode, guild_id: int) -> dict[str, bool]:
+        states: dict[str, bool] = {}
+        for key, child in node.children.items():
+            if child.toggle_get:
+                try:
+                    val = await child.toggle_get(guild_id)
+                except Exception:
+                    continue
+                if val is not None:
+                    states[key] = bool(val)
+        return states
 
     async def _gather_toggle_states(self, root: PanelNode, guild_id: int) -> dict[str, bool | None]:
         states: dict[str, bool | None] = {}

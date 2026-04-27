@@ -150,6 +150,7 @@ def build_menu_view(
     description_override: str | None = None,
     guild_id: int | None = None,
     guild: discord.Guild | None = None,
+    child_toggle_states: dict[str, bool] | None = None,
 ) -> discord.ui.LayoutView:
     unique_id = create_unique_id()
     builder = PanelLayoutBuilder()
@@ -178,11 +179,18 @@ def build_menu_view(
         builder.add_text(desc_text)
         builder.add_separator()
 
+    _toggles = child_toggle_states or {}
+
+    def _summary_for(key: str, child: PanelNode) -> str:
+        if key in _toggles:
+            return "Enabled" if _toggles[key] else "Disabled"
+        return _child_summary(child, summary_map.get(key, []), guild)
+
     lines = []
     for key, child in node.children.items():
         prefix = "\U0001f512 " if key in _locked else ""
         lines.append(
-            f"- **{prefix}{child.label}:** {_child_summary(child, summary_map.get(key, []), guild)}"
+            f"- **{prefix}{child.label}:** {_summary_for(key, child)}"
         )
     if lines:
         builder.add_text("\n".join(lines))
@@ -198,7 +206,7 @@ def build_menu_view(
                 description=(
                     "Locked — configure prerequisite first"
                     if key in _locked
-                    else _child_summary(child, summary_map.get(key, []), guild)
+                    else _summary_for(key, child)
                 ),
             )
             for key, child in node.children.items()

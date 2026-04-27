@@ -19,6 +19,10 @@ class SetupState:
         self.master_log_channel: Optional[int] = None
         self.forwarding_rules: List[Dict[str, Any]] = []
         self.current_rule: Optional[Dict[str, Any]] = None
+        # Cross-guild target for the rule under construction. Defaults to the
+        # source guild on entry; the wizard's destination-guild step lets the
+        # user pick a different bot-shared guild before selecting a channel.
+        self.destination_guild_id: Optional[int] = None
         self.is_editing: bool = False
         self.setup_options: Dict[str, bool] = {
             "advanced_filtering": False,
@@ -52,7 +56,8 @@ class SetupState:
             "is_editing": self.is_editing,
             "setup_options": self.setup_options,
             "setup_message_id": self.setup_message_id,
-            "setup_channel_id": self.setup_channel_id
+            "setup_channel_id": self.setup_channel_id,
+            "destination_guild_id": self.destination_guild_id,
         }
 
     @classmethod
@@ -72,6 +77,7 @@ class SetupState:
         state.setup_options = data.get("setup_options", {})
         state.setup_message_id = data.get("setup_message_id")
         state.setup_channel_id = data.get("setup_channel_id")
+        state.destination_guild_id = data.get("destination_guild_id")
         return state
 
     def update_activity(self):

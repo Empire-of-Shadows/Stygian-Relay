@@ -158,6 +158,9 @@ class GuildManager:
 
             await db["guild_settings"].create_index("rules.rule_id")
             await db["guild_settings"].create_index("rules.source_channel_id")
+            # Cross-guild rules reference channels that don't live in this doc's
+            # `_id`; the channel-delete handler queries by destination too.
+            await db["guild_settings"].create_index("rules.destination_channel_id")
 
             # message_logs: hot query (guild_id, forwarded_at) + TTL 90 days.
             await db["message_logs"].create_index(
@@ -363,6 +366,46 @@ class GuildManager:
                 if rule.get("rule_id") == rule_id:
                     return migrate_rule(rule)
         return None
+
+    async def find_rules_referencing_channel(
+        self, channel_id: int
+    ) -> List[Tuple[str, str]]:
+        """
+        Return ``(guild_id, rule_id)`` for every active rule whose source or
+        destination is ``channel_id``. Cross-guild rules can live in a
+        different guild than the channel that's just been deleted, so this
+        scans every guild_settings doc — backed by indexes on
+        ``rules.source_channel_id`` and ``rules.destination_channel_id``.
+        """
+        collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+        cursor = collection.find(
+            {
+                "$or": [
+                    {"rules.source_channel_id": channel_id},
+                    {"rules.destination_channel_id": channel_id},
+                ]
+            },
+            projection={"_id": 1, "rules": 1},
+        )
+        out: List[Tuple[str, str]] = []
+        async for doc in cursor:
+            gid = doc.get("_id")
+            for rule in doc.get("rules", []) or []:
+                if not rule.get("is_active"):
+                    continue
+                src = rule.get("source_channel_id")
+                dst = rule.get("destination_channel_id")
+                # Coerce both to int — Mongo may return BSON Long or string.
+                try:
+                    src_int = int(src) if src is not None else None
+                    dst_int = int(dst) if dst is not None else None
+                except (TypeError, ValueError):
+                    continue
+                if src_int == channel_id or dst_int == channel_id:
+                    rule_id = rule.get("rule_id")
+                    if rule_id:
+                        out.append((str(gid), str(rule_id)))
+        return out
 
     async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
         """
@@ -615,10 +658,15 @@ class GuildManager:
 
     async def add_rule(self, guild_id, rule_name: str, source_channel_id: int,
                                   destination_channel_id: int, enabled: bool = True,
-                                  settings: dict = None) -> Tuple[bool, str]:
+                                  settings: dict = None,
+                                  destination_guild_id: Optional[int] = None) -> Tuple[bool, str]:
         """
         Atomically add a forwarding rule, enforcing the per-guild active-rule
         cap from get_guild_limits.
+
+        ``destination_guild_id`` defaults to ``guild_id`` (same-guild rules)
+        when omitted. Wizard cross-guild flows pass the chosen target guild
+        through explicitly.
 
         Returns (success, reason). Reasons: "ok", "limit_reached", "error".
         """
@@ -628,11 +676,15 @@ class GuildManager:
             max_rules = int(limits.get("max_rules", 3))
 
             logger.info(f"Adding forwarding rule '{rule_name}' for guild {gid} (cap={max_rules})")
+            resolved_dest_guild = (
+                int(destination_guild_id) if destination_guild_id is not None else int(guild_id)
+            )
             rule_data = {
                 "rule_id": str(uuid.uuid4()),
                 "rule_name": rule_name,
                 "source_channel_id": source_channel_id,
                 "destination_channel_id": destination_channel_id,
+                "destination_guild_id": resolved_dest_guild,
                 "is_active": enabled,
                 "settings": settings or {},
                 "schema_version": CURRENT_RULE_SCHEMA_VERSION,
@@ -697,6 +749,47 @@ class GuildManager:
         except Exception as e:
             logger.error(f"❌ Error adding forwarding rule: {e}", exc_info=True)
             return False, "error"
+
+    # ==================== Cross-guild inbound allowlist ====================
+
+    async def get_inbound_allowed(self, dest_guild_id: str) -> List[int]:
+        """Return the list of source guild IDs (int) opted in to forward INTO ``dest_guild_id``."""
+        settings = await self.get_guild_settings(str(dest_guild_id))
+        out: List[int] = []
+        for x in settings.get("inbound_allowed_guilds", []) or []:
+            try:
+                out.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    async def is_inbound_allowed(self, dest_guild_id: str, source_guild_id) -> bool:
+        """True iff ``source_guild_id`` is in ``dest_guild_id``'s inbound allowlist."""
+        try:
+            src = int(source_guild_id)
+        except (TypeError, ValueError):
+            return False
+        return src in set(await self.get_inbound_allowed(dest_guild_id))
+
+    async def set_inbound_allowed(self, dest_guild_id: str, guild_ids: List[int]) -> bool:
+        """Replace the inbound allowlist for ``dest_guild_id`` with ``guild_ids``."""
+        cleaned: List[int] = []
+        for x in guild_ids or []:
+            try:
+                cleaned.append(int(x))
+            except (TypeError, ValueError):
+                continue
+        # Dedupe while preserving order.
+        seen = set()
+        unique = []
+        for g in cleaned:
+            if g in seen:
+                continue
+            seen.add(g)
+            unique.append(g)
+        return await self.update_guild_settings(
+            str(dest_guild_id), {"inbound_allowed_guilds": unique}
+        )
 
     # ==================== Premium Code Management ====================
 

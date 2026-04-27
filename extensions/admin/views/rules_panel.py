@@ -27,17 +27,37 @@ def _rule_label(rule: dict, guild: discord.Guild) -> str:
     return f"{status} {name}"[:100]
 
 
-def _rule_description(rule: dict, guild: discord.Guild) -> str:
+def _rule_description(rule: dict, guild: discord.Guild, bot=None) -> str:
     src_id = rule.get("source_channel_id")
     dst_id = rule.get("destination_channel_id")
     if isinstance(src_id, dict) and "$numberLong" in src_id:
         src_id = int(src_id["$numberLong"])
     if isinstance(dst_id, dict) and "$numberLong" in dst_id:
         dst_id = int(dst_id["$numberLong"])
+
     src = guild.get_channel(int(src_id)) if src_id else None
-    dst = guild.get_channel(int(dst_id)) if dst_id else None
     src_name = f"#{src.name}" if src else f"<#{src_id}>"
-    dst_name = f"#{dst.name}" if dst else f"<#{dst_id}>"
+
+    # Destination may be cross-guild — fall back to the bot-global channel
+    # cache and annotate the foreign guild name so the panel reads sensibly.
+    dst = guild.get_channel(int(dst_id)) if dst_id else None
+    if dst is not None:
+        dst_name = f"#{dst.name}"
+    elif bot is not None and dst_id:
+        foreign = bot.get_channel(int(dst_id))
+        if foreign is not None:
+            foreign_guild = getattr(foreign, "guild", None)
+            foreign_guild_name = getattr(foreign_guild, "name", None)
+            dst_name = (
+                f"#{foreign.name} (in {foreign_guild_name})"
+                if foreign_guild_name and getattr(foreign_guild, "id", None) != guild.id
+                else f"#{foreign.name}"
+            )
+        else:
+            dst_name = f"<#{dst_id}>"
+    else:
+        dst_name = f"<#{dst_id}>" if dst_id else "<unset>"
+
     return f"{src_name} → {dst_name}"[:100]
 
 
@@ -95,7 +115,7 @@ async def build_rules_panel_view(
         for rule in rules[:25]:
             status = "🟢" if rule.get("is_active") else "🔴"
             name = rule.get("rule_name") or f"Rule {str(rule.get('rule_id', ''))[:8]}"
-            lines.append(f"{status} **{name}** — {_rule_description(rule, guild)}")
+            lines.append(f"{status} **{name}** — {_rule_description(rule, guild, forward_cog.bot)}")
         if len(rules) > 25:
             lines.append(f"…and {len(rules) - 25} more.")
         builder.add_text("\n".join(lines))
@@ -110,7 +130,7 @@ async def build_rules_panel_view(
             discord.SelectOption(
                 label=_rule_label(rule, guild),
                 value=str(rule["rule_id"]),
-                description=_rule_description(rule, guild),
+                description=_rule_description(rule, guild, forward_cog.bot),
             )
             for rule in rules[:25]
         ]

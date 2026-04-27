@@ -111,16 +111,33 @@ class RuleCreationFlow:
             session.current_rule = {}
 
         from .channel_select import channel_selector
-        is_valid, message = await channel_selector.validate_channel_access(interaction.guild, channel_id)
-        if not is_valid:
-            await interaction.followup.send(f"❌ {message}", ephemeral=True)
-            return
 
         if channel_type == "source":
+            # Source is always in the rule-owner's guild.
+            is_valid, message = await channel_selector.validate_channel_access(interaction.guild, channel_id)
+            if not is_valid:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                return
             session.current_rule["source_channel_id"] = channel_id
-            await self.show_destination_channel_step(interaction, session)
-        elif channel_type == "destination":
-            destination_channel = interaction.guild.get_channel(channel_id)
+            await self.show_destination_guild_step(interaction, session)
+            return
+
+        if channel_type == "destination":
+            target_guild = self._resolve_target_guild(session, interaction.guild)
+            if target_guild is None:
+                await interaction.followup.send(
+                    "❌ I'm no longer in the destination guild — pick a different one.",
+                    ephemeral=True,
+                )
+                await self.show_destination_guild_step(interaction, session)
+                return
+
+            is_valid, message = await channel_selector.validate_channel_access(target_guild, channel_id)
+            if not is_valid:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                return
+
+            destination_channel = target_guild.get_channel(channel_id)
             required = ["view_channel", "send_messages", "embed_links", "attach_files"]
             ok, missing = await permission_checker.check_channel_permissions(
                 destination_channel, required_perms=required
@@ -134,36 +151,198 @@ class RuleCreationFlow:
                 )
                 return
 
-            if channel_id == session.current_rule.get("source_channel_id"):
+            if (
+                channel_id == session.current_rule.get("source_channel_id")
+                and target_guild.id == interaction.guild.id
+            ):
                 await interaction.followup.send(
                     "❌ Source and destination channels cannot be the same.", ephemeral=True
                 )
                 return
 
             session.current_rule["destination_channel_id"] = channel_id
+            session.current_rule["destination_guild_id"] = target_guild.id
             await self.show_rule_name_step(interaction, session)
 
-    # ── Step 2: Destination channel ───────────────────────────────────────
-    async def show_destination_channel_step(self, interaction: discord.Interaction, session: SetupState):
+    def _resolve_target_guild(
+        self, session: SetupState, fallback: discord.Guild
+    ) -> discord.Guild | None:
+        """Look up the chosen destination guild; fall back to the source guild."""
+        target_id = session.destination_guild_id
+        if target_id is None:
+            return fallback
+        return self.bot.get_guild(int(target_id)) or fallback
+
+    def _candidate_destination_guilds(
+        self, interaction: discord.Interaction
+    ) -> list[discord.Guild]:
+        """Source guild first, then any other guild the bot AND user share."""
+        invoking_user = interaction.user
+        candidates: list[discord.Guild] = []
+        if interaction.guild is not None:
+            candidates.append(interaction.guild)
+        for g in self.bot.guilds:
+            if g.id == interaction.guild_id:
+                continue
+            if g.get_member(invoking_user.id) is None:
+                continue
+            candidates.append(g)
+        return candidates
+
+    # ── Step 1.5: Destination guild ───────────────────────────────────────
+    async def show_destination_guild_step(self, interaction: discord.Interaction, session: SetupState):
+        """
+        Pick a destination guild — same-guild by default, or any other guild
+        the bot AND the invoking user are members of. Cross-guild rules let
+        an admin in source guild route messages into a guild they're also in.
+
+        When the bot+user share only the source guild, this step is a no-op:
+        we stamp same-guild and skip straight to the channel picker. A select
+        menu with a single pre-selected option doesn't fire a callback when
+        the user re-picks the default, so the wizard would deadlock.
+        """
+        candidate_guilds = self._candidate_destination_guilds(interaction)
+
+        if len(candidate_guilds) <= 1:
+            # No real choice — same-guild only. Stamp and advance silently.
+            target_id = candidate_guilds[0].id if candidate_guilds else interaction.guild_id
+            session.destination_guild_id = target_id
+            await state_manager.update_session(
+                interaction.guild_id, {"destination_guild_id": target_id}
+            )
+            await self.show_destination_channel_step(interaction, session)
+            return
+
         items: list[discord.ui.Item] = [
-            discord.ui.TextDisplay("## 📤 Select Destination Channel"),
+            discord.ui.TextDisplay("## 🌐 Destination Guild"),
             discord.ui.TextDisplay(
-                "Choose the channel messages will be forwarded **to**.\n"
-                "This is where the forwarded messages will appear."
+                "Pick where the destination channel lives. Same-guild is the "
+                "common case; cross-guild rules require the bot to be a "
+                "member of the target guild *and* you to be a member too "
+                "(so you can see its channels)."
             ),
             discord.ui.Separator(),
         ]
 
-        select_options = []
-        for channel in interaction.guild.text_channels:
-            if channel.permissions_for(interaction.guild.me).send_messages:
-                select_options.append(
-                    discord.SelectOption(
-                        label=f"#{channel.name}"[:25],
-                        value=str(channel.id),
-                        description=f"ID: {channel.id}"[:50],
-                    )
+        if len(candidate_guilds) > 25:
+            self.logger.info(
+                f"User {interaction.user.id} shares >25 guilds with the bot; "
+                f"truncating destination guild list to 25"
+            )
+        # Important: do NOT pre-mark any option with default=True. Discord
+        # treats re-clicking an already-selected option as a no-op, which
+        # would deadlock the wizard if the user wanted same-guild.
+        select_options: list[discord.SelectOption] = []
+        for g in candidate_guilds[:25]:
+            label = f"{g.name}"
+            description = (
+                "This server (same-guild)" if g.id == interaction.guild_id
+                else f"ID: {g.id}"
+            )
+            select_options.append(
+                discord.SelectOption(
+                    label=label[:100],
+                    value=str(g.id),
+                    description=description[:100],
                 )
+            )
+
+        select_menu = discord.ui.Select(
+            placeholder="Select destination guild...",
+            options=select_options,
+            custom_id="rule_dest_guild_select",
+        )
+        row = discord.ui.ActionRow()
+        row.add_item(select_menu)
+        items.append(row)
+
+        nav_row = discord.ui.ActionRow()
+        nav_row.add_item(discord.ui.Button(
+            label="Back",
+            style=discord.ButtonStyle.secondary,
+            custom_id="rule_dest_guild_back",
+            emoji="⬅️",
+        ))
+        nav_row.add_item(discord.ui.Button(
+            label="Cancel",
+            style=discord.ButtonStyle.danger,
+            custom_id="rule_dest_guild_cancel",
+            emoji="✖️",
+        ))
+        items.append(nav_row)
+
+        await _render(interaction, _build_layout(items))
+
+    async def handle_destination_guild_selection(
+        self, interaction: discord.Interaction, session: SetupState, guild_id: int
+    ):
+        """Store the chosen destination guild and advance to channel picker."""
+        target_guild = self.bot.get_guild(guild_id)
+        if target_guild is None:
+            await interaction.followup.send(
+                "❌ I'm not in that guild anymore. Pick another.", ephemeral=True
+            )
+            return
+        if target_guild.get_member(interaction.user.id) is None:
+            await interaction.followup.send(
+                "❌ You don't appear to be a member of that guild. Pick a guild "
+                "you share with the bot.",
+                ephemeral=True,
+            )
+            return
+
+        session.destination_guild_id = target_guild.id
+        await state_manager.update_session(
+            interaction.guild_id, {"destination_guild_id": target_guild.id}
+        )
+        await self.show_destination_channel_step(interaction, session)
+
+    # ── Step 2: Destination channel ───────────────────────────────────────
+    async def show_destination_channel_step(self, interaction: discord.Interaction, session: SetupState):
+        target_guild = self._resolve_target_guild(session, interaction.guild)
+        if target_guild is None:
+            await interaction.followup.send(
+                "❌ The selected destination guild is unavailable. Pick another.",
+                ephemeral=True,
+            )
+            await self.show_destination_guild_step(interaction, session)
+            return
+
+        cross_guild = target_guild.id != interaction.guild.id
+        header = "## 📤 Select Destination Channel"
+        body = (
+            f"Choose the channel messages will be forwarded **to** in "
+            f"**{target_guild.name}**.\n"
+            "Only channels where I have `send_messages` are listed."
+            if cross_guild else
+            "Choose the channel messages will be forwarded **to**.\n"
+            "This is where the forwarded messages will appear."
+        )
+
+        items: list[discord.ui.Item] = [
+            discord.ui.TextDisplay(header),
+            discord.ui.TextDisplay(body),
+            discord.ui.Separator(),
+        ]
+
+        bot_member = target_guild.me
+        if bot_member is None:
+            items.append(discord.ui.TextDisplay(
+                "*I'm no longer a member of the destination guild — go back "
+                "and choose another.*"
+            ))
+            select_options: list[discord.SelectOption] = []
+        else:
+            select_options = []
+            for channel in target_guild.text_channels:
+                if channel.permissions_for(bot_member).send_messages:
+                    select_options.append(
+                        discord.SelectOption(
+                            label=f"#{channel.name}"[:25],
+                            value=str(channel.id),
+                            description=f"ID: {channel.id}"[:50],
+                        )
+                    )
 
         if select_options:
             select_menu = discord.ui.Select(
@@ -174,7 +353,7 @@ class RuleCreationFlow:
             row = discord.ui.ActionRow()
             row.add_item(select_menu)
             items.append(row)
-        else:
+        elif bot_member is not None:
             items.append(discord.ui.TextDisplay("*No writable text channels found.*"))
 
         nav_row = discord.ui.ActionRow()
@@ -233,7 +412,11 @@ class RuleCreationFlow:
 
     async def handle_auto_name(self, interaction: discord.Interaction, session: SetupState):
         source_channel = interaction.guild.get_channel(session.current_rule["source_channel_id"])
-        dest_channel = interaction.guild.get_channel(session.current_rule["destination_channel_id"])
+        target_guild = self._resolve_target_guild(session, interaction.guild)
+        dest_channel = (
+            target_guild.get_channel(session.current_rule["destination_channel_id"])
+            if target_guild else None
+        )
 
         if not source_channel or not dest_channel:
             await interaction.followup.send(
@@ -242,7 +425,14 @@ class RuleCreationFlow:
             )
             return
 
-        rule_name = f"Forward from #{source_channel.name} to #{dest_channel.name}"
+        cross_guild = target_guild is not None and target_guild.id != interaction.guild.id
+        if cross_guild:
+            rule_name = (
+                f"Forward from #{source_channel.name} to #{dest_channel.name} "
+                f"in {target_guild.name}"
+            )
+        else:
+            rule_name = f"Forward from #{source_channel.name} to #{dest_channel.name}"
         session.current_rule["rule_name"] = rule_name
         await self.show_rule_preview_step(interaction, session)
 
@@ -261,17 +451,29 @@ class RuleCreationFlow:
             rule.update({k: v for k, v in session.current_rule.items() if k not in rule})
 
         guild = interaction.guild
+        target_guild = self._resolve_target_guild(session, guild)
         src_id = normalize_channel_id(rule.get("source_channel_id"))
         dst_id = normalize_channel_id(rule.get("destination_channel_id"))
         src = guild.get_channel(src_id) if src_id else None
-        dst = guild.get_channel(dst_id) if dst_id else None
+        dst = target_guild.get_channel(dst_id) if (target_guild and dst_id) else None
 
+        cross_guild = target_guild is not None and target_guild.id != guild.id
+        dest_line = (
+            f"**Destination:** {dst.mention if dst else f'<#{dst_id}>'}"
+            + (f" *(in **{target_guild.name}**)*" if cross_guild else "")
+        )
         body_lines = [
             f"**Name:** {rule.get('name') or rule.get('rule_name', '(unnamed)')}",
             f"**Source:** {src.mention if src else f'<#{src_id}>'}",
-            f"**Destination:** {dst.mention if dst else f'<#{dst_id}>'}",
+            dest_line,
             f"**Status:** {'🟢 Active' if rule.get('is_active', True) else '🔴 Inactive'}",
         ]
+        if cross_guild:
+            body_lines.append(
+                "-# Cross-guild rule — anyone with rule-management rights here "
+                "can re-route messages there. Destination admins can revoke "
+                "by kicking me or removing send-permissions."
+            )
 
         items: list[discord.ui.Item] = [
             discord.ui.TextDisplay(
@@ -325,8 +527,13 @@ class RuleCreationFlow:
                 destination_channel_id=session.current_rule["destination_channel_id"],
                 rule_name=session.current_rule["rule_name"],
             )
+            if "is_active" in session.current_rule:
+                rule["is_active"] = bool(session.current_rule["is_active"])
 
-            is_valid, errors = await rule_setup_helper.validate_rule_configuration(rule, interaction.guild)
+            dest_guild = interaction.guild
+            if session.destination_guild_id and session.destination_guild_id != interaction.guild_id:
+                dest_guild = interaction.client.get_guild(session.destination_guild_id) or interaction.guild
+            is_valid, errors = await rule_setup_helper.validate_rule_configuration(rule, interaction.guild, dest_guild)
             if not is_valid:
                 return False, " ".join(errors)
 
@@ -334,10 +541,14 @@ class RuleCreationFlow:
             await state_manager.update_session(interaction.guild_id, {"rules": session.forwarding_rules})
 
             from database import guild_manager
+            destination_guild_id = (
+                session.destination_guild_id or interaction.guild_id
+            )
             rule_data = {
                 "rule_name": rule.get("name"),
                 "source_channel_id": rule.get("source_channel_id"),
                 "destination_channel_id": rule.get("destination_channel_id"),
+                "destination_guild_id": destination_guild_id,
                 "enabled": rule.get("is_active", True),
                 "settings": {
                     "message_types": rule.get("message_types", {}),
@@ -368,8 +579,11 @@ class RuleCreationFlow:
     async def handle_rule_back(self, interaction: discord.Interaction, session: SetupState, cog_instance, step: str):
         """Step-back navigation."""
         self.logger.info(f"Back nav: step={step} guild={interaction.guild_id}")
-        if step == "destination":
+        if step in ("dest_guild", "destination_guild"):
             await self.show_source_channel_step(interaction, session)
+        elif step == "destination":
+            # Channel picker → back to destination guild picker.
+            await self.show_destination_guild_step(interaction, session)
         elif step == "name":
             await self.show_destination_channel_step(interaction, session)
         elif step == "preview":
