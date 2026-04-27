@@ -1,14 +1,7 @@
-import json
-import os
-import tempfile
-import time
-
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 
 from database import db_core, guild_manager, audit_log
-
-HEARTBEAT_PATH = os.environ.get("HEARTBEAT_PATH", "/app/healthcheck.state")
 
 error_notifier = None
 
@@ -33,36 +26,6 @@ bot = commands.AutoShardedBot(
 )
 
 
-def _write_heartbeat(db_healthy: bool) -> None:
-    """Atomically write the heartbeat file consumed by healthcheck.py."""
-    payload = {
-        "ts": time.time(),
-        "db_healthy": db_healthy,
-        "bot_ready": bot.is_ready() if bot else False,
-    }
-    try:
-        directory = os.path.dirname(HEARTBEAT_PATH) or "."
-        os.makedirs(directory, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=directory, delete=False
-        ) as fh:
-            json.dump(payload, fh)
-            tmp_path = fh.name
-        os.replace(tmp_path, HEARTBEAT_PATH)
-    except OSError as exc:
-        print(f"⚠️ Failed to write heartbeat: {exc}")
-
-
-@tasks.loop(seconds=30)
-async def heartbeat_task():
-    _write_heartbeat(db_core.is_healthy())
-
-
-@heartbeat_task.before_loop
-async def _heartbeat_before():
-    await bot.wait_until_ready()
-
-
 @bot.event
 async def on_ready():
     """Called when the bot is ready and connected to Discord."""
@@ -83,12 +46,6 @@ async def on_ready():
 
     except Exception as e:
         print(f'❌ Database connection error: {e}')
-
-    if not heartbeat_task.is_running():
-        heartbeat_task.start()
-        print('💓 Heartbeat task started')
-    # Write an initial heartbeat so the container is healthy immediately on connect.
-    _write_heartbeat(db_core.is_healthy())
 
 
 async def initialize_existing_guilds():

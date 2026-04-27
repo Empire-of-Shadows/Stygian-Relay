@@ -92,8 +92,8 @@ async def main():
         await load_cogs()
         app_logger.info("Cogs loaded successfully")
 
-        initialize_health_server(port=50006, bot=bot, db_manager=db_core)
-        app_logger.info("Health endpoint started on port 50006")
+        initialize_health_server(port=50005, bot=bot, db_manager=db_core)
+        app_logger.info("Health endpoint started on port 50005")
 
         app_logger.info("Connecting to Discord...")
         await bot.start(DISCORD_TOKEN)
