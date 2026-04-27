@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from typing import List, Tuple
 
-from discord.ext import commands
 from tabulate import tabulate
 
 from dotenv import load_dotenv
@@ -17,24 +16,6 @@ logger = logging.getLogger("sync")
 
 # Directories to scan for cogs (Python packages/modules)
 COG_DIRECTORIES: List[str] = ["extensions"]
-
-
-@bot.command(name="load_cogs", help="Loads all cogs in the COG_DIRECTORIES list.")
-@commands.is_owner()
-async def load_cogs_command(ctx: commands.Context) -> None:
-    """
-    Owner-only command to reload all cogs from COG_DIRECTORIES.
-    """
-    logger.info(f"Load cogs command invoked by {ctx.author} ({ctx.author.id})")
-    await ctx.send("Loading cogs...")
-
-    try:
-        await load_cogs()
-        await ctx.send("Cogs loaded successfully.")
-        logger.info("Load cogs command completed successfully")
-    except Exception as e:
-        logger.error(f"Load cogs command failed: {e}")
-        await ctx.send(f"Error loading cogs: {e}")
 
 
 def log_command_details(guild_name: str, commands_list) -> None:
@@ -159,22 +140,3 @@ def generate_cog_module_name(root: str, file: str) -> str:
         # Fallback to a simple conversion
         path = root.replace("/", ".").replace("\\", ".")
         return f"{path}.{file.removesuffix('.py')}"
-
-def log_prefix_commands(commands_list) -> None:
-    """
-    Pretty-logs all prefix commands.
-    """
-    logger.debug(f"Logging {len(commands_list)} prefix commands")
-
-    try:
-        command_data = [
-            [cmd.name, cmd.help or "No description", ", ".join(cmd.aliases) or "None"]
-            for cmd in commands_list
-        ]
-        command_table = tabulate(
-            command_data, headers=["Command", "Description", "Aliases"], tablefmt="fancy_grid"
-        )
-        logger.info(f"Prefix Commands:\n{command_table}")
-
-    except Exception as e:
-        logger.error(f"Failed to log prefix commands: {e}")

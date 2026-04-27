@@ -10,16 +10,18 @@ services:
       - .env
     environment:
       - HEALTHCHECK_DEBUG=true
+    expose:
+      - "50005"
     volumes:
       # Mount a named volume to persist logs outside the container.
       # The target path inside the container must match the non-root user's home directory.
       - /home/eosofficial/Bots/Discord-Bots/bot_logs/stygian:/app/logs
     healthcheck:
-      test: ["CMD-SHELL", "test -f /app/main.py && echo 'healthy' || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:50005/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 90s
     # Resource limits prevent the container from consuming too many host resources.
     # Adjust these values based on your bot's performance needs.
     deploy:
@@ -38,10 +40,14 @@ services:
         max-file: "3"
     networks:
       - imperial_network
+      - obsidian_grid
 
 networks:
   imperial_network:
     external: true
+  obsidian_grid:
+    external: true
+    name: obsidian_grid
 # Define the named volume for persistent log storage.
 volumes:
   bot_logs:

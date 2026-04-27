@@ -3,6 +3,7 @@ This module contains the primary user-facing setup wizard for configuring
 message forwarding rules. It uses a state machine and various discord.ui
 components to guide the user through a multi-step configuration process.
 """
+import asyncio
 import discord
 import json
 from discord.ext import commands
@@ -15,6 +16,7 @@ from .setup_helpers.permission_check import permission_checker
 from .setup_helpers.channel_select import channel_selector
 from .setup_helpers.rule_setup import rule_setup_helper
 from .setup_helpers.rule_creation_flow import RuleCreationFlow
+from .setup_helpers.interaction_utils import safe_respond
 from .models.setup_state import SetupState
 from .views import CustomView
 from database import guild_manager
@@ -137,60 +139,63 @@ class RuleDeleteView(CustomView):
         await interaction.response.edit_message(embed=embed, view=None)
 
 
-class RuleDeleteConfirmView(CustomView):
+class RuleDeleteConfirmView(discord.ui.LayoutView):
     """
-    Confirmation view for rule deletion with Deactivate/Delete options.
+    Confirmation LayoutView (Components v2) for rule deletion with
+    Deactivate / Permanently Delete / Cancel options.
     """
 
-    def __init__(self, rule: dict, cog: 'ForwardCog'):
+    def __init__(self, rule: dict, cog: 'ForwardCog', on_exit=None):
         super().__init__(timeout=60)
         self.rule = rule
         self.cog = cog
+        self.on_exit = on_exit
 
-        # Deactivate button (soft delete)
+        rule_name = rule.get("rule_name", "Unnamed Rule")
+        self.add_item(discord.ui.TextDisplay("## ⚠️ Confirm Rule Deletion"))
+        self.add_item(discord.ui.TextDisplay(
+            f"Are you sure you want to delete **{rule_name}**?\n\n"
+            "**Deactivate** keeps the rule but stops it from forwarding.\n"
+            "**Permanently Delete** removes the rule entirely (cannot be undone)."
+        ))
+        self.add_item(discord.ui.Separator())
+
+        row = discord.ui.ActionRow()
         deactivate_button = discord.ui.Button(
-            label="Deactivate Rule",
-            style=discord.ButtonStyle.secondary,
-            emoji="🔴"
+            label="Deactivate Rule", style=discord.ButtonStyle.secondary, emoji="🔴"
         )
         deactivate_button.callback = self.deactivate_callback
-        self.add_item(deactivate_button)
+        row.add_item(deactivate_button)
 
-        # Permanently delete button
         delete_button = discord.ui.Button(
-            label="Permanently Delete",
-            style=discord.ButtonStyle.danger,
-            emoji="🗑️"
+            label="Permanently Delete", style=discord.ButtonStyle.danger, emoji="🗑️"
         )
         delete_button.callback = self.delete_callback
-        self.add_item(delete_button)
+        row.add_item(delete_button)
 
-        # Cancel button
         cancel_button = discord.ui.Button(
-            label="Cancel",
-            style=discord.ButtonStyle.primary,
-            emoji="❌"
+            label="Cancel", style=discord.ButtonStyle.primary, emoji="❌"
         )
         cancel_button.callback = self.cancel_callback
-        self.add_item(cancel_button)
+        row.add_item(cancel_button)
+        self.add_item(row)
 
     async def deactivate_callback(self, interaction: discord.Interaction):
-        """Deactivate (soft delete) the rule"""
-        await interaction.response.defer(ephemeral=True)
-
+        await interaction.response.defer()
         try:
             rule_id = self.rule.get('rule_id')
-            success = await guild_manager.delete_rule(rule_id)  # This does soft delete
-
+            success = await guild_manager.delete_rule(rule_id)
             if success:
-                rule_name = self.rule.get('rule_name', 'Unnamed Rule')
-                embed = discord.Embed(
-                    title="✅ Rule Deactivated",
-                    description=f"The forwarding rule **{rule_name}** has been deactivated and will no longer forward messages.\n\n*You can reactivate it later using the edit command.*",
-                    color=discord.Color.orange()
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
                 logger.info(f"Rule {rule_id} deactivated in guild {interaction.guild.id}")
+                await state_manager.cleanup_session(interaction.guild_id)
+                if self.on_exit is not None:
+                    await self.on_exit(interaction)
+                    return
+                await self._show_terminal(
+                    interaction,
+                    "## ✅ Rule Deactivated",
+                    f"**{self.rule.get('rule_name', 'Unnamed Rule')}** is now inactive and will not forward messages.",
+                )
             else:
                 await self._show_error(interaction, "Failed to deactivate the rule.")
         except Exception as e:
@@ -198,23 +203,22 @@ class RuleDeleteConfirmView(CustomView):
             await self._show_error(interaction, "An error occurred while deactivating the rule.")
 
     async def delete_callback(self, interaction: discord.Interaction):
-        """Permanently delete the rule"""
-        await interaction.response.defer(ephemeral=True)
-
+        await interaction.response.defer()
         try:
             rule_id = self.rule.get('rule_id')
             guild_id = str(interaction.guild.id)
             success = await guild_manager.permanently_delete_rule(guild_id, rule_id)
-
             if success:
-                rule_name = self.rule.get('rule_name', 'Unnamed Rule')
-                embed = discord.Embed(
-                    title="✅ Rule Permanently Deleted",
-                    description=f"The forwarding rule **{rule_name}** has been permanently deleted from the database.\n\n*This action cannot be undone.*",
-                    color=discord.Color.green()
-                )
-                await interaction.edit_original_response(embed=embed, view=None)
                 logger.info(f"Rule {rule_id} permanently deleted from guild {guild_id}")
+                await state_manager.cleanup_session(interaction.guild_id)
+                if self.on_exit is not None:
+                    await self.on_exit(interaction)
+                    return
+                await self._show_terminal(
+                    interaction,
+                    "## ✅ Rule Permanently Deleted",
+                    f"**{self.rule.get('rule_name', 'Unnamed Rule')}** has been removed from the database.",
+                )
             else:
                 await self._show_error(interaction, "Failed to permanently delete the rule.")
         except Exception as e:
@@ -222,22 +226,30 @@ class RuleDeleteConfirmView(CustomView):
             await self._show_error(interaction, "An error occurred while deleting the rule.")
 
     async def cancel_callback(self, interaction: discord.Interaction):
-        """Cancel the deletion"""
-        embed = discord.Embed(
-            title="❌ Action Cancelled",
-            description="No changes were made to the rule.",
-            color=discord.Color.red()
+        if self.on_exit is not None:
+            session = await state_manager.get_session(interaction.guild_id)
+            if session and session.current_rule:
+                view = RuleSettingsView(session, self.cog, interaction.guild)
+                await interaction.response.edit_message(view=view)
+                return
+        await self._show_terminal(
+            interaction,
+            "## ❌ Action Cancelled",
+            "No changes were made to the rule.",
+            edit=True,
         )
-        await interaction.response.edit_message(embed=embed, view=None)
+
+    async def _show_terminal(self, interaction: discord.Interaction, title: str, body: str, edit: bool = False):
+        layout = discord.ui.LayoutView()
+        layout.add_item(discord.ui.TextDisplay(title))
+        layout.add_item(discord.ui.TextDisplay(body))
+        if edit:
+            await interaction.response.edit_message(view=layout)
+        else:
+            await interaction.edit_original_response(view=layout)
 
     async def _show_error(self, interaction: discord.Interaction, message: str):
-        """Helper method to show error messages"""
-        embed = discord.Embed(
-            title="❌ Error",
-            description=message,
-            color=discord.Color.red()
-        )
-        await interaction.edit_original_response(embed=embed, view=None)
+        await self._show_terminal(interaction, "## ❌ Error", message)
 
 class LearnMoreView(CustomView):
     """View for the Learn More section with proper button callbacks"""
@@ -324,218 +336,239 @@ class RuleSelectView(CustomView):
         await self.cog.rule_creation_flow.show_rule_preview_step(interaction, session)
 
 
-class EditChannelsView(CustomView):
-    """A view for editing the source and destination channels of a rule."""
+class EditChannelsView(discord.ui.LayoutView):
+    """Components v2 LayoutView for editing source/destination channels of a rule."""
+
     def __init__(self, session: SetupState, cog: 'ForwardCog'):
         super().__init__(timeout=300)
         self.session = session
         self.cog = cog
+        self._build()
 
-        # Source Channel Select
+    def _build(self):
+        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
+        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
+        src_text = f"<#{source_id}>" if source_id else "Not Set"
+        dst_text = f"<#{dest_id}>" if dest_id else "Not Set"
+
+        self.add_item(discord.ui.TextDisplay("## 🔄 Edit Channels"))
+        self.add_item(discord.ui.TextDisplay(
+            "Select new source and destination channels for this rule."
+        ))
+        self.add_item(discord.ui.Separator())
+        self.add_item(discord.ui.TextDisplay(
+            f"**Current Source:** {src_text}\n**Current Destination:** {dst_text}"
+        ))
+        self.add_item(discord.ui.Separator())
+
         source_select = discord.ui.ChannelSelect(
             placeholder="Select new source channel...",
             channel_types=[discord.ChannelType.text],
-            custom_id="edit_source_channel_select"
         )
         source_select.callback = self.source_select_callback
-        self.add_item(source_select)
+        src_row = discord.ui.ActionRow()
+        src_row.add_item(source_select)
+        self.add_item(src_row)
 
-        # Destination Channel Select
         dest_select = discord.ui.ChannelSelect(
             placeholder="Select new destination channel...",
             channel_types=[discord.ChannelType.text],
-            custom_id="edit_dest_channel_select"
         )
         dest_select.callback = self.dest_select_callback
-        self.add_item(dest_select)
+        dst_row = discord.ui.ActionRow()
+        dst_row.add_item(dest_select)
+        self.add_item(dst_row)
 
-        # Back button
-        back_button = discord.ui.Button(label="Back to Main Settings", style=discord.ButtonStyle.primary, row=4)
+        nav_row = discord.ui.ActionRow()
+        back_button = discord.ui.Button(
+            label="Back to Main Settings", style=discord.ButtonStyle.primary
+        )
         back_button.callback = self.back_to_main_settings_callback
-        self.add_item(back_button)
-
-    def create_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Creates the embed for the channel editing view."""
-        embed = discord.Embed(title="🔄 Edit Channels", description="Select new source and destination channels for this rule.")
-
-        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
-        source_ch = guild.get_channel(source_id) if source_id else None
-        embed.add_field(name="Current Source", value=source_ch.mention if source_ch else "Not Set", inline=True)
-
-        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
-        dest_ch = guild.get_channel(dest_id) if dest_id else None
-        embed.add_field(name="Current Destination", value=dest_ch.mention if dest_ch else "Not Set", inline=True)
-
-        return embed
+        nav_row.add_item(back_button)
+        self.add_item(nav_row)
 
     async def source_select_callback(self, interaction: discord.Interaction):
-        """Callback for source channel selection."""
         channel_id = int(interaction.data['values'][0])
-        
-        dest_id = self.session.current_rule.get("destination_channel_id")
-        if isinstance(dest_id, dict) and "$numberLong" in dest_id:
-            dest_id = int(dest_id["$numberLong"])
+        dest_id = normalize_channel_id(self.session.current_rule.get("destination_channel_id"))
 
         if channel_id == dest_id:
-            await interaction.response.send_message("Source and destination channels cannot be the same.", ephemeral=True)
+            await interaction.response.send_message(
+                "Source and destination channels cannot be the same.", ephemeral=True
+            )
             return
 
         self.session.current_rule["source_channel_id"] = channel_id
-        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
-        
-        view = EditChannelsView(self.session, self.cog)
-        embed = view.create_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await state_manager.update_session(
+            interaction.guild_id, {"current_rule": self.session.current_rule}
+        )
+
+        await interaction.response.edit_message(view=EditChannelsView(self.session, self.cog))
 
     async def dest_select_callback(self, interaction: discord.Interaction):
-        """Callback for destination channel selection."""
         channel_id = int(interaction.data['values'][0])
-
-        source_id = self.session.current_rule.get("source_channel_id")
-        if isinstance(source_id, dict) and "$numberLong" in source_id:
-            source_id = int(source_id["$numberLong"])
+        source_id = normalize_channel_id(self.session.current_rule.get("source_channel_id"))
 
         if channel_id == source_id:
-            await interaction.response.send_message("Source and destination channels cannot be the same.", ephemeral=True)
+            await interaction.response.send_message(
+                "Source and destination channels cannot be the same.", ephemeral=True
+            )
             return
 
         self.session.current_rule["destination_channel_id"] = channel_id
-        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
+        await state_manager.update_session(
+            interaction.guild_id, {"current_rule": self.session.current_rule}
+        )
 
-        view = EditChannelsView(self.session, self.cog)
-        embed = view.create_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(view=EditChannelsView(self.session, self.cog))
 
     async def back_to_main_settings_callback(self, interaction: discord.Interaction):
-        """Returns to the main rule settings view."""
-        view = RuleSettingsView(self.session, self.cog)
-        embed = await view.create_settings_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(
+            view=RuleSettingsView(self.session, self.cog, interaction.guild)
+        )
 
 
-class RuleSettingsView(CustomView):
-    """
-    A hub view for editing all settings of a rule, acting as a control panel.
-    This view is used when the user clicks the "Edit Settings" button in the
-    rule preview step.
-    """
-    def __init__(self, session: SetupState, cog: 'ForwardCog'):
+class RuleSettingsView(discord.ui.LayoutView):
+    """Components v2 LayoutView for editing all settings of a rule."""
+
+    def __init__(self, session: SetupState, cog: 'ForwardCog', guild: discord.Guild | None = None):
         super().__init__(timeout=300)
         self.session = session
         self.cog = cog
+        self._guild = guild
+        self._build()
 
-        name_button = discord.ui.Button(label="Name", style=discord.ButtonStyle.secondary, emoji="📝") # Type: Ignore
-        name_button.callback = self.edit_name_callback
-        self.add_item(name_button)
-
-        channels_button = discord.ui.Button(label="Channels", style=discord.ButtonStyle.secondary, emoji="🔄") # Type: Ignore
-        channels_button.callback = self.edit_channels_callback
-        self.add_item(channels_button)
-        
-        active_label = "Deactivate" if self.session.current_rule.get("is_active", True) else "Activate"
-        active_style = discord.ButtonStyle.danger if self.session.current_rule.get("is_active", True) else discord.ButtonStyle.success
-        active_button = discord.ui.Button(label=active_label, style=active_style, emoji="⚡")
-        active_button.callback = self.toggle_active_callback
-        self.add_item(active_button)
-
-        save_button = discord.ui.Button(label="Save and Exit", style=discord.ButtonStyle.success, row=4) # Type: Ignore
-        save_button.callback = self.save_and_exit_callback
-        self.add_item(save_button)
-
-        back_button = discord.ui.Button(label="Back to Preview", style=discord.ButtonStyle.primary, row=4) # Type: Ignore
-        back_button.callback = self.back_to_preview_callback
-        self.add_item(back_button)
-
-    async def create_settings_embed(self, guild: discord.Guild) -> discord.Embed:
-        """Creates the embed for the main settings view."""
+    def _build(self):
         rule = self.session.current_rule
         rule_name = rule.get("rule_name", "Not Set")
-        is_active = "Active" if rule.get("is_active", True) else "Inactive"
-        
-        source_channel_mention = "Not Set"
-        dest_channel_mention = "Not Set"
-        if guild:
+        is_active_text = "🟢 Active" if rule.get("is_active", True) else "🔴 Inactive"
+
+        source_text = "Not Set"
+        dest_text = "Not Set"
+        if self._guild:
             source_id = normalize_channel_id(rule.get("source_channel_id"))
             if source_id:
-                ch = guild.get_channel(source_id)
-                source_channel_mention = ch.mention if ch else f"ID: {source_id} (Not Found)"
-
+                ch = self._guild.get_channel(source_id)
+                source_text = ch.mention if ch else f"ID: {source_id} (Not Found)"
             dest_id = normalize_channel_id(rule.get("destination_channel_id"))
             if dest_id:
-                ch = guild.get_channel(dest_id)
-                dest_channel_mention = ch.mention if ch else f"ID: {dest_id} (Not Found)"
+                ch = self._guild.get_channel(dest_id)
+                dest_text = ch.mention if ch else f"ID: {dest_id} (Not Found)"
+        else:
+            source_id = normalize_channel_id(rule.get("source_channel_id"))
+            dest_id = normalize_channel_id(rule.get("destination_channel_id"))
+            if source_id:
+                source_text = f"<#{source_id}>"
+            if dest_id:
+                dest_text = f"<#{dest_id}>"
 
-        embed = discord.Embed(
-            title=f"Editing Rule: {rule_name}",
-            description="Select a category to edit. Your changes are saved to the session automatically.\n"
-                        "Go back to the preview screen to save them to the database.",
-            color=discord.Color.blue()
+        self.add_item(discord.ui.TextDisplay(f"## Editing Rule: {rule_name}"))
+        self.add_item(discord.ui.TextDisplay(
+            "Select a category to edit. Changes are saved to the session automatically.\n"
+            "Go back to the preview screen to save them to the database."
+        ))
+        self.add_item(discord.ui.Separator())
+        self.add_item(discord.ui.TextDisplay(
+            f"**Status:** {is_active_text}\n"
+            f"**Source:** {source_text}\n"
+            f"**Destination:** {dest_text}"
+        ))
+        self.add_item(discord.ui.Separator())
+
+        edit_row = discord.ui.ActionRow()
+        name_button = discord.ui.Button(
+            label="Name", style=discord.ButtonStyle.secondary, emoji="📝"
         )
-        embed.add_field(name="Status", value=is_active, inline=True)
-        embed.add_field(name="Source", value=source_channel_mention, inline=True)
-        embed.add_field(name="Destination", value=dest_channel_mention, inline=True)
-        
-        return embed
+        name_button.callback = self.edit_name_callback
+        edit_row.add_item(name_button)
+
+        channels_button = discord.ui.Button(
+            label="Channels", style=discord.ButtonStyle.secondary, emoji="🔄"
+        )
+        channels_button.callback = self.edit_channels_callback
+        edit_row.add_item(channels_button)
+
+        active_label = "Deactivate" if rule.get("is_active", True) else "Activate"
+        active_style = (
+            discord.ButtonStyle.danger if rule.get("is_active", True)
+            else discord.ButtonStyle.success
+        )
+        active_button = discord.ui.Button(label=active_label, style=active_style, emoji="⚡")
+        active_button.callback = self.toggle_active_callback
+        edit_row.add_item(active_button)
+        self.add_item(edit_row)
+
+        nav_row = discord.ui.ActionRow()
+        save_button = discord.ui.Button(
+            label="Save and Exit", style=discord.ButtonStyle.success
+        )
+        save_button.callback = self.save_and_exit_callback
+        nav_row.add_item(save_button)
+
+        back_button = discord.ui.Button(
+            label="Back to Preview", style=discord.ButtonStyle.primary
+        )
+        back_button.callback = self.back_to_preview_callback
+        nav_row.add_item(back_button)
+
+        delete_button = discord.ui.Button(
+            label="Delete", style=discord.ButtonStyle.danger, emoji="🗑️"
+        )
+        delete_button.callback = self.delete_callback
+        nav_row.add_item(delete_button)
+        self.add_item(nav_row)
 
     async def edit_name_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the edit name button. It displays a modal for the user
-        to enter a new name for the rule.
-        """
         from .models.rule_modals import RuleNameModal
-        
+
         async def modal_callback(modal_interaction: discord.Interaction, name: str):
             self.session.current_rule["rule_name"] = name
-            await state_manager.update_session(modal_interaction.guild_id, {"current_rule": self.session.current_rule})
-            
-            view = RuleSettingsView(self.session, self.cog)
-            embed = await view.create_settings_embed(modal_interaction.guild)
-            await modal_interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
+            await state_manager.update_session(
+                modal_interaction.guild_id, {"current_rule": self.session.current_rule}
+            )
+            await modal_interaction.response.edit_message(
+                view=RuleSettingsView(self.session, self.cog, modal_interaction.guild)
+            )
 
-        modal = RuleNameModal(modal_callback, current_name=self.session.current_rule.get("rule_name"))
-        await interaction.response.send_modal(modal) # Type: Ignore
+        modal = RuleNameModal(
+            modal_callback, current_name=self.session.current_rule.get("rule_name")
+        )
+        await interaction.response.send_modal(modal)
 
     async def edit_channels_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the edit channels button. Displays the EditChannelsView.
-        """
-        view = EditChannelsView(self.session, self.cog)
-        embed = view.create_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.edit_message(view=EditChannelsView(self.session, self.cog))
 
     async def toggle_active_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the toggle active button. It toggles the rule's active
-        status in the user's session.
-        """
         current_status = self.session.current_rule.get("is_active", True)
         self.session.current_rule["is_active"] = not current_status
-        await state_manager.update_session(interaction.guild_id, {"current_rule": self.session.current_rule})
-
-        new_view = RuleSettingsView(self.session, self.cog)
-        embed = await new_view.create_settings_embed(interaction.guild)
-        await interaction.response.edit_message(embed=embed, view=new_view) # Type: Ignore
+        await state_manager.update_session(
+            interaction.guild_id, {"current_rule": self.session.current_rule}
+        )
+        await interaction.response.edit_message(
+            view=RuleSettingsView(self.session, self.cog, interaction.guild)
+        )
 
     async def back_to_preview_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the back to preview button. It returns the user to the
-        rule preview step.
-        """
         await self.cog.rule_creation_flow.show_rule_preview_step(interaction, self.session)
 
     async def save_and_exit_callback(self, interaction: discord.Interaction):
-        """
-        Callback for the save and exit button. It saves the rule to the
-        database and ends the setup session.
-        """
-        await interaction.response.defer() # Type: Ignore
-
-        success, message = await self.cog.update_final_rule(interaction, self.session)
-        
+        await interaction.response.defer()
+        if self.session.is_editing and self.session.current_rule.get("rule_id"):
+            success, message = await self.cog.update_final_rule(interaction, self.session)
+        else:
+            success, message = await self.cog.rule_creation_flow.create_final_rule(
+                interaction, self.session
+            )
         if success:
-            await self.cog.show_setup_complete(interaction, self.session, is_editing=True)
+            await self.cog.show_setup_complete(
+                interaction, self.session, is_editing=self.session.is_editing
+            )
         else:
             await interaction.followup.send(f"❌ Save failed: {message}", ephemeral=True)
+
+    async def delete_callback(self, interaction: discord.Interaction):
+        rule = self.session.current_rule
+        confirm_view = RuleDeleteConfirmView(rule, self.cog, on_exit=self.session.on_exit)
+        await interaction.response.edit_message(view=confirm_view)
 
 
 class ForwardCog(commands.Cog):
@@ -555,102 +588,9 @@ class ForwardCog(commands.Cog):
     async def cog_load(self):
         """Called when the cog is loaded."""
         self.logger.info("Forward cog loaded")
-
-    @forward.command(name="edit", description="Edit an existing forwarding rule.")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def edit(self, interaction: discord.Interaction):
-        """
-        Starts an interactive UI to select and edit an existing forwarding rule.
-        This command is the entry point for editing rules.
-        """
-        try:
-            # Check if user has permission (manage_guild or manager role)
-            if not interaction.user.guild_permissions.manage_guild:
-                if not await can_manage_guild_settings(interaction):
-                    error_msg = await get_permission_error_message(interaction)
-                    await interaction.response.send_message(error_msg, ephemeral=True)
-                    return
-
-            rules = await self.guild_manager.get_all_rules(interaction.guild_id)
-
-            if not rules:
-                await interaction.response.send_message( # Type: Ignore
-                    "🤔 No forwarding rules found for this server. Use `/forward setup` to create one.",
-                    ephemeral=True
-                )
-                return
-
-            view = RuleSelectView(rules, self)
-            await interaction.response.send_message( # Type: Ignore
-                "Please select a rule to edit:",
-                view=view,
-                ephemeral=True
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error starting edit session: {e}", exc_info=True)
-            await interaction.response.send_message( # Type: Ignore
-                "❌ An error occurred while trying to edit a rule. Please try again.",
-                ephemeral=True
-            )
-
-    @forward.command(name="setup", description="Start interactive setup for message forwarding")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def setup(self, interaction: discord.Interaction):
-        """
-        Starts the interactive setup wizard for creating a new forwarding rule.
-        This command is the entry point for creating new rules.
-        """
-        try:
-            # Check if user has permission (manage_guild or manager role)
-            if not interaction.user.guild_permissions.manage_guild:
-                if not await can_manage_guild_settings(interaction):
-                    error_msg = await get_permission_error_message(interaction)
-                    await interaction.response.send_message(error_msg, ephemeral=True)
-                    return
-
-            # Check if guild has reached rule limit (premium-aware)
-            guild_limits = await guild_manager.get_guild_limits(str(interaction.guild_id))
-            current_rules = await guild_manager.get_guild_rules(str(interaction.guild_id))
-            active_rules = [r for r in current_rules if r.get("is_active", False)]
-
-            if len(active_rules) >= guild_limits.get("max_rules", 3):
-                is_premium = guild_limits.get("is_premium", False)
-                max_rules = guild_limits.get("max_rules", 3)
-
-                if is_premium:
-                    await interaction.response.send_message( # Type: Ignore
-                        f"❌ You have reached the maximum number of rules ({max_rules}) for your premium tier.\n"
-                        "Please delete an existing rule before creating a new one.",
-                        ephemeral=True
-                    )
-                else:
-                    await interaction.response.send_message( # Type: Ignore
-                        f"❌ You have reached the maximum number of rules ({max_rules}) for the free tier.\n"
-                        f"Upgrade to premium to create up to 20 rules!\n\n"
-                        "Use `/premium-status` to learn more about premium benefits.",
-                        ephemeral=True
-                    )
-                return
-
-            session = await state_manager.create_session(interaction.guild_id, interaction.user.id)
-            
-            # Pre-fill existing settings
-            guild_settings = await self.guild_manager.get_guild_settings(interaction.guild_id)
-            if guild_settings:
-                log_channel_id = guild_settings.get("master_log_channel_id")
-                if log_channel_id:
-                    session.master_log_channel = log_channel_id
-                    await state_manager.update_session(interaction.guild_id, {"master_log_channel_id": log_channel_id})
-
-            await self.show_welcome_step(interaction, session)
-
-        except Exception as e:
-            self.logger.error(f"Error starting setup: {e}", exc_info=True)
-            await interaction.response.send_message( # Type: Ignore
-                "❌ An error occurred starting setup. Please try again.",
-                ephemeral=True
-            )
+        # Idle session eviction is handled by a Mongo TTL index on
+        # `setup_sessions.expires_at` (see state_manager.ensure_collection_exists).
+        # No Python-side polling loop needed.
 
     @forward.command(name="create", description="Create a new forwarding rule directly.")
     @app_commands.describe(
@@ -710,10 +650,10 @@ class ForwardCog(commands.Cog):
             }
 
             # 5. Save to database
-            save_result = await guild_manager.add_rule(guild_id=str(interaction.guild.id), **rule_data_for_db)
+            save_ok, reason = await guild_manager.add_rule(guild_id=str(interaction.guild.id), **rule_data_for_db)
 
             # 6. Send confirmation
-            if save_result:
+            if save_ok:
                 embed = discord.Embed(
                     title="✅ Rule Created Successfully!",
                     description=f"I will now forward messages from {source_channel.mention} to {destination_channel.mention}.",
@@ -722,6 +662,14 @@ class ForwardCog(commands.Cog):
                 embed.add_field(name="Rule Name", value=final_rule_name, inline=False)
                 embed.set_footer(text="You can edit this rule with /forward edit.")
                 await interaction.followup.send(embed=embed, ephemeral=True)
+            elif reason == "limit_reached":
+                limits = await guild_manager.get_guild_limits(str(interaction.guild.id))
+                cap = limits.get("max_rules", 3)
+                await interaction.followup.send(
+                    f"❌ Active-rule limit reached ({cap}). Delete or disable an existing rule first, "
+                    f"or upgrade to premium for more.",
+                    ephemeral=True
+                )
             else:
                 await interaction.followup.send("❌ Failed to save the rule to the database. Please try again.",
                                                 ephemeral=True)
@@ -767,128 +715,6 @@ class ForwardCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @forward.command(name="delete_rule", description="Delete a forwarding rule")
-    async def delete_forwarding_rule(self, interaction: discord.Interaction):
-        """
-        Slash command to delete a forwarding rule using a select menu.
-        Only users with manage_guild permission or manager role can use this command.
-        """
-        # Check if user has permission to manage the server (manage_guild or manager role)
-        if not interaction.user.guild_permissions.manage_guild:
-            if not await can_manage_guild_settings(interaction):
-                error_msg = await get_permission_error_message(interaction)
-                await interaction.response.send_message(error_msg, ephemeral=True)
-                return
-
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # Get all rules for this guild
-            guild_settings = await guild_manager.get_guild_settings(str(interaction.guild.id))
-            rules = guild_settings.get("rules", [])
-
-            if not rules:
-                await interaction.followup.send(
-                    "📋 **No forwarding rules found for this server.**\n"
-                    "Create your first rule using `/forward setup`!",
-                    ephemeral=True
-                )
-                return
-
-            # Create the selection view
-            view = RuleDeleteView(rules, self)
-
-            embed = discord.Embed(
-                title="🗑️ Delete Forwarding Rule",
-                description=f"Select a rule to delete from the dropdown below.\n\n"
-                            f"**Found {len(rules)} rule(s) in this server.**",
-                color=discord.Color.orange()
-            )
-
-            embed.set_footer(text="⚠️ Deletion is permanent and cannot be undone!")
-
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-        except Exception as e:
-            logger.error(f"Error showing delete rule menu in guild {interaction.guild.id}: {e}", exc_info=True)
-            await interaction.followup.send(
-                "❌ An error occurred while retrieving forwarding rules. Please try again later.",
-                ephemeral=True
-            )
-
-    @forward.command(name="list_rules", description="List all forwarding rules for this server")
-    async def list_forwarding_rules(self, interaction: discord.Interaction):
-        """
-        Slash command to list all forwarding rules in the current guild.
-        This helps users identify rule IDs for deletion.
-        """
-        # Check if user has permission to manage the server (manage_guild or manager role)
-        if not interaction.user.guild_permissions.manage_guild:
-            if not await can_manage_guild_settings(interaction):
-                error_msg = await get_permission_error_message(interaction)
-                await interaction.response.send_message(error_msg, ephemeral=True)
-                return
-
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # Get guild settings and rules
-            guild_settings = await guild_manager.get_guild_settings(str(interaction.guild.id))
-            rules = guild_settings.get("rules", [])
-
-            if not rules:
-                await interaction.followup.send(
-                    "📋 **No forwarding rules found for this server.**\n"
-                    "Create your first rule to get started!",
-                    ephemeral=True
-                )
-                return
-
-            # Create an embed to display the rules
-            embed = discord.Embed(
-                title="📋 Forwarding Rules",
-                description=f"Found {len(rules)} forwarding rule(s)",
-                color=discord.Color.blue(),
-                timestamp=discord.utils.utcnow()
-            )
-
-            for i, rule in enumerate(rules[:10], 1):  # Limit to 10 rules to avoid embed limits
-                rule_id = rule.get("rule_id", "Unknown")
-                is_active = "🟢 Active" if rule.get("is_active", False) else "🔴 Inactive"
-
-                source_channel = self.bot.get_channel(int(rule.get("source_channel_id")))
-                destination_channel = self.bot.get_channel(int(rule.get("destination_channel_id")))
-
-                source_name = source_channel.mention if source_channel else f"<#{rule.get('source_channel_id')}>"
-                destination_name = destination_channel.mention if destination_channel else f"<#{rule.get('destination_channel_id')}>"
-
-                embed.add_field(
-                    name=f"Rule #{i} - {is_active}",
-                    value=f"**ID:** `{rule_id}`\n**From:** {source_name}\n**To:** {destination_name}",
-                    inline=True
-                )
-
-            if len(rules) > 10:
-                embed.set_footer(text=f"Showing first 10 of {len(rules)} rules")
-            else:
-                embed.set_footer(text="Use /delete_rule <rule_id> to delete a specific rule")
-
-            await interaction.followup.send(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            logger.error(f"Error listing forwarding rules in guild {interaction.guild.id}: {e}", exc_info=True)
-            await interaction.followup.send(
-                "❌ An error occurred while retrieving forwarding rules. Please try again later.",
-                ephemeral=True
-            )
-
-    async def cog_unload(self):
-        """
-        Called when the cog is unloaded.
-        This method removes the context menu command from the bot's tree.
-        """
-        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
-
     # ... existing code ...
 
     async def show_welcome_step(self, interaction: discord.Interaction, session: SetupState):
@@ -920,24 +746,7 @@ class ForwardCog(commands.Cog):
 
         view = button_manager.get_welcome_buttons()
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    try:
-                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-                    except discord.HTTPException as followup_error:
-                        self.logger.error(f"Failed all interaction response methods: {followup_error}")
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "welcome",
@@ -976,21 +785,7 @@ class ForwardCog(commands.Cog):
 
         view = self._get_permission_step_buttons(can_proceed)
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e):
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "permissions"
@@ -1145,21 +940,7 @@ class ForwardCog(commands.Cog):
         cancel_button.callback = self._handle_log_channel_cancel
         view.add_item(cancel_button)
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "log_channel"
@@ -1292,21 +1073,7 @@ class ForwardCog(commands.Cog):
             }
         ])
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "first_rule"
@@ -1342,21 +1109,7 @@ class ForwardCog(commands.Cog):
         # Use the dedicated view with proper callbacks
         view = LearnMoreView(self, session)
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view, edit=True)
 
     async def show_rule_name_modal(self, interaction: discord.Interaction, session):
         """
@@ -1411,13 +1164,11 @@ class ForwardCog(commands.Cog):
 
     async def show_rule_edit_step(self, interaction: discord.Interaction, session: SetupState):
         """
-        Show the rule settings editor.
-        This step is displayed when the user clicks the "Edit Settings" button
-        in the rule preview step.
+        Show the rule settings editor (Components v2).
+        Displayed when the user clicks "Edit Settings" in the rule preview step.
         """
-        view = RuleSettingsView(session, self)
-        embed = await view.create_settings_embed(interaction.guild)
-        await interaction.edit_original_response(embed=embed, view=view) # Type: Ignore
+        view = RuleSettingsView(session, self, interaction.guild)
+        await safe_respond(interaction, view=view, edit=True)
 
     async def _handle_log_channel_back(self, interaction: discord.Interaction):
         """Handle back button in log channel step"""
@@ -1475,9 +1226,11 @@ class ForwardCog(commands.Cog):
                 await self.show_rule_name_modal(interaction, session)
                 return # Exit after sending modal
 
-            # For all other buttons, defer the interaction
+            # For all other buttons, defer as an update so the wizard's
+            # ephemeral host message is edited in place (not replaced with a
+            # new ephemeral followup).
             if not interaction.response.is_done(): # Type: Ignore
-                await interaction.response.defer(ephemeral=True) # Type: Ignore
+                await interaction.response.defer() # Type: Ignore
 
             # --- Welcome & Learn More Flow ---
             if custom_id == "setup_start":
@@ -1596,9 +1349,10 @@ class ForwardCog(commands.Cog):
         Router for all select menu interactions that don't have direct callbacks.
         """
         try:
-            # Defer the interaction immediately to prevent timeout
+            # Defer as an update so the wizard's ephemeral host message is
+            # edited in place rather than producing a new ephemeral.
             if not interaction.response.is_done(): # Type: Ignore
-                await interaction.response.defer(ephemeral=True) # Type: Ignore
+                await interaction.response.defer() # Type: Ignore
 
             session = await state_manager.get_session(interaction.guild_id)
             if not session:
@@ -1613,6 +1367,10 @@ class ForwardCog(commands.Cog):
             # --- Rule Channel Selection ---
             if custom_id == "rule_source_select":
                 await self.rule_creation_flow.handle_channel_selection(interaction, session, "source", int(values[0]))
+            elif custom_id == "rule_dest_guild_select":
+                await self.rule_creation_flow.handle_destination_guild_selection(
+                    interaction, session, int(values[0])
+                )
             elif custom_id == "rule_dest_select":
                 await self.rule_creation_flow.handle_channel_selection(interaction, session, "destination", int(values[0]))
             else:
@@ -1691,21 +1449,28 @@ class ForwardCog(commands.Cog):
         This method is called when the user has successfully created or edited
         a rule.
         """
+        on_exit = getattr(session, "on_exit", None) if session else None
+        await state_manager.cleanup_session(interaction.guild_id)
+
+        if on_exit is not None:
+            try:
+                await on_exit(interaction)
+                return
+            except Exception as e:
+                self.logger.error(f"on_exit callback failed in show_setup_complete: {e}", exc_info=True)
+
         title = "✅ Rule Updated!" if is_editing else "✅ Setup Complete!"
         description = "Your message forwarding rule has been updated." if is_editing else "Your message forwarding rules are now active."
 
-        embed = discord.Embed(
-            title=title,
-            description=description,
-            color=discord.Color.green()
-        )
-        await state_manager.cleanup_session(interaction.guild_id)
+        layout = discord.ui.LayoutView()
+        layout.add_item(discord.ui.TextDisplay(f"## {title}"))
+        layout.add_item(discord.ui.TextDisplay(description))
 
         try:
-            await interaction.edit_original_response(embed=embed, view=None)
+            await interaction.edit_original_response(view=layout)
         except discord.HTTPException:
             try:
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(view=layout, ephemeral=True)
             except discord.HTTPException as followup_error:
                 self.logger.error(f"Failed to send followup message after original response failed: {followup_error}")
         except Exception as e:
@@ -1731,19 +1496,29 @@ class ForwardCog(commands.Cog):
         This method is called when the user clicks a cancel button in the setup
         wizard.
         """
+        if session is None:
+            session = await state_manager.get_session(interaction.guild_id)
+        on_exit = getattr(session, "on_exit", None) if session else None
         await state_manager.cleanup_session(interaction.guild_id)
 
-        embed = discord.Embed(
-            title="❌ Setup Cancelled",
-            description="Your setup progress has been cancelled. You can run `/setup` again anytime.",
-            color=discord.Color.red()
-        )
+        if on_exit is not None:
+            try:
+                await on_exit(interaction)
+                return
+            except Exception as e:
+                self.logger.error(f"on_exit callback failed in handle_cancel_button: {e}", exc_info=True)
+
+        layout = discord.ui.LayoutView()
+        layout.add_item(discord.ui.TextDisplay("## ❌ Setup Cancelled"))
+        layout.add_item(discord.ui.TextDisplay(
+            "Your setup progress has been cancelled. You can run `/setup` again anytime."
+        ))
 
         try:
-            await interaction.edit_original_response(embed=embed, view=None)
+            await interaction.edit_original_response(view=layout)
         except discord.HTTPException:
             try:
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                await interaction.followup.send(view=layout, ephemeral=True)
             except discord.HTTPException as followup_error:
                 self.logger.error(f"Failed to send followup message after original response failed: {followup_error}")
         except Exception as e:
