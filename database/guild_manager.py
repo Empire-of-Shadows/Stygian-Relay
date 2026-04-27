@@ -3,9 +3,10 @@ import asyncio
 import time
 import uuid
 from typing import Dict, Any, List, Callable, Optional, Tuple
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 import pymongo
+from pymongo import UpdateOne
 from .exceptions import DatabaseOperationError
 from .constants import DEFAULT_BOT_SETTINGS, DEFAULT_GUILD_SETTINGS_TEMPLATE
 
@@ -54,6 +55,9 @@ class GuildManager:
 
         # Settings cache (5-min TTL) to dedupe redundant fetches in hot paths.
         self.settings_cache = GuildSettingsCache(ttl_seconds=300)
+        # Premium and limits caches: hot-path reads on every forward.
+        self.premium_cache = GuildSettingsCache(ttl_seconds=300)
+        self.limits_cache = GuildSettingsCache(ttl_seconds=300)
 
         # Whether MongoDB supports multi-doc transactions (replica set / mongos).
         # Probed on first use; results cached.
@@ -185,6 +189,13 @@ class GuildManager:
             )
             await db["runtime_state"].create_index(
                 "updated_at", expireAfterSeconds=24 * 3600
+            )
+
+            # daily_counters: atomic per-(guild, day) forwarded-count buckets.
+            # _id = "{guild_id}:{YYYY-MM-DD}" (already unique). expires_at TTL
+            # drops yesterday's docs ~3 days after the day they cover.
+            await db["daily_counters"].create_index(
+                "expires_at", expireAfterSeconds=0
             )
 
             logger.info("✅ Database indexes verified")
@@ -389,26 +400,127 @@ class GuildManager:
 
     async def log_forwarded_message(self, log_data: Dict[str, Any]):
         """Log a forwarded message for tracking and rate-limiting."""
-        collection = self.db.get_collection("discord_forwarding_bot", "message_logs")
-        log_data["forwarded_at"] = datetime.now(timezone.utc)
-        await collection.insert_one(log_data)
+        await self.log_forwarded_messages([log_data])
+
+    async def log_forwarded_messages(self, entries: List[Dict[str, Any]]):
+        """
+        Bulk-insert forwarded-message logs and atomically bump the daily
+        counter (per guild, per UTC day) on the `daily_counters` collection.
+        Safe to call concurrently from any number of processes — the counter
+        relies on `$inc` upserts rather than read-modify-write.
+        """
+        if not entries:
+            return
+
+        logs = self.db.get_collection("discord_forwarding_bot", "message_logs")
+        counters = self.db.get_collection("discord_forwarding_bot", "daily_counters")
+        now = datetime.now(timezone.utc)
+
+        # Aggregate successful entries per (guild, date) bucket. Each bucket
+        # becomes one $inc upsert; a single source message fanning out to N
+        # rules in the same guild on the same day costs one counter write.
+        successes: Dict[Tuple[str, str], int] = {}
+        for entry in entries:
+            entry.setdefault("forwarded_at", now)
+            if not entry.get("success"):
+                continue
+            gid = entry.get("guild_id")
+            if not gid:
+                continue
+            day_iso = entry["forwarded_at"].date().isoformat()
+            successes[(gid, day_iso)] = successes.get((gid, day_iso), 0) + 1
+
+        try:
+            await logs.insert_many(entries, ordered=False)
+        except Exception as e:
+            # ordered=False already lets Mongo skip duplicates / per-doc errors;
+            # any exception here is a connectivity-class failure worth logging
+            # but not raising — forwarding shouldn't fail because the audit log did.
+            logger.warning(f"log_forwarded_messages insert_many failed: {e}")
+            return
+
+        if not successes:
+            return
+
+        ops: List[UpdateOne] = []
+        for (gid, day_iso), delta in successes.items():
+            day_date = datetime.fromisoformat(day_iso).replace(tzinfo=timezone.utc)
+            ops.append(UpdateOne(
+                {"_id": f"{gid}:{day_iso}"},
+                {
+                    "$inc": {"count": delta},
+                    "$setOnInsert": {
+                        "guild_id": gid,
+                        "date": day_iso,
+                        # Drop the doc 3 days after the day it covers — long
+                        # enough for late reads, short enough to keep the
+                        # collection trivial in size.
+                        "expires_at": day_date + timedelta(days=3),
+                    },
+                },
+                upsert=True,
+            ))
+        try:
+            await counters.bulk_write(ops, ordered=False)
+        except Exception as e:
+            logger.warning(f"daily_counters bulk_write failed: {e}")
 
     async def get_daily_message_count(self, guild_id: str, date: datetime = None) -> int:
-        """Get number of messages forwarded today for a guild."""
-        if date is None:
-            date = datetime.now(timezone.utc)
-        start_of_day = datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
+        """
+        Daily forwarded-count for a guild, served from `daily_counters`.
 
-        collection = self.db.get_collection("discord_forwarding_bot", "message_logs")
-        count = await collection.count_documents({
+        On first read for a (guild, day) the counter doc may not exist yet
+        (e.g. fresh deploy with prior message_logs from earlier today). In
+        that case we seed the doc from message_logs once via `$max` so an
+        existing $inc-driven count from another process can't be clobbered.
+        """
+        today = (date or datetime.now(timezone.utc)).date()
+        day_iso = today.isoformat()
+        key = f"{guild_id}:{day_iso}"
+        counters = self.db.get_collection("discord_forwarding_bot", "daily_counters")
+
+        doc = await counters.find_one({"_id": key})
+        if doc:
+            return int(doc.get("count", 0))
+
+        # Cold path: backfill from message_logs so a bot restart mid-day
+        # doesn't reset the user-visible quota.
+        start_of_day = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+        logs = self.db.get_collection("discord_forwarding_bot", "message_logs")
+        seeded = await logs.count_documents({
             "guild_id": guild_id,
             "forwarded_at": {"$gte": start_of_day},
-            "success": True
+            "success": True,
         })
-        return count
+        try:
+            await counters.update_one(
+                {"_id": key},
+                {
+                    "$max": {"count": seeded},
+                    "$setOnInsert": {
+                        "guild_id": guild_id,
+                        "date": day_iso,
+                        "expires_at": start_of_day + timedelta(days=3),
+                    },
+                },
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning(f"daily_counters seed failed for {key}: {e}")
+            return seeded
 
-    async def is_premium_guild(self, guild_id: str) -> bool:
+        # Re-read in case a concurrent $inc raced our seed and produced a
+        # higher count.
+        doc = await counters.find_one({"_id": key})
+        return int(doc.get("count", seeded)) if doc else seeded
+
+    async def is_premium_guild(self, guild_id: str, use_cache: bool = True) -> bool:
         """Check if a guild has an active premium subscription (including lifetime)."""
+        if use_cache:
+            cached = self.premium_cache.get(guild_id)
+            if cached is not None:
+                return bool(cached.get("v"))
+
         collection = self.db.get_collection("discord_forwarding_bot", "premium_subscriptions")
 
         # Check for lifetime subscription
@@ -418,6 +530,7 @@ class GuildManager:
             "is_lifetime": True
         })
         if lifetime:
+            self.premium_cache.set(guild_id, {"v": True})
             return True
 
         # Check for time-limited subscription
@@ -426,22 +539,37 @@ class GuildManager:
             "is_active": True,
             "expires_at": {"$gt": datetime.now(timezone.utc)}
         })
-        return premium is not None
+        result = premium is not None
+        self.premium_cache.set(guild_id, {"v": result})
+        return result
 
-    async def get_guild_limits(self, guild_id: str) -> Dict[str, Any]:
+    async def get_guild_limits(self, guild_id: str, use_cache: bool = True) -> Dict[str, Any]:
         """
         Get guild limits based on premium status.
-        This method checks the bot's global settings and the guild's premium status
-        to determine the limits for the guild.
+        Cached for 5 minutes; invalidated automatically when premium
+        subscription state changes via redeem/deactivate.
         """
+        if use_cache:
+            cached = self.limits_cache.get(guild_id)
+            if cached is not None:
+                return cached
+
         bot_settings = await self.db.get_collection("discord_forwarding_bot", "bot_settings").find_one({"_id": "global_config"})
         is_premium = await self.is_premium_guild(guild_id)
 
-        return {
+        bot_settings = bot_settings or {}
+        limits = {
             "max_rules": bot_settings.get("max_rules_premium" if is_premium else "max_rules_per_guild", 20 if is_premium else 3),
             "daily_limit": bot_settings.get("premium_tier_daily_limit" if is_premium else "free_tier_daily_limit", 5000 if is_premium else 100),
             "is_premium": is_premium
         }
+        self.limits_cache.set(guild_id, limits)
+        return limits
+
+    def _invalidate_premium(self, guild_id: str) -> None:
+        """Drop cached premium + limits state for a guild after subscription change."""
+        self.premium_cache.invalidate(guild_id)
+        self.limits_cache.invalidate(guild_id)
 
     def get_metrics(self) -> Dict[str, Any]:
         """Get guild management metrics."""
@@ -597,7 +725,6 @@ class GuildManager:
             except Exception:
                 code_validity_days = 90
 
-        from datetime import timedelta
         now = datetime.now(timezone.utc)
         expires_at_unredeemed = (
             now + timedelta(days=int(code_validity_days)) if code_validity_days else None
@@ -638,7 +765,6 @@ class GuildManager:
         invalid/expired/redeemed code, guild restriction, lifetime downgrade).
         """
         import re
-        from datetime import timedelta
 
         normalized_code = code.upper().strip()
         if not re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", normalized_code):
@@ -759,6 +885,8 @@ class GuildManager:
         else:
             await _do_redeem()
 
+        self._invalidate_premium(guild_id)
+
         return {
             "expires_at": expires_at,
             "duration_days": duration_days,
@@ -809,6 +937,7 @@ class GuildManager:
         )
 
         if result.modified_count > 0:
+            self._invalidate_premium(guild_id)
             logger.info(f"✅ Deactivated premium subscription for guild {guild_id}")
             return True
 

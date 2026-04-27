@@ -16,6 +16,7 @@ from .setup_helpers.permission_check import permission_checker
 from .setup_helpers.channel_select import channel_selector
 from .setup_helpers.rule_setup import rule_setup_helper
 from .setup_helpers.rule_creation_flow import RuleCreationFlow
+from .setup_helpers.interaction_utils import safe_respond
 from .models.setup_state import SetupState
 from .views import CustomView
 from database import guild_manager
@@ -576,25 +577,13 @@ class ForwardCog(commands.Cog):
         self.logger = logging.getLogger("Forward")
         self.guild_manager = guild_manager
         self.rule_creation_flow = RuleCreationFlow(bot, self)
-        self._session_cleanup_task = None
 
     async def cog_load(self):
         """Called when the cog is loaded."""
         self.logger.info("Forward cog loaded")
-        # Periodic eviction of idle setup sessions (TTL inside SetupState).
-        self._session_cleanup_task = asyncio.create_task(self._session_cleanup_loop())
-
-    async def _session_cleanup_loop(self):
-        """Run state_manager.cleanup_expired_sessions every 5 minutes."""
-        try:
-            while True:
-                await asyncio.sleep(300)
-                try:
-                    await state_manager.cleanup_expired_sessions()
-                except Exception as e:
-                    self.logger.warning(f"Session cleanup tick failed: {e}")
-        except asyncio.CancelledError:
-            pass
+        # Idle session eviction is handled by a Mongo TTL index on
+        # `setup_sessions.expires_at` (see state_manager.ensure_collection_exists).
+        # No Python-side polling loop needed.
 
     @forward.command(name="create", description="Create a new forwarding rule directly.")
     @app_commands.describe(
@@ -719,11 +708,6 @@ class ForwardCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    async def cog_unload(self):
-        """Cancel background tasks owned by this cog."""
-        if self._session_cleanup_task and not self._session_cleanup_task.done():
-            self._session_cleanup_task.cancel()
-
     # ... existing code ...
 
     async def show_welcome_step(self, interaction: discord.Interaction, session: SetupState):
@@ -755,24 +739,7 @@ class ForwardCog(commands.Cog):
 
         view = button_manager.get_welcome_buttons()
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    try:
-                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-                    except discord.HTTPException as followup_error:
-                        self.logger.error(f"Failed all interaction response methods: {followup_error}")
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "welcome",
@@ -811,21 +778,7 @@ class ForwardCog(commands.Cog):
 
         view = self._get_permission_step_buttons(can_proceed)
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e):
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "permissions"
@@ -980,21 +933,7 @@ class ForwardCog(commands.Cog):
         cancel_button.callback = self._handle_log_channel_cancel
         view.add_item(cancel_button)
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "log_channel"
@@ -1127,21 +1066,7 @@ class ForwardCog(commands.Cog):
             }
         ])
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.send_message(embed=embed, view=view, ephemeral=True) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view)
 
         await state_manager.update_session(interaction.guild_id, {
             "step": "first_rule"
@@ -1177,21 +1102,7 @@ class ForwardCog(commands.Cog):
         # Use the dedicated view with proper callbacks
         view = LearnMoreView(self, session)
 
-        try:
-            if interaction.response.is_done(): # Type: Ignore
-                await interaction.edit_original_response(embed=embed, view=view)
-            else:
-                await interaction.response.edit_message(embed=embed, view=view) # Type: Ignore
-            message = await interaction.original_response()
-            view.message = message
-        except discord.HTTPException as e:
-            if "already been acknowledged" in str(e).lower() or "unknown interaction" in str(e).lower():
-                try:
-                    await interaction.edit_original_response(embed=embed, view=view)
-                except discord.HTTPException:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            else:
-                raise e
+        await safe_respond(interaction, embed=embed, view=view, edit=True)
 
     async def show_rule_name_modal(self, interaction: discord.Interaction, session):
         """
@@ -1250,10 +1161,7 @@ class ForwardCog(commands.Cog):
         Displayed when the user clicks "Edit Settings" in the rule preview step.
         """
         view = RuleSettingsView(session, self, interaction.guild)
-        if interaction.response.is_done():
-            await interaction.edit_original_response(view=view)
-        else:
-            await interaction.response.edit_message(view=view)
+        await safe_respond(interaction, view=view, edit=True)
 
     async def _handle_log_channel_back(self, interaction: discord.Interaction):
         """Handle back button in log channel step"""

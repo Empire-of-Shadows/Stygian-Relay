@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 import discord
 from discord.ext import commands
@@ -10,6 +11,24 @@ import random
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+
+
+# Pre-compiled once at module load — runs on every message in matching guilds.
+_EMBEDDABLE_URL_RE = re.compile(
+    r'https?://(?:www\.)?(?:twitter|x|youtube|instagram|tiktok|reddit|github|twitch|spotify)\.(?:com|tv)/\S+'
+    r'|https?://youtu\.be/\S+'
+    r'|https?://\S+\.(?:jpg|jpeg|png|gif|webp|mp4|webm|mov)\b',
+    re.IGNORECASE,
+)
+
+# Per-guild concurrency cap for the background forward dispatcher.
+_GUILD_CONCURRENCY = 5
+# Cooldown between repeat warnings about the same broken rule.
+_PERM_WARN_COOLDOWN_SECONDS = 600
+# Auto-deactivate a rule after this many consecutive misconfig failures
+# (missing destination, missing send_messages). Resets on the next successful
+# forward through the rule.
+_AUTO_DEACTIVATE_THRESHOLD = 20
 
 
 class _TokenBucket:
@@ -44,7 +63,6 @@ class ForwardOptionsView(ui.View):
         super().__init__(timeout=180)
         self.original_message = original_message
         self.cog_instance = cog_instance
-        self.forward_style = "native"
         self.destination_channel = None
 
         channel_select = ui.ChannelSelect(
@@ -80,7 +98,6 @@ class ForwardOptionsView(ui.View):
             "add_suffix": None,
             "forward_embeds": True,
             "forward_attachments": True,
-            "forward_style": self.forward_style
         }
 
         try:
@@ -117,8 +134,20 @@ class Forwarding(commands.Cog):
         self._bucket_resolved: bool = False
         self._branding_cooldown_minutes: int = 10  # default; resolved from bot_settings
 
+        # Per-guild semaphore so a noisy guild can't queue unbounded dispatch tasks.
+        self._guild_sems: dict[int, asyncio.Semaphore] = {}
+        # Strong refs to in-flight dispatch tasks (otherwise GC may drop them).
+        self._dispatch_tasks: set[asyncio.Task] = set()
+        # rule_id -> monotonic timestamp of last "missing perms" log.
+        self._perm_warn: dict[str, float] = {}
+        # rule_id -> consecutive misconfig failure count for auto-deactivate.
+        self._perm_fail: dict[str, int] = {}
+
     async def cog_unload(self):
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+        # Cancel any background dispatch tasks so cog reload is clean.
+        for task in list(self._dispatch_tasks):
+            task.cancel()
 
     async def forward_message_context_menu(self, interaction: discord.Interaction, message: discord.Message):
         view = ForwardOptionsView(message, self)
@@ -153,74 +182,96 @@ class Forwarding(commands.Cog):
         if message.author.bot or not message.guild:
             return
 
-        # Wait briefly for URL embeds to populate before processing.
-        if self._contains_embeddable_url(message.content) and not message.embeds:
-            for attempt in range(3):
-                await asyncio.sleep(2 + attempt)
+        # Dispatch off the listener thread — the embed-wait below can sleep
+        # several seconds, and the listener should never block on it.
+        task = asyncio.create_task(self._dispatch(message))
+        self._dispatch_tasks.add(task)
+        task.add_done_callback(self._dispatch_tasks.discard)
+
+    async def _dispatch(self, message: discord.Message):
+        guild_id = message.guild.id
+        sem = self._guild_sems.get(guild_id)
+        if sem is None:
+            sem = asyncio.Semaphore(_GUILD_CONCURRENCY)
+            self._guild_sems[guild_id] = sem
+        try:
+            async with sem:
+                await self._process(message)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Error processing message in guild {guild_id}: {e}", exc_info=True)
+
+    async def _process(self, message: discord.Message):
+        await self._ensure_runtime_config()
+        gid_str = str(message.guild.id)
+
+        # Single cached fetch — settings cache (5-min TTL) covers repeats.
+        guild_settings = await guild_manager.get_guild_settings(gid_str)
+        if not guild_settings.get("features", {}).get("forwarding_enabled", False):
+            return
+
+        rules = guild_settings.get("rules", [])
+        if not rules:
+            return
+
+        matching_rules = [
+            r for r in rules
+            if r.get("is_active") and normalize_channel_id(r.get("source_channel_id")) == message.channel.id
+        ]
+        if not matching_rules:
+            return
+
+        # Wait briefly for URL embeds to populate. Only matching rules pay this cost.
+        if not message.embeds and self._contains_embeddable_url(message.content):
+            for delay in (2, 3, 4):
+                await asyncio.sleep(delay)
                 try:
-                    message = await message.channel.fetch_message(message.id)
-                    if message.embeds:
-                        break
+                    refreshed = await message.channel.fetch_message(message.id)
                 except (discord.NotFound, discord.Forbidden):
                     return
+                message = refreshed
+                if message.embeds:
+                    break
 
-        try:
-            await self._ensure_runtime_config()
-            gid_str = str(message.guild.id)
+        # Rate limit per guild.
+        if not self._bucket_for(message.guild.id).take():
+            logger.debug(f"Rate-limited forward for guild {gid_str}")
+            return
 
-            # Single cached fetch — settings cache (5-min TTL) covers repeats.
-            guild_settings = await guild_manager.get_guild_settings(gid_str)
+        guild_limits = await guild_manager.get_guild_limits(gid_str)
+        daily_limit = guild_limits.get("daily_limit", 100)
+        daily_count = await guild_manager.get_daily_message_count(gid_str)
+        if daily_count >= daily_limit:
+            if guild_settings.get("features", {}).get("notify_on_error", True):
+                last_warn = await guild_manager.get_runtime_state(gid_str, "daily_warn")
+                now = datetime.now(timezone.utc)
+                if not last_warn or (now - last_warn) >= timedelta(minutes=self.DAILY_WARN_COOLDOWN_MINUTES):
+                    try:
+                        await message.channel.send(
+                            f"Daily message forwarding limit of {daily_limit} reached.", delete_after=60
+                        )
+                    except discord.HTTPException:
+                        pass
+                    await guild_manager.touch_runtime_state(gid_str, "daily_warn")
+            return
 
-            if not guild_settings.get("features", {}).get("forwarding_enabled", False):
-                return
-
-            rules = guild_settings.get("rules", [])
-            if not rules:
-                return
-
-            matching_rules = [
-                r for r in rules
-                if r.get("is_active") and normalize_channel_id(r.get("source_channel_id")) == message.channel.id
-            ]
-            if not matching_rules:
-                return
-
-            # Rate limit per guild.
-            if not self._bucket_for(message.guild.id).take():
-                logger.debug(f"Rate-limited forward for guild {gid_str}")
-                return
-
-            guild_limits = await guild_manager.get_guild_limits(gid_str)
-            daily_limit = guild_limits.get("daily_limit", 100)
-            daily_count = await guild_manager.get_daily_message_count(gid_str)
-            if daily_count >= daily_limit:
-                if guild_settings.get("features", {}).get("notify_on_error", True):
-                    last_warn = await guild_manager.get_runtime_state(gid_str, "daily_warn")
-                    now = datetime.now(timezone.utc)
-                    if not last_warn or (now - last_warn) >= timedelta(minutes=self.DAILY_WARN_COOLDOWN_MINUTES):
-                        try:
-                            await message.channel.send(
-                                f"Daily message forwarding limit of {daily_limit} reached.", delete_after=60
-                            )
-                        except discord.HTTPException:
-                            pass
-                        await guild_manager.touch_runtime_state(gid_str, "daily_warn")
-                return
-
-            for rule in matching_rules:
-                if await self.process_rule(rule, message, guild_settings):
-                    log_data = {
-                        "guild_id": gid_str,
-                        "rule_id": rule.get("rule_id"),
-                        "source_channel_id": str(message.channel.id),
-                        "destination_channel_id": str(rule.get("destination_channel_id")),
-                        "original_message_id": str(message.id),
-                        "success": True
-                    }
-                    await guild_manager.log_forwarded_message(log_data)
-
-        except Exception as e:
-            logger.error(f"Error in on_message for guild {message.guild.id}: {e}", exc_info=True)
+        # Collect log entries and write them in a single insert_many at the
+        # end so a source message that fans out to N rules costs one DB round
+        # trip instead of N.
+        log_batch: list[dict] = []
+        for rule in matching_rules:
+            if await self.process_rule(rule, message, guild_settings):
+                log_batch.append({
+                    "guild_id": gid_str,
+                    "rule_id": rule.get("rule_id"),
+                    "source_channel_id": str(message.channel.id),
+                    "destination_channel_id": str(rule.get("destination_channel_id")),
+                    "original_message_id": str(message.id),
+                    "success": True,
+                })
+        if log_batch:
+            await guild_manager.log_forwarded_messages(log_batch)
 
     async def _should_show_branding(self, guild_id: int) -> bool:
         """
@@ -235,24 +286,9 @@ class Forwarding(commands.Cog):
         return random.random() < self.BRANDING_PROBABILITY
 
     def _contains_embeddable_url(self, content: str) -> bool:
-        import re
-        embeddable_patterns = [
-            r'https?://(?:www\.)?twitter\.com/\S+',
-            r'https?://(?:www\.)?x\.com/\S+',
-            r'https?://(?:www\.)?youtube\.com/watch\?\S+',
-            r'https?://youtu\.be/\S+',
-            r'https?://(?:www\.)?instagram\.com/\S+',
-            r'https?://(?:www\.)?tiktok\.com/\S+',
-            r'https?://(?:www\.)?reddit\.com/\S+',
-            r'https?://(?:www\.)?github\.com/\S+',
-            r'https?://(?:www\.)?twitch\.tv/\S+',
-            r'https?://(?:www\.)?spotify\.com/\S+',
-            r'https?://\S+\.(jpg|jpeg|png|gif|webp|mp4|webm|mov)\b'
-        ]
-        for pattern in embeddable_patterns:
-            if re.search(pattern, content, re.IGNORECASE):
-                return True
-        return False
+        if not content:
+            return False
+        return _EMBEDDABLE_URL_RE.search(content) is not None
 
     async def process_rule(self, rule: dict, message: discord.Message, guild_settings: dict) -> bool:
         settings = rule.get("settings", {})
@@ -263,22 +299,99 @@ class Forwarding(commands.Cog):
             return False
 
         destination_channel_id = normalize_channel_id(rule.get("destination_channel_id"))
-        source_channel_id = normalize_channel_id(rule.get("source_channel_id"))
+        rule_id = rule.get("rule_id", "?")
 
-        if destination_channel_id == source_channel_id or destination_channel_id == message.channel.id:
+        # The matching_rules filter already pinned source==message.channel,
+        # so a self-referential rule is the only loop we need to guard.
+        if destination_channel_id == message.channel.id:
             logger.warning(
-                f"Skipping rule {rule.get('rule_id')}: source and destination resolve to the same channel "
+                f"Skipping rule {rule_id}: source and destination resolve to the same channel "
                 f"({destination_channel_id})."
             )
             return False
 
         destination_channel = self.bot.get_channel(destination_channel_id)
         if not destination_channel:
-            logger.warning(f"Destination channel {destination_channel_id} not found for rule {rule.get('rule_id')}")
+            await self._record_rule_misconfig(
+                rule, guild_settings,
+                f"destination channel {destination_channel_id} not found",
+            )
+            return False
+
+        # Permission gate — without this, every source message produces a
+        # Forbidden + log line. One warning per rule per cooldown window.
+        me = destination_channel.guild.me if destination_channel.guild else None
+        if me is None or not destination_channel.permissions_for(me).send_messages:
+            await self._record_rule_misconfig(
+                rule, guild_settings,
+                f"missing send_messages in destination {destination_channel_id}",
+            )
             return False
 
         await self.forward_message(settings.get("formatting", {}), message, destination_channel)
+        # Successful forward — clear failure counter so a recovered rule
+        # doesn't carry stale strikes from before the fix.
+        self._perm_fail.pop(rule_id, None)
         return True
+
+    async def _record_rule_misconfig(self, rule: dict, guild_settings: dict, reason: str) -> None:
+        """
+        Log a misconfig (rate-limited per rule) and bump the consecutive-failure
+        counter. Once the counter hits _AUTO_DEACTIVATE_THRESHOLD, soft-delete
+        the rule and notify the guild's master log channel.
+        """
+        rule_id = rule.get("rule_id", "?")
+        now = time.monotonic()
+        last = self._perm_warn.get(rule_id, 0.0)
+        if now - last >= _PERM_WARN_COOLDOWN_SECONDS:
+            self._perm_warn[rule_id] = now
+            logger.warning(f"Rule {rule_id}: {reason}")
+
+        count = self._perm_fail.get(rule_id, 0) + 1
+        self._perm_fail[rule_id] = count
+        if count >= _AUTO_DEACTIVATE_THRESHOLD:
+            await self._auto_deactivate_rule(rule, guild_settings, reason)
+            self._perm_fail.pop(rule_id, None)
+
+    async def _auto_deactivate_rule(self, rule: dict, guild_settings: dict, reason: str) -> None:
+        """Soft-delete a chronically-broken rule and notify the guild's log channel."""
+        rule_id = rule.get("rule_id", "?")
+        rule_name = rule.get("rule_name") or rule_id
+        try:
+            ok = await guild_manager.delete_rule(rule_id)
+        except Exception as e:
+            logger.error(f"Auto-deactivate failed for rule {rule_id}: {e}", exc_info=True)
+            return
+        if not ok:
+            logger.warning(f"Auto-deactivate of rule {rule_id} reported no modification")
+            return
+        logger.warning(
+            f"Rule {rule_id} auto-deactivated after "
+            f"{_AUTO_DEACTIVATE_THRESHOLD} consecutive failures: {reason}"
+        )
+
+        log_channel_id = guild_settings.get("master_log_channel_id")
+        if not log_channel_id:
+            return
+        channel = self.bot.get_channel(int(log_channel_id))
+        if channel is None:
+            return
+        try:
+            embed = discord.Embed(
+                title="Forwarding rule auto-deactivated",
+                description=(
+                    f"Rule **{rule_name}** (`{rule_id}`) was disabled after "
+                    f"{_AUTO_DEACTIVATE_THRESHOLD} consecutive failures.\n\n"
+                    f"**Reason:** {reason}\n\n"
+                    "Re-enable it from `/admin` once the destination channel "
+                    "or permissions are fixed."
+                ),
+                color=discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc),
+            )
+            await channel.send(embed=embed)
+        except discord.HTTPException as e:
+            logger.warning(f"Failed to post auto-deactivate notice to log channel: {e}")
 
     def check_message_type(self, message_types: dict, message: discord.Message) -> bool:
         if message.content and message_types.get("text", False):
@@ -408,6 +521,20 @@ class Forwarding(commands.Cog):
                     attachment_issues.append(
                         f"`{attachment.filename}` download failed (HTTP {getattr(e, 'status', '?')})"
                     )
+                except (OSError, asyncio.TimeoutError) as e:
+                    attachment_issues.append(
+                        f"`{attachment.filename}` download failed ({type(e).__name__})"
+                    )
+                except Exception as e:
+                    # Unexpected — log full trace but still surface a generic line so
+                    # the user sees why the attachment didn't make it.
+                    logger.warning(
+                        f"Unexpected error downloading {attachment.filename}: {e}",
+                        exc_info=True,
+                    )
+                    attachment_issues.append(
+                        f"`{attachment.filename}` download failed ({type(e).__name__})"
+                    )
 
         if attachment_issues:
             # Cap the listed reasons so we don't blow Discord's 2000-char limit.
@@ -443,120 +570,6 @@ class Forwarding(commands.Cog):
 
     async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
         await self.forward_as_native_style(formatting, message, destination)
-
-    async def _parse_template_variables(self, text: str, message: discord.Message) -> str:
-        base_variables = {
-            '{author}': message.author.display_name,
-            '{author_mention}': message.author.mention,
-            '{author_id}': str(message.author.id),
-            '{channel}': message.channel.name,
-            '{channel_mention}': message.channel.mention,
-            '{guild}': message.guild.name if message.guild else 'DM',
-            '{timestamp}': message.created_at.strftime('%Y-%m-%d %H:%M'),
-            '{message_id}': str(message.id),
-            '{message_url}': message.jump_url,
-        }
-
-        if message.guild:
-            base_variables['{guild_id}'] = str(message.guild.id)
-            base_variables['{guild_icon}'] = str(message.guild.icon.url) if message.guild.icon else ''
-
-        if message.attachments:
-            base_variables['{attachment_count}'] = str(len(message.attachments))
-            base_variables['{first_attachment}'] = message.attachments[0].filename
-
-        if message.embeds:
-            base_variables['{embed_count}'] = str(len(message.embeds))
-
-        for var, replacement in base_variables.items():
-            text = text.replace(var, replacement)
-
-        return text
-
-    def _get_embed_color(self, formatting: dict, message: discord.Message) -> discord.Color:
-        if custom_color := formatting.get("embed_color"):
-            if isinstance(custom_color, str):
-                try:
-                    return discord.Color.from_str(custom_color)
-                except ValueError:
-                    pass
-            elif isinstance(custom_color, int):
-                return discord.Color(custom_color)
-
-        if message.guild and message.author in message.guild.members:
-            member = message.guild.get_member(message.author.id)
-            if member and member.color != discord.Color.default():
-                return member.color
-
-        if message.attachments:
-            has_images = any(att.content_type and att.content_type.startswith('image/')
-                             for att in message.attachments)
-            return discord.Color.green() if has_images else discord.Color.blue()
-        elif message.embeds:
-            return discord.Color.purple()
-        elif len(message.content) > 200:
-            return discord.Color.orange()
-        else:
-            return discord.Color.blurple()
-
-    def _should_filter_embed(self, embed: discord.Embed, filter_rules: list) -> bool:
-        if not filter_rules:
-            return False
-
-        for rule in filter_rules:
-            rule = rule.lower()
-
-            if rule == "empty" and not any([
-                embed.title, embed.description, embed.fields,
-                embed.image, embed.thumbnail, embed.footer
-            ]):
-                return True
-
-            if rule == "discord" and embed.author and "discord" in embed.author.name.lower():
-                return True
-
-            if rule == "ad" and any(keyword in (embed.title or "").lower()
-                                    for keyword in ['sponsor', 'advertisement', 'promoted']):
-                return True
-
-        return False
-
-    def _sanitize_embed(self, embed: discord.Embed) -> discord.Embed:
-        safe_embed = discord.Embed(
-            title=embed.title[:256] if embed.title else None,
-            description=embed.description[:4096] if embed.description else None,
-            color=embed.color,
-            url=embed.url,
-            timestamp=embed.timestamp
-        )
-
-        if embed.author:
-            safe_embed.set_author(
-                name=embed.author.name[:256] if embed.author.name else None,
-                icon_url=embed.author.icon_url,
-                url=embed.author.url
-            )
-
-        if embed.footer:
-            safe_embed.set_footer(
-                text=embed.footer.text[:2048] if embed.footer.text else None,
-                icon_url=embed.footer.icon_url
-            )
-
-        if embed.image:
-            safe_embed.set_image(url=embed.image.url)
-
-        if embed.thumbnail:
-            safe_embed.set_thumbnail(url=embed.thumbnail.url)
-
-        for field in embed.fields:
-            safe_embed.add_field(
-                name=field.name[:256],
-                value=field.value[:1024],
-                inline=field.inline
-            )
-
-        return safe_embed
 
     async def _send_with_enhanced_handling(self, destination: discord.TextChannel, message: discord.Message,
                                            **send_kwargs):
@@ -760,6 +773,19 @@ class Forwarding(commands.Cog):
                     if len(sentence) > max_length:
                         words = sentence.split(' ')
                         for word in words:
+                            # A single word longer than max_length must be hard-sliced;
+                            # otherwise the chunk would exceed the cap and Discord rejects it.
+                            if len(word) > max_length:
+                                if current_chunk.strip():
+                                    chunks.append(current_chunk.strip())
+                                current_chunk = ""
+                                for i in range(0, len(word), max_length):
+                                    piece = word[i:i + max_length]
+                                    if i + max_length < len(word):
+                                        chunks.append(piece)
+                                    else:
+                                        current_chunk = piece + " "
+                                continue
                             if len(current_chunk) + len(word) + 1 > max_length:
                                 chunks.append(current_chunk.strip())
                                 current_chunk = ""

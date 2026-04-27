@@ -33,7 +33,7 @@ async def _render(interaction: discord.Interaction, layout: discord.ui.LayoutVie
     except discord.HTTPException as e:
         # Component interactions support edit_message; if not (e.g. modal
         # submit before defer), fall back to editing the original response.
-        if "already been acknowledged" in str(e).lower():
+        if e.code == 40060:
             await interaction.edit_original_response(view=layout)
         else:
             raise
