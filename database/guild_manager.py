@@ -9,6 +9,7 @@ import pymongo
 from pymongo import UpdateOne
 from .exceptions import DatabaseOperationError
 from .constants import DEFAULT_BOT_SETTINGS, DEFAULT_GUILD_SETTINGS_TEMPLATE
+from .rule_schema import CURRENT_RULE_SCHEMA_VERSION, migrate_rule, migrate_rules
 
 logger = logging.getLogger("GuildManager")
 
@@ -282,8 +283,10 @@ class GuildManager:
 
     async def get_guild_settings(self, guild_id: str, use_cache: bool = True) -> Dict[str, Any]:
         """
-        Get guild settings or create default if not exists.
-        Checks the in-memory cache first; falls through to MongoDB on miss.
+        Get guild settings or create default if not exists. Rules nested in
+        the settings doc are run through `migrate_rule` once on the cache-miss
+        path so every consumer (listener, admin panel, wizard) sees the
+        current schema without each call site duplicating the migration.
         """
         if use_cache:
             cached = self.settings_cache.get(guild_id)
@@ -297,6 +300,8 @@ class GuildManager:
             settings = await self.setup_new_guild(guild_id, "Unknown Guild")
 
         if settings is not None:
+            if isinstance(settings.get("rules"), list):
+                settings["rules"] = migrate_rules(settings["rules"])
             self.settings_cache.set(guild_id, settings)
         return settings
 
@@ -345,18 +350,18 @@ class GuildManager:
         return await collection.count_documents({})
 
     async def get_guild_rules(self, guild_id: str) -> List[Dict[str, Any]]:
-        """Get all rules for a guild."""
+        """Get all rules for a guild, migrated to the current schema version."""
         guild_settings = await self.get_guild_settings(guild_id)
-        return guild_settings.get("rules", [])
+        return migrate_rules(guild_settings.get("rules", []))
 
     async def get_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
-        """Get a specific forwarding rule by its unique ID."""
+        """Get a specific forwarding rule by its unique ID, migrated to current schema."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         result = await collection.find_one({"rules.rule_id": rule_id})
         if result:
             for rule in result.get("rules", []):
                 if rule.get("rule_id") == rule_id:
-                    return rule
+                    return migrate_rule(rule)
         return None
 
     async def update_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
@@ -630,6 +635,7 @@ class GuildManager:
                 "destination_channel_id": destination_channel_id,
                 "is_active": enabled,
                 "settings": settings or {},
+                "schema_version": CURRENT_RULE_SCHEMA_VERSION,
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc)
             }

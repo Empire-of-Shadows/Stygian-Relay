@@ -72,6 +72,22 @@ async def build_rules_panel_view(
         f" · **Forwarded today:** {daily:,} / {daily_limit:,}"
         + ("  · 💎 Premium" if is_premium else "")
     )
+
+    # Runtime metrics (resets on bot restart) — sourced from the listener cog,
+    # which lives separately from forward_cog (slash-commands) we already have.
+    listener = forward_cog.bot.get_cog("Forwarding") if getattr(forward_cog, "bot", None) else None
+    metrics = listener.get_metrics(guild.id) if listener and hasattr(listener, "get_metrics") else None
+    if metrics and any(metrics.values()):
+        builder.add_text(
+            "**Since last restart:** "
+            f"{metrics.get('forwarded', 0):,} forwarded · "
+            f"{metrics.get('rate_limited', 0):,} rate-limited · "
+            f"{metrics.get('daily_limit_hit', 0):,} daily-cap hits · "
+            f"{metrics.get('perm_failure', 0):,} perm fails · "
+            f"{metrics.get('oversized_fallback', 0):,} oversized · "
+            f"{metrics.get('auto_deactivated', 0):,} auto-disabled"
+        )
+
     builder.add_separator()
 
     if rules:

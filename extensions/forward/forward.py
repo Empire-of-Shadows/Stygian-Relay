@@ -2,6 +2,7 @@ import asyncio
 import re
 import time
 import discord
+from collections import Counter
 from discord.ext import commands
 from discord import app_commands, ui
 from database import guild_manager
@@ -9,6 +10,15 @@ from database.utils import normalize_channel_id
 import logging
 import random
 from datetime import datetime, timedelta, timezone
+
+# Metric keys exposed via Forwarding.get_metrics(). Centralized so the admin
+# panel and the cog agree on names without stringly-typed surprises.
+METRIC_FORWARDED = "forwarded"
+METRIC_RATE_LIMITED = "rate_limited"
+METRIC_DAILY_LIMIT_HIT = "daily_limit_hit"
+METRIC_PERM_FAILURE = "perm_failure"
+METRIC_OVERSIZED_FALLBACK = "oversized_fallback"
+METRIC_AUTO_DEACTIVATED = "auto_deactivated"
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +152,10 @@ class Forwarding(commands.Cog):
         self._perm_warn: dict[str, float] = {}
         # rule_id -> consecutive misconfig failure count for auto-deactivate.
         self._perm_fail: dict[str, int] = {}
+        # Per-guild + global runtime counters. Reset on bot restart by design;
+        # for long-term analytics, derive from message_logs / audit_logs.
+        self._metrics: dict[int, Counter] = {}
+        self._metrics_global: Counter = Counter()
 
     async def cog_unload(self):
         self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
@@ -176,6 +190,37 @@ class Forwarding(commands.Cog):
             b = _TokenBucket(rate=self._bucket_rate, capacity=max(self._bucket_rate, 1.0))
             self._buckets[guild_id] = b
         return b
+
+    def _bump_metric(self, guild_id, key: str, n: int = 1) -> None:
+        """Increment a per-guild and global counter. Cheap; safe to call hot."""
+        try:
+            gid = int(guild_id) if guild_id is not None else None
+        except (TypeError, ValueError):
+            gid = None
+        if gid is not None:
+            self._metrics.setdefault(gid, Counter())[key] += n
+        self._metrics_global[key] += n
+
+    def get_metrics(self, guild_id=None) -> dict:
+        """
+        Snapshot of forwarding metrics. Pass a guild_id (int or str) for that
+        guild's counters; omit for the global aggregate. Returned dict always
+        contains every metric key, defaulting to 0, so callers can format
+        without `dict.get` boilerplate.
+        """
+        keys = (
+            METRIC_FORWARDED, METRIC_RATE_LIMITED, METRIC_DAILY_LIMIT_HIT,
+            METRIC_PERM_FAILURE, METRIC_OVERSIZED_FALLBACK, METRIC_AUTO_DEACTIVATED,
+        )
+        if guild_id is None:
+            source = self._metrics_global
+        else:
+            try:
+                gid = int(guild_id)
+            except (TypeError, ValueError):
+                return {k: 0 for k in keys}
+            source = self._metrics.get(gid, Counter())
+        return {k: int(source.get(k, 0)) for k in keys}
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -236,6 +281,7 @@ class Forwarding(commands.Cog):
 
         # Rate limit per guild.
         if not self._bucket_for(message.guild.id).take():
+            self._bump_metric(message.guild.id, METRIC_RATE_LIMITED)
             logger.debug(f"Rate-limited forward for guild {gid_str}")
             return
 
@@ -243,6 +289,7 @@ class Forwarding(commands.Cog):
         daily_limit = guild_limits.get("daily_limit", 100)
         daily_count = await guild_manager.get_daily_message_count(gid_str)
         if daily_count >= daily_limit:
+            self._bump_metric(message.guild.id, METRIC_DAILY_LIMIT_HIT)
             if guild_settings.get("features", {}).get("notify_on_error", True):
                 last_warn = await guild_manager.get_runtime_state(gid_str, "daily_warn")
                 now = datetime.now(timezone.utc)
@@ -271,6 +318,7 @@ class Forwarding(commands.Cog):
                     "success": True,
                 })
         if log_batch:
+            self._bump_metric(message.guild.id, METRIC_FORWARDED, len(log_batch))
             await guild_manager.log_forwarded_messages(log_batch)
 
     async def _should_show_branding(self, guild_id: int) -> bool:
@@ -296,6 +344,9 @@ class Forwarding(commands.Cog):
             return False
 
         if not self.check_filters(settings.get("filters", {}), message, settings.get("advanced_options", {})):
+            return False
+
+        if not self.check_author_filters(settings.get("author_filters"), message):
             return False
 
         destination_channel_id = normalize_channel_id(rule.get("destination_channel_id"))
@@ -341,6 +392,7 @@ class Forwarding(commands.Cog):
         the rule and notify the guild's master log channel.
         """
         rule_id = rule.get("rule_id", "?")
+        self._bump_metric(guild_settings.get("_id"), METRIC_PERM_FAILURE)
         now = time.monotonic()
         last = self._perm_warn.get(rule_id, 0.0)
         if now - last >= _PERM_WARN_COOLDOWN_SECONDS:
@@ -365,6 +417,7 @@ class Forwarding(commands.Cog):
         if not ok:
             logger.warning(f"Auto-deactivate of rule {rule_id} reported no modification")
             return
+        self._bump_metric(guild_settings.get("_id"), METRIC_AUTO_DEACTIVATED)
         logger.warning(
             f"Rule {rule_id} auto-deactivated after "
             f"{_AUTO_DEACTIVATE_THRESHOLD} consecutive failures: {reason}"
@@ -456,6 +509,46 @@ class Forwarding(commands.Cog):
             if block_keywords and any(keyword in content for keyword in block_keywords):
                 return False
             if require_keywords and not any(keyword in content for keyword in require_keywords):
+                return False
+
+        return True
+
+    def check_author_filters(self, filters, message: discord.Message) -> bool:
+        """
+        Apply per-rule author allow/deny lists.
+
+        Semantics:
+        - Deny lists (users + roles) reject outright. A match in either denies.
+        - Allow lists are a combined gate: if either allow_user_ids or
+          allow_role_ids is non-empty, the author must match at least one
+          across both lists. If both allow lists are empty, no allow gate.
+        - Missing or non-dict filters mean "no filtering" (returns True).
+        """
+        if not isinstance(filters, dict) or not filters:
+            return True
+
+        author_id = message.author.id
+        member = message.author if isinstance(message.author, discord.Member) else None
+        role_ids = {r.id for r in member.roles} if member else set()
+
+        def _ints(seq) -> set:
+            out = set()
+            for x in seq or ():
+                try:
+                    out.add(int(x))
+                except (TypeError, ValueError):
+                    continue
+            return out
+
+        if author_id in _ints(filters.get("deny_user_ids")):
+            return False
+        if _ints(filters.get("deny_role_ids")) & role_ids:
+            return False
+
+        allow_users = _ints(filters.get("allow_user_ids"))
+        allow_roles = _ints(filters.get("allow_role_ids"))
+        if allow_users or allow_roles:
+            if author_id not in allow_users and not (allow_roles & role_ids):
                 return False
 
         return True
@@ -584,6 +677,7 @@ class Forwarding(commands.Cog):
             await destination.send(**send_kwargs)
         except discord.HTTPException as e:
             if e.code == 40005:
+                self._bump_metric(destination.guild.id, METRIC_OVERSIZED_FALLBACK)
                 logger.warning(f"Payload too large for message {message.id}. Retrying without attachments.")
                 send_kwargs.pop('files', None)
 
@@ -599,6 +693,7 @@ class Forwarding(commands.Cog):
                     await self._send_minimal_version(destination, message, formatting)
 
             elif "message content too long" in str(e).lower():
+                self._bump_metric(destination.guild.id, METRIC_OVERSIZED_FALLBACK)
                 logger.error(f"Failed to send forwarded message: {e}")
                 await self._handle_oversized_message(destination, message, send_kwargs, formatting)
 

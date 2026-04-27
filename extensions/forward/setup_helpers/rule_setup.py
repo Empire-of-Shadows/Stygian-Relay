@@ -1,6 +1,8 @@
 from typing import Dict, Any, List, Tuple
 import discord
 
+from database.rule_schema import CURRENT_RULE_SCHEMA_VERSION
+
 
 class RuleSetupHelper:
     """A collection of static methods to assist with rule configuration."""
@@ -25,6 +27,7 @@ class RuleSetupHelper:
 
         # This dictionary represents the default state for any new rule.
         rule = {
+            "schema_version": CURRENT_RULE_SCHEMA_VERSION,
             "name": rule_name,
             "source_channel_id": source_channel_id,
             "destination_channel_id": destination_channel_id,
