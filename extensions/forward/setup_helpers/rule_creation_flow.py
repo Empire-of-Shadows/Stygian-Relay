@@ -173,18 +173,24 @@ class RuleCreationFlow:
             return fallback
         return self.bot.get_guild(int(target_id)) or fallback
 
-    def _candidate_destination_guilds(
+    async def _candidate_destination_guilds(
         self, interaction: discord.Interaction
     ) -> list[discord.Guild]:
-        """Source guild first, then any other guild the bot AND user share."""
+        """Source guild first, then any other guild the bot AND user share
+        whose inbound allowlist opts the source guild in."""
+        from database import guild_manager
+
         invoking_user = interaction.user
+        source_id = interaction.guild_id
         candidates: list[discord.Guild] = []
         if interaction.guild is not None:
             candidates.append(interaction.guild)
         for g in self.bot.guilds:
-            if g.id == interaction.guild_id:
+            if g.id == source_id:
                 continue
             if g.get_member(invoking_user.id) is None:
+                continue
+            if not await guild_manager.is_inbound_allowed(str(g.id), source_id):
                 continue
             candidates.append(g)
         return candidates
@@ -201,7 +207,7 @@ class RuleCreationFlow:
         menu with a single pre-selected option doesn't fire a callback when
         the user re-picks the default, so the wizard would deadlock.
         """
-        candidate_guilds = self._candidate_destination_guilds(interaction)
+        candidate_guilds = await self._candidate_destination_guilds(interaction)
 
         if len(candidate_guilds) <= 1:
             # No real choice — same-guild only. Stamp and advance silently.
@@ -290,6 +296,18 @@ class RuleCreationFlow:
                 ephemeral=True,
             )
             return
+
+        if target_guild.id != interaction.guild_id:
+            from database import guild_manager
+            if not await guild_manager.is_inbound_allowed(
+                str(target_guild.id), interaction.guild_id
+            ):
+                await interaction.followup.send(
+                    "❌ That guild no longer allows forwarding from this server. "
+                    "Ask its admins to add this server to their inbound allowlist.",
+                    ephemeral=True,
+                )
+                return
 
         session.destination_guild_id = target_guild.id
         await state_manager.update_session(
