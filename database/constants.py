@@ -29,12 +29,12 @@ REQUIRED_COLLECTIONS = {
 # These settings are used to configure the bot's global behavior.
 DEFAULT_BOT_SETTINGS = {
     "_id": "global_config",
-    "max_rules_per_guild": 3,
-    "max_rules_premium": 20,
+    "max_rules_per_guild": 15,
+    "max_rules_premium": 40,
     "rate_limit_per_channel": 50,
     "maintenance_mode": False,
     "premium_enabled": True,
-    "free_tier_daily_limit": 100,
+    "free_tier_daily_limit": 500,
     "premium_tier_daily_limit": 5000,
     "auto_setup_new_guilds": True,
     "welcome_message_enabled": True,

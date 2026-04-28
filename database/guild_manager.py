@@ -356,13 +356,20 @@ class GuildManager:
 
             if existing:
                 logger.info(f"ℹ️ Guild {guild_name} already exists in database, ensuring it is up-to-date...")
+                set_fields: Dict[str, Any] = {
+                    "updated_at": datetime.now(timezone.utc),
+                    "auto_setup_complete": True,
+                }
+                # Don't clobber a real name with the "Unknown Guild" placeholder
+                # used by get_guild_settings cache-miss fallback.
+                existing_name = existing.get("guild_name")
+                if guild_name and guild_name != "Unknown Guild":
+                    set_fields["guild_name"] = guild_name
+                elif not existing_name:
+                    set_fields["guild_name"] = guild_name
                 await collection.update_one(
                     {"guild_id": gid},
-                    {"$set": {
-                        "guild_name": guild_name,
-                        "updated_at": datetime.now(timezone.utc),
-                        "auto_setup_complete": True
-                    }}
+                    {"$set": set_fields}
                 )
                 return await collection.find_one({"guild_id": gid})
             else:
