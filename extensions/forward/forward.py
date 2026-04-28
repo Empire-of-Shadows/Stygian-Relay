@@ -375,7 +375,7 @@ class Forwarding(commands.Cog):
         the rule and notify the guild's master log channel.
         """
         rule_id = rule.get("rule_id", "?")
-        self._bump_metric(guild_settings.get("_id"), METRIC_PERM_FAILURE)
+        self._bump_metric(guild_settings.get("guild_id"), METRIC_PERM_FAILURE)
         now = time.monotonic()
         last = self._perm_warn.get(rule_id, 0.0)
         if now - last >= _PERM_WARN_COOLDOWN_SECONDS:
@@ -400,7 +400,7 @@ class Forwarding(commands.Cog):
         if not ok:
             logger.warning(f"Auto-deactivate of rule {rule_id} reported no modification")
             return
-        self._bump_metric(guild_settings.get("_id"), METRIC_AUTO_DEACTIVATED)
+        self._bump_metric(guild_settings.get("guild_id"), METRIC_AUTO_DEACTIVATED)
         logger.warning(
             f"Rule {rule_id} auto-deactivated after "
             f"{_AUTO_DEACTIVATE_THRESHOLD} consecutive failures: {reason}"
