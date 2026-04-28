@@ -4,7 +4,6 @@ import time
 import discord
 from collections import Counter
 from discord.ext import commands
-from discord import app_commands, ui
 from database import guild_manager
 from database.utils import normalize_channel_id
 import logging
@@ -62,66 +61,6 @@ class _TokenBucket:
         return False
 
 
-class ForwardOptionsView(ui.View):
-    """
-    A view that provides options for manually forwarding a message.
-    It allows the user to select a destination channel before confirming
-    the forward action. Messages are always forwarded using native style.
-    This view is used by the `forward_message_context_menu` command.
-    """
-    def __init__(self, original_message: discord.Message, cog_instance):
-        super().__init__(timeout=180)
-        self.original_message = original_message
-        self.cog_instance = cog_instance
-        self.destination_channel = None
-
-        channel_select = ui.ChannelSelect(
-            placeholder="Select destination channel...",
-            channel_types=[discord.ChannelType.text]
-        )
-        channel_select.callback = self.channel_select_callback
-        self.add_item(channel_select)
-
-        forward_button = ui.Button(label="Forward", style=discord.ButtonStyle.primary, row=1)
-        forward_button.callback = self.forward_button_callback
-        self.add_item(forward_button)
-
-    async def channel_select_callback(self, interaction: discord.Interaction):
-        self.destination_channel = interaction.data['values'][0]
-        self.destination_channel = interaction.guild.get_channel(int(self.destination_channel))
-        await interaction.response.defer()
-
-    async def forward_button_callback(self, interaction: discord.Interaction):
-        if not self.destination_channel:
-            await interaction.response.send_message("Please select a destination channel.", ephemeral=True)
-            return
-
-        if not isinstance(self.destination_channel, discord.TextChannel):
-            await interaction.response.send_message("Please select a valid text channel.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        default_formatting = {
-            "add_prefix": None,
-            "include_author": True,
-            "add_suffix": None,
-            "forward_embeds": True,
-            "forward_attachments": True,
-        }
-
-        try:
-            await self.cog_instance.forward_message(default_formatting, self.original_message, self.destination_channel)
-            await interaction.followup.send(f"Message forwarded to {self.destination_channel.mention}!", ephemeral=True)
-
-            for item in self.children:
-                item.disabled = True
-            await interaction.edit_original_response(view=self)
-        except Exception as e:
-            logger.error(f"Error forwarding message from view: {e}", exc_info=True)
-            await interaction.followup.send("An error occurred while forwarding the message.", ephemeral=True)
-
-
 class Forwarding(commands.Cog):
     """
     Listens for messages and applies guild forwarding rules.
@@ -132,11 +71,6 @@ class Forwarding(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.ctx_menu = app_commands.ContextMenu(
-            name='Forward Message',
-            callback=self.forward_message_context_menu,
-        )
-        self.bot.tree.add_command(self.ctx_menu)
 
         # Per-guild token buckets for forward rate limiting.
         self._buckets: dict[int, _TokenBucket] = {}
@@ -158,14 +92,9 @@ class Forwarding(commands.Cog):
         self._metrics_global: Counter = Counter()
 
     async def cog_unload(self):
-        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
         # Cancel any background dispatch tasks so cog reload is clean.
         for task in list(self._dispatch_tasks):
             task.cancel()
-
-    async def forward_message_context_menu(self, interaction: discord.Interaction, message: discord.Message):
-        view = ForwardOptionsView(message, self)
-        await interaction.response.send_message("Select forwarding options:", view=view, ephemeral=True)
 
     async def _ensure_runtime_config(self):
         """Load rate / branding cooldown from bot_settings once per process."""
