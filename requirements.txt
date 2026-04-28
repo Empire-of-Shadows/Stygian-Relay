@@ -7,10 +7,10 @@ colorama==0.4.6
 iniconfig==2.3.0
 packaging==25.0
 pluggy==1.6.0
-Pygments==2.19.2
-pytest>=8.2,<9.0
+Pygments==2.20.0
+pytest>=9.0.3
 pytest-asyncio==1.2.0
 ruff==0.14.4
-discord.py
+discord.py>=2.7.1
 motor~=3.7.1
 pymongo>=4.4.0,<5.0.0

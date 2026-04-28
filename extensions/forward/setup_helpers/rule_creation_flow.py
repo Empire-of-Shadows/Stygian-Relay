@@ -558,7 +558,7 @@ class RuleCreationFlow:
                 },
             }
 
-            save_ok, reason = await guild_manager.add_rule(guild_id=interaction.guild_id, **rule_data)
+            save_ok, reason = await guild_manager.add_rule(guild_id=str(interaction.guild_id), **rule_data)
 
             if save_ok:
                 self.logger.info(f"Rule '{rule_data['rule_name']}' saved for guild {interaction.guild_id}")

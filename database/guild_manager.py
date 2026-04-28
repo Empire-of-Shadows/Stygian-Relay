@@ -148,14 +148,16 @@ class GuildManager:
             else:
                 logger.info("✅ Bot settings already exist and are up-to-date")
 
-        await self._ensure_indexes()
         await self._probe_transactions()
+        await self._migrate_guild_id_field()
+        await self._ensure_indexes()
 
     async def _ensure_indexes(self):
         """Create indexes used by hot read paths and TTL collections."""
         try:
             db = self.db.db_client["discord_forwarding_bot"]
 
+            await db["guild_settings"].create_index("guild_id", unique=True)
             await db["guild_settings"].create_index("rules.rule_id")
             await db["guild_settings"].create_index("rules.source_channel_id")
             # Cross-guild rules reference channels that don't live in this doc's
@@ -225,31 +227,148 @@ class GuildManager:
     def transactions_supported(self) -> bool:
         return bool(self._transactions_supported)
 
+    async def _migrate_guild_id_field(self):
+        """
+        One-shot migration: legacy docs used `_id = guild_id` (mixed string /
+        NumberLong types, producing duplicate docs per guild). New schema uses
+        an auto ObjectId `_id` and a `guild_id: str` field. This walks any
+        legacy doc lacking `guild_id`, merges duplicates by `str(_id)`, and
+        rewrites them in the new shape.
+
+        Sentinel: presence of `guild_id` field → already migrated, skip.
+        Merge precedence on scalars: most-recent `updated_at` wins among
+        non-null values. Rules concatenated and deduped by `rule_id` keeping
+        the newest. Idempotent.
+        """
+        try:
+            collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+            cursor = collection.find({"guild_id": {"$exists": False}})
+            legacy: List[Dict[str, Any]] = []
+            async for doc in cursor:
+                legacy.append(doc)
+            if not legacy:
+                return
+
+            logger.info(f"🔧 Migrating {len(legacy)} legacy guild_settings doc(s) to guild_id field…")
+
+            groups: Dict[str, List[Dict[str, Any]]] = {}
+            for doc in legacy:
+                key = str(doc.get("_id"))
+                groups.setdefault(key, []).append(doc)
+
+            scalar_keys = (
+                "master_log_channel_id", "manager_role_id", "guild_name",
+                "is_enabled", "premium_tier", "auto_setup_complete",
+            )
+            dict_keys = ("features", "limits")
+
+            def _ts(d: Dict[str, Any]) -> datetime:
+                v = d.get("updated_at") or d.get("created_at")
+                if isinstance(v, datetime):
+                    return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+                return datetime.fromtimestamp(0, tz=timezone.utc)
+
+            merged_count = 0
+            collisions = 0
+
+            for gid_str, docs in groups.items():
+                if len(docs) > 1:
+                    collisions += 1
+                docs_sorted = sorted(docs, key=_ts)  # oldest first; newer overwrites
+
+                merged: Dict[str, Any] = {}
+                for k in scalar_keys:
+                    for d in docs_sorted:
+                        v = d.get(k)
+                        if v is not None:
+                            merged[k] = v
+
+                for k in dict_keys:
+                    bag: Dict[str, Any] = {}
+                    for d in docs_sorted:
+                        sub = d.get(k) or {}
+                        if isinstance(sub, dict):
+                            for sk, sv in sub.items():
+                                if sv is not None:
+                                    bag[sk] = sv
+                    if bag:
+                        merged[k] = bag
+
+                rules_by_id: Dict[str, Dict[str, Any]] = {}
+                for d in docs_sorted:
+                    for r in d.get("rules", []) or []:
+                        rid = r.get("rule_id")
+                        if not rid:
+                            continue
+                        prev = rules_by_id.get(rid)
+                        if prev is None or _ts(r) >= _ts(prev):
+                            rules_by_id[rid] = r
+                merged["rules"] = list(rules_by_id.values())
+
+                inbound: List[int] = []
+                seen = set()
+                for d in docs_sorted:
+                    for x in d.get("inbound_allowed_guilds", []) or []:
+                        try:
+                            xi = int(x)
+                        except (TypeError, ValueError):
+                            continue
+                        if xi in seen:
+                            continue
+                        seen.add(xi)
+                        inbound.append(xi)
+                merged["inbound_allowed_guilds"] = inbound
+
+                created = [d.get("created_at") for d in docs_sorted if isinstance(d.get("created_at"), datetime)]
+                updated = [d.get("updated_at") for d in docs_sorted if isinstance(d.get("updated_at"), datetime)]
+                setup_d = [d.get("setup_date") for d in docs_sorted if isinstance(d.get("setup_date"), datetime)]
+                now = datetime.now(timezone.utc)
+                merged["created_at"] = min(created) if created else now
+                merged["updated_at"] = max(updated) if updated else now
+                merged["setup_date"] = min(setup_d) if setup_d else merged["created_at"]
+                merged["guild_id"] = gid_str
+
+                old_ids = [d.get("_id") for d in docs]
+                try:
+                    await collection.delete_many({"_id": {"$in": old_ids}})
+                    await collection.insert_one(merged)
+                    merged_count += 1
+                except Exception as e:
+                    logger.error(f"Migration failed for guild {gid_str}: {e}", exc_info=True)
+
+            logger.info(
+                f"✅ guild_id migration complete: {merged_count} guild(s) rewritten, "
+                f"{collisions} duplicate-set(s) merged"
+            )
+        except Exception as e:
+            logger.warning(f"_migrate_guild_id_field failed (non-fatal): {e}", exc_info=True)
+
     async def setup_new_guild(self, guild_id: str, guild_name: str) -> Dict[str, Any]:
         """
         Sets up default settings for a new guild. If the guild already exists,
         it updates the name and ensures it's marked as auto-setup complete.
         """
-        logger.info(f"🏰 Setting up default settings for new guild: {guild_name} ({guild_id})")
+        gid = str(guild_id)
+        logger.info(f"🏰 Setting up default settings for new guild: {guild_name} ({gid})")
         try:
             collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-            existing = await collection.find_one({"_id": guild_id})
+            existing = await collection.find_one({"guild_id": gid})
 
             if existing:
                 logger.info(f"ℹ️ Guild {guild_name} already exists in database, ensuring it is up-to-date...")
                 await collection.update_one(
-                    {"_id": guild_id},
+                    {"guild_id": gid},
                     {"$set": {
                         "guild_name": guild_name,
                         "updated_at": datetime.now(timezone.utc),
                         "auto_setup_complete": True
                     }}
                 )
-                return await collection.find_one({"_id": guild_id})
+                return await collection.find_one({"guild_id": gid})
             else:
                 default_settings = DEFAULT_GUILD_SETTINGS_TEMPLATE.copy()
                 default_settings.update({
-                    "_id": guild_id,
+                    "guild_id": gid,
                     "guild_name": guild_name,
                     "auto_setup_complete": True,
                     "setup_date": datetime.now(timezone.utc),
@@ -259,7 +378,7 @@ class GuildManager:
                 await collection.insert_one(default_settings)
                 self.metrics["guilds_auto_configured"] += 1
                 logger.info(f"✅ Successfully set up default settings for guild: {guild_name}")
-                await self._notify_guild_join(guild_id, guild_name)
+                await self._notify_guild_join(gid, guild_name)
                 return default_settings
         except Exception as e:
             self.metrics["setup_errors"] += 1
@@ -271,12 +390,13 @@ class GuildManager:
         Removes all data associated with a guild from the database.
         This includes guild settings and user permissions.
         """
-        logger.info(f"🗑️ Removing data for guild: {guild_name} ({guild_id})")
+        gid = str(guild_id)
+        logger.info(f"🗑️ Removing data for guild: {guild_name} ({gid})")
         try:
             db = self.db.db_client["discord_forwarding_bot"]
-            await db["guild_settings"].delete_one({"_id": guild_id})
-            await db["user_permissions"].delete_many({"guild_id": guild_id})
-            await self._notify_guild_leave(guild_id, guild_name)
+            await db["guild_settings"].delete_one({"guild_id": gid})
+            await db["user_permissions"].delete_many({"guild_id": gid})
+            await self._notify_guild_leave(gid, guild_name)
             self.metrics["guilds_removed"] += 1
             logger.info(f"✅ Successfully removed data for guild: {guild_name}")
             return True
@@ -291,21 +411,22 @@ class GuildManager:
         path so every consumer (listener, admin panel, wizard) sees the
         current schema without each call site duplicating the migration.
         """
+        gid = str(guild_id)
         if use_cache:
-            cached = self.settings_cache.get(guild_id)
+            cached = self.settings_cache.get(gid)
             if cached is not None:
                 return cached
 
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-        settings = await collection.find_one({"_id": guild_id})
+        settings = await collection.find_one({"guild_id": gid})
         if not settings:
-            logger.info(f"Guild {guild_id} not found, creating default settings...")
-            settings = await self.setup_new_guild(guild_id, "Unknown Guild")
+            logger.info(f"Guild {gid} not found, creating default settings...")
+            settings = await self.setup_new_guild(gid, "Unknown Guild")
 
         if settings is not None:
             if isinstance(settings.get("rules"), list):
                 settings["rules"] = migrate_rules(settings["rules"])
-            self.settings_cache.set(guild_id, settings)
+            self.settings_cache.set(gid, settings)
         return settings
 
     async def update_guild_settings(self, guild_id: str, updates: Dict[str, Any]) -> bool:
@@ -313,13 +434,14 @@ class GuildManager:
         Update top-level fields in a guild's settings document.
         Invalidates the settings cache for this guild.
         """
+        gid = str(guild_id)
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
         result = await collection.update_one(
-            {"_id": guild_id},
+            {"guild_id": gid},
             {"$set": updates}
         )
-        self.settings_cache.invalidate(guild_id)
+        self.settings_cache.invalidate(gid)
         return result.modified_count > 0
 
     async def get_all_guilds(self, batch_size: int = 500) -> List[Dict[str, Any]]:
@@ -385,11 +507,11 @@ class GuildManager:
                     {"rules.destination_channel_id": channel_id},
                 ]
             },
-            projection={"_id": 1, "rules": 1},
+            projection={"guild_id": 1, "rules": 1},
         )
         out: List[Tuple[str, str]] = []
         async for doc in cursor:
-            gid = doc.get("_id")
+            gid = doc.get("guild_id")
             for rule in doc.get("rules", []) or []:
                 if not rule.get("is_active"):
                     continue
@@ -418,14 +540,14 @@ class GuildManager:
         update_fields = {f"rules.$.{key}": value for key, value in updates.items()}
 
         # Resolve guild_id first so we can invalidate the right cache key.
-        owner = await collection.find_one({"rules.rule_id": rule_id}, {"_id": 1})
+        owner = await collection.find_one({"rules.rule_id": rule_id}, {"guild_id": 1})
 
         result = await collection.update_one(
             {"rules.rule_id": rule_id},
             {"$set": update_fields}
         )
-        if owner:
-            self.settings_cache.invalidate(owner["_id"])
+        if owner and owner.get("guild_id"):
+            self.settings_cache.invalidate(owner["guild_id"])
         return result.modified_count > 0
 
     async def delete_rule(self, rule_id: str) -> bool:
@@ -434,13 +556,14 @@ class GuildManager:
 
     async def permanently_delete_rule(self, guild_id: str, rule_id: str) -> bool:
         """Permanently deletes a rule by removing it from the database."""
+        gid = str(guild_id)
         try:
             collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
             result = await collection.update_one(
-                {"_id": guild_id},
+                {"guild_id": gid},
                 {"$pull": {"rules": {"rule_id": rule_id}}}
             )
-            self.settings_cache.invalidate(guild_id)
+            self.settings_cache.invalidate(gid)
             return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error permanently deleting rule {rule_id} from guild {guild_id}: {e}", exc_info=True)
@@ -712,7 +835,7 @@ class GuildManager:
             }
 
             result = await collection.update_one(
-                {"_id": gid, **active_filter},
+                {"guild_id": gid, **active_filter},
                 {"$push": {"rules": rule_data},
                  "$set": {"updated_at": datetime.now(timezone.utc)}}
             )
@@ -723,13 +846,13 @@ class GuildManager:
                 return True, "ok"
 
             # Either the doc doesn't exist, or the cap was reached. Disambiguate.
-            existing = await collection.find_one({"_id": gid}, {"rules": 1})
+            existing = await collection.find_one({"guild_id": gid}, {"rules": 1})
             if existing is None:
                 # First-time guild — create defaults and retry once (still atomic on retry).
                 logger.warning(f"Guild {gid} not found. Creating defaults and retrying rule addition.")
                 await self.get_guild_settings(gid)
                 retry = await collection.update_one(
-                    {"_id": gid, **active_filter},
+                    {"guild_id": gid, **active_filter},
                     {"$push": {"rules": rule_data},
                      "$set": {"updated_at": datetime.now(timezone.utc)}}
                 )

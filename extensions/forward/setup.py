@@ -854,7 +854,7 @@ class ForwardCog(commands.Cog):
             await state_manager.update_session(interaction.guild_id, {"master_log_channel_id": channel_id})
 
             # Persist to database
-            await self.guild_manager.update_guild_settings(interaction.guild_id,
+            await self.guild_manager.update_guild_settings(str(interaction.guild_id),
                                                            {"master_log_channel_id": channel_id})
 
             # Send confirmation message
