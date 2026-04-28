@@ -42,11 +42,13 @@ CODE_REGEX = re.compile(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}")
 class Premium(commands.Cog):
     """Premium subscription commands."""
 
+    premium = app_commands.Group(name="premium", description="Premium subscription commands")
+
     def __init__(self, bot):
         self.bot = bot
         logger.info(f"Premium cog initialized (admin guilds: {ADMIN_GUILD_IDS})")
 
-    @app_commands.command(name="premium-status", description="Check the premium status of this server")
+    @premium.command(name="status", description="Check the premium status of this server")
     async def premium_status(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
@@ -108,7 +110,7 @@ class Premium(commands.Cog):
             logger.error(f"Error checking premium status: {e}", exc_info=True)
             await interaction.followup.send("An error occurred while checking premium status.", ephemeral=True)
 
-    @app_commands.command(name="premium-redeem", description="Redeem a premium activation code")
+    @premium.command(name="redeem", description="Redeem a premium activation code")
     @app_commands.describe(code="The premium activation code (format: XXXX-XXXX-XXXX)")
     async def premium_redeem(self, interaction: discord.Interaction, code: str):
         """Redeem a premium code for the current guild."""

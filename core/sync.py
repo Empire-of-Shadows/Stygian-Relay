@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import List, Tuple
 
+import discord
 from tabulate import tabulate
 
 from dotenv import load_dotenv
@@ -36,6 +37,49 @@ def log_command_details(guild_name: str, commands_list) -> None:
 
     except Exception as e:
         logger.error(f"Failed to log command details for {guild_name}: {e}")
+
+
+def log_synced_commands(app_commands_list) -> None:
+    """Pretty-log the full synced command tree (groups + subcommands)."""
+    if not app_commands_list:
+        logger.info("No commands found to sync.")
+        return
+
+    def command_kind(cmd) -> str:
+        if isinstance(cmd, discord.app_commands.Group):
+            return "Group"
+        if isinstance(cmd, discord.app_commands.ContextMenu):
+            return f"ContextMenu:{getattr(cmd.type, 'name', 'Unknown')}"
+        if isinstance(cmd, discord.app_commands.Command):
+            return "Slash"
+        return cmd.__class__.__name__
+
+    rows = []
+
+    def walk(cmd, prefix=""):
+        if isinstance(cmd, discord.app_commands.Group):
+            rows.append([
+                f"{prefix}{cmd.name} (Group)",
+                cmd.description or "No description provided.",
+                "Group",
+            ])
+            for sub in getattr(cmd, "commands", []):
+                walk(sub, prefix=prefix + "  -> ")
+        else:
+            rows.append([
+                f"{prefix}{cmd.name}",
+                getattr(cmd, "description", None) or "No description provided.",
+                command_kind(cmd),
+            ])
+
+    try:
+        for c in app_commands_list:
+            walk(c)
+        table = tabulate(rows, headers=["Name", "Description", "Type"], tablefmt="fancy_grid")
+        logger.info("Synced Commands:\n%s", table)
+    except Exception as e:
+        logger.error(f"Failed to render synced commands table: {e}")
+
 
 @log_performance("load_cogs")
 async def load_cogs() -> None:

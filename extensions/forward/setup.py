@@ -7,14 +7,12 @@ import asyncio
 import discord
 import json
 from discord.ext import commands
-from discord import app_commands
 
 import logging
 from .setup_helpers.state_manager import state_manager
 from .setup_helpers.button_manager import button_manager
 from .setup_helpers.permission_check import permission_checker
 from .setup_helpers.channel_select import channel_selector
-from .setup_helpers.rule_setup import rule_setup_helper
 from .setup_helpers.rule_creation_flow import RuleCreationFlow
 from .setup_helpers.interaction_utils import safe_respond
 from .models.setup_state import SetupState
@@ -577,8 +575,6 @@ class ForwardCog(commands.Cog):
     editing forwarding rules. It uses a state machine to guide the user
     through a multi-step configuration process.
     """
-    forward = app_commands.Group(name="forward", description="Commands for message forwarding", guild_only=True)
-
     def __init__(self, bot):
         self.bot = bot
         self.logger = logging.getLogger("Forward")
@@ -591,131 +587,6 @@ class ForwardCog(commands.Cog):
         # Idle session eviction is handled by a Mongo TTL index on
         # `setup_sessions.expires_at` (see state_manager.ensure_collection_exists).
         # No Python-side polling loop needed.
-
-    @forward.command(name="create", description="Create a new forwarding rule directly.")
-    @app_commands.describe(
-        source_channel="The channel to forward messages from.",
-        destination_channel="The channel to forward messages to.",
-        rule_name="An optional name for the rule."
-    )
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def create(self, interaction: discord.Interaction,
-                     source_channel: discord.TextChannel,
-                     destination_channel: discord.TextChannel,
-                     rule_name: str = None):
-        """Creates a new forwarding rule with a single command."""
-        await interaction.response.defer(ephemeral=True)
-
-        try:
-            # 1. Validation
-            if source_channel.id == destination_channel.id:
-                await interaction.followup.send("❌ Source and destination channels cannot be the same.", ephemeral=True)
-                return
-
-            # 2. Check bot permissions
-            source_perms = source_channel.permissions_for(interaction.guild.me)
-            if not source_perms.view_channel or not source_perms.read_message_history:
-                await interaction.followup.send(
-                    f"❌ I need 'View Channel' and 'Read Message History' permissions in {source_channel.mention}.",
-                    ephemeral=True)
-                return
-
-            dest_perms = destination_channel.permissions_for(interaction.guild.me)
-            if not dest_perms.send_messages:
-                await interaction.followup.send(f"❌ I need 'Send Messages' permission in {destination_channel.mention}.",
-                                                ephemeral=True)
-                return
-
-            # 3. Create the rule object
-            final_rule_name = rule_name if rule_name else f"Forward from #{source_channel.name} to #{destination_channel.name}"
-
-            new_rule = await rule_setup_helper.create_initial_rule(
-                source_channel_id=source_channel.id,
-                destination_channel_id=destination_channel.id,
-                rule_name=final_rule_name
-            )
-
-            # 4. Prepare for database
-            rule_data_for_db = {
-                "rule_name": new_rule.get("name"),
-                "source_channel_id": new_rule.get("source_channel_id"),
-                "destination_channel_id": new_rule.get("destination_channel_id"),
-                "enabled": new_rule.get("is_active", True),
-                "settings": {
-                    "message_types": new_rule.get("message_types", {}),
-                    "filters": new_rule.get("filters", {}),
-                    "formatting": new_rule.get("formatting", {}),
-                    "advanced_options": new_rule.get("advanced_options", {})
-                }
-            }
-
-            # 5. Save to database
-            save_ok, reason = await guild_manager.add_rule(guild_id=str(interaction.guild.id), **rule_data_for_db)
-
-            # 6. Send confirmation
-            if save_ok:
-                embed = discord.Embed(
-                    title="✅ Rule Created Successfully!",
-                    description=f"I will now forward messages from {source_channel.mention} to {destination_channel.mention}.",
-                    color=discord.Color.green()
-                )
-                embed.add_field(name="Rule Name", value=final_rule_name, inline=False)
-                embed.set_footer(text="You can edit this rule with /forward edit.")
-                await interaction.followup.send(embed=embed, ephemeral=True)
-            elif reason == "limit_reached":
-                limits = await guild_manager.get_guild_limits(str(interaction.guild.id))
-                cap = limits.get("max_rules", 3)
-                await interaction.followup.send(
-                    f"❌ Active-rule limit reached ({cap}). Delete or disable an existing rule first, "
-                    f"or upgrade to premium for more.",
-                    ephemeral=True
-                )
-            else:
-                await interaction.followup.send("❌ Failed to save the rule to the database. Please try again.",
-                                                ephemeral=True)
-        except Exception as e:
-            self.logger.error(f"Error creating rule directly: {e}", exc_info=True)
-            await interaction.followup.send("❌ An unexpected error occurred. Please try again.", ephemeral=True)
-
-    @forward.command(name="help", description="Get help and information about the forwarding bot.")
-    async def help_command(self, interaction: discord.Interaction):
-        """
-        Provides descriptive help on how to use the message forwarding bot.
-        """
-        embed = discord.Embed(
-            title="🤖 Message Forwarding Bot Help",
-            description="This bot helps you automatically forward messages between channels in your Discord server.",
-            color=discord.Color.blue()
-        )
-
-        embed.add_field(
-            name="`/forward setup`",
-            value="Starts an interactive wizard to configure new message forwarding rules. "
-                  "You'll be guided through setting up permissions, a log channel, and your first rule.",
-            inline=False
-        )
-        embed.add_field(
-            name="`/forward edit`",
-            value="Allows you to view and modify existing forwarding rules. "
-                  "You can change rule names, source/destination channels, activation status, and formatting.",
-            inline=False
-        )
-        embed.add_field(
-            name="How it works:",
-            value="Once a rule is set up, the bot will monitor the specified **source channel** "
-                  "and automatically repost messages to the **destination channel**. "
-                  "You can configure various filters and formatting options during setup or editing.",
-            inline=False
-        )
-        embed.add_field(
-            name="Need more assistance?",
-            value="If you encounter any issues or have further questions, please contact support or refer to the documentation.",
-            inline=False
-        )
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # ... existing code ...
 
     async def show_welcome_step(self, interaction: discord.Interaction, session: SetupState):
         """

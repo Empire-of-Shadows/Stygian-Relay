@@ -27,6 +27,18 @@ bot = commands.AutoShardedBot(
 
 
 @bot.event
+async def setup_hook():
+    """Sync the application command tree once the bot has logged in."""
+    from core.sync import log_synced_commands
+    try:
+        synced = await bot.tree.sync()
+        print(f'🔄 Synced {len(synced)} global commands')
+        log_synced_commands(bot.tree.get_commands())
+    except Exception as e:
+        print(f'❌ Failed to sync commands: {e}')
+
+
+@bot.event
 async def on_ready():
     """Called when the bot is ready and connected to Discord."""
     print(f'✅ Logged in as {bot.user} (ID: {bot.user.id})')
