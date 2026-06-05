@@ -16,42 +16,35 @@ The deployment system features:
 
 - Docker and Docker Compose installed on your server
 - SSH access to your server
+- The `obsidian_grid` external network (`docker network create obsidian_grid`)
 - A `.env` file with your bot credentials (see Setup section)
 
 ## Initial Setup
 
-### 1. Create the Deployment Directory
+All Docker assets live in the `docker/` directory of this repository:
 
-On your server, create a directory for the deployment files:
-
-```bash
-mkdir -p ~/bots/stygian-relay
-cd ~/bots/stygian-relay
+```
+docker/
+├── Dockerfile           # Bot image build definition
+├── docker-compose.yml   # Service orchestration
+├── stygian.sh           # Deployment script with rollback
+├── .dockerignore
+├── .env                 # Your secrets (NEVER commit this!)
+└── .env.example         # Template
 ```
 
-### 2. Create Required Files
+### 1. Clone the Repository
 
-You only need THREE files on your server:
-
-#### a. `docker-compose.yml`
-
-Copy the `docker-compose.yml` from this repository to your server.
-
-#### b. `healthcheck.py`
-
-Copy the `healthcheck.py` from this repository to your server. This file is copied into the container during build.
-
-#### c. `deploy.sh`
-
-Copy the `deploy.sh` from this repository to your server and make it executable:
+On your server:
 
 ```bash
-chmod +x deploy.sh
+git clone https://github.com/Empire-of-Shadows/Stygian-Relay.git
+cd Stygian-Relay/docker
 ```
 
-### 3. Create the `.env` File
+### 2. Create the `.env` File
 
-Create a `.env` file with your bot's credentials:
+Create a `.env` file in the `docker/` directory with your bot's credentials:
 
 ```bash
 nano .env
@@ -80,25 +73,15 @@ LOG_LEVEL=INFO
 3. **Runtime**: The `.env` file is injected into the container as environment variables
 4. **Health Checks**: Automatic monitoring ensures the bot stays healthy
 
-### Directory Structure on Server
-
-```
-~/bots/stygian-relay/
-├── docker-compose.yml    # Docker orchestration file
-├── healthcheck.py        # Health check script
-├── deploy.sh            # Deployment script with rollback
-└── .env                 # Your secrets (NEVER commit this!)
-```
-
 ### Code Updates
 
 When you update code in GitHub:
 
-1. **On your server**, run the deployment script:
+1. **On your server**, run the deployment script from the `docker/` directory:
 
 ```bash
-cd ~/bots/stygian-relay
-./deploy.sh
+cd Stygian-Relay/docker
+./stygian.sh
 ```
 
 The script will:
@@ -113,8 +96,8 @@ The script will:
 ### First Deployment
 
 ```bash
-cd ~/bots/stygian-relay
-./deploy.sh
+cd Stygian-Relay/docker
+./stygian.sh
 ```
 
 The first deployment will:
@@ -153,8 +136,10 @@ Should return: `healthy`
 
 ### Manual Health Check
 
+The bot exposes an HTTP health endpoint on port 50005:
+
 ```bash
-docker exec StygianRelay python /app/healthcheck.py
+curl -f http://localhost:50005/health
 ```
 
 ## Troubleshooting
@@ -181,9 +166,9 @@ If the container shows as unhealthy:
 docker logs StygianRelay --tail 100
 ```
 
-2. Check the health check output:
+2. Check the health endpoint:
 ```bash
-docker exec StygianRelay python /app/healthcheck.py
+curl -f http://localhost:50005/health
 ```
 
 3. Common issues:
@@ -237,7 +222,7 @@ docker compose down
 docker rmi stygian-relay stygian-relay:backup
 
 # Deploy fresh
-./deploy.sh
+./stygian.sh
 ```
 
 ## Security Notes
@@ -245,18 +230,16 @@ docker rmi stygian-relay stygian-relay:backup
 ### What's Stored Where
 
 **On Server (visible)**:
-- `docker-compose.yml` - Configuration
-- `healthcheck.py` - Health monitoring
-- `deploy.sh` - Deployment automation
-- `.env` - **SECRETS (protected by .gitignore)**
+- `docker/docker-compose.yml` - Configuration
+- `docker/stygian.sh` - Deployment automation
+- `docker/.env` - **SECRETS (protected by .gitignore)**
 
 **In Git (public)**:
 - All source code
-- `Dockerfile`
-- `docker-compose.yml`
-- `healthcheck.py`
-- `deploy.sh`
-- `.env.example` (template only)
+- `docker/Dockerfile`
+- `docker/docker-compose.yml`
+- `docker/stygian.sh`
+- `docker/.env.example` (template only)
 
 **Never in Git**:
 - `.env` (actual credentials)
@@ -274,19 +257,18 @@ docker rmi stygian-relay stygian-relay:backup
 
 ### Changing Branch
 
-By default, the Dockerfile clones the `main` branch. To deploy from a different branch:
-
-Edit `Dockerfile` line 15:
-
-```dockerfile
-# Clone a specific branch
-RUN git clone -b dev https://github.com/Empire-of-Shadows/Stygian-Relay.git .
-```
-
-Then rebuild:
+By default the build clones the `dev` branch (the `GIT_REF` build arg). To deploy a different
+branch for a single run, override `GIT_REF`:
 
 ```bash
-./deploy.sh
+GIT_REF=main ./stygian.sh
+```
+
+To change the permanent default, edit `BRANCH=dev` in `stygian.sh` (or the `GIT_REF` default in
+`Dockerfile` / `docker-compose.yml`), then rebuild:
+
+```bash
+./stygian.sh
 ```
 
 ### Resource Limits
@@ -310,11 +292,11 @@ Edit `docker-compose.yml` health check settings:
 
 ```yaml
 healthcheck:
-  test: ["CMD", "python", "/app/healthcheck.py"]
+  test: ["CMD-SHELL", "curl -f http://localhost:50005/health || exit 1"]
   interval: 30s       # Check every 30 seconds
   timeout: 10s        # Fail if check takes > 10s
   retries: 3          # Mark unhealthy after 3 failures
-  start_period: 60s   # Grace period during startup
+  start_period: 90s   # Grace period during startup
 ```
 
 ## Maintenance
@@ -342,23 +324,25 @@ docker system prune -a -f
 
 ## Quick Reference
 
+All commands run from the `docker/` directory.
+
 | Task | Command |
 |------|---------|
-| Deploy/Update | `./deploy.sh` |
+| Deploy/Update | `./stygian.sh` |
+| Clean Rebuild (no cache) | `./stygian.sh --no-cache` |
 | View Logs | `docker logs -f StygianRelay` |
 | Stop Bot | `docker compose down` |
 | Start Bot | `docker compose up -d` |
 | Restart Bot | `docker compose restart` |
 | Check Health | `docker inspect StygianRelay --format='{{.State.Health.Status}}'` |
-| Manual Health Check | `docker exec StygianRelay python /app/healthcheck.py` |
+| Manual Health Check | `curl -f http://localhost:50005/health` |
 | Update .env Only | `docker compose up -d --force-recreate` |
 | Shell into Container | `docker exec -it StygianRelay bash` |
-| Clean Rebuild | `docker compose down && docker rmi stygian-relay && ./deploy.sh` |
 
 ## Support
 
 For issues:
 1. Check logs: `docker logs StygianRelay`
-2. Run health check: `docker exec StygianRelay python /app/healthcheck.py`
+2. Run health check: `curl -f http://localhost:50005/health`
 3. Review this guide
 4. Check GitHub issues

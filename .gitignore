@@ -219,3 +219,12 @@ __marimo__/
 /Context/create_ad.py
 /logs/StygianRelay.log.2025-11-27
 /Context/
+
+# Local IDE/agent settings
+.claude/
+
+# Logs
+logs/
+
+# Deploy artifacts - transferred to server manually, not tracked
+/docker/
