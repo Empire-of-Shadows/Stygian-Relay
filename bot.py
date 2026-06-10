@@ -26,38 +26,9 @@ bot = commands.AutoShardedBot(
 )
 
 
-@bot.event
-async def setup_hook():
-    """Sync the application command tree once the bot has logged in."""
-    from core.sync import log_synced_commands
-    try:
-        synced = await bot.tree.sync()
-        print(f'🔄 Synced {len(synced)} global commands')
-        log_synced_commands(bot.tree.get_commands())
-    except Exception as e:
-        print(f'❌ Failed to sync commands: {e}')
-
-
-@bot.event
-async def on_ready():
-    """Called when the bot is ready and connected to Discord."""
-    print(f'✅ Logged in as {bot.user} (ID: {bot.user.id})')
-    print(f'📊 Connected to {len(bot.guilds)} guilds')
-    print('------')
-
-    try:
-        if not db_core.is_healthy():
-            success = await db_core.initialize()
-            if success:
-                print('✅ Database connection established')
-                await initialize_existing_guilds()
-            else:
-                print('❌ Failed to connect to database')
-        else:
-            print('✅ Database connection already healthy')
-
-    except Exception as e:
-        print(f'❌ Database connection error: {e}')
+# NOTE: Startup orchestration (command sync, database init, on_ready, and shutdown)
+# is owned by main.py's unified startup sequence (mirrors the sibling EoS bots).
+# This module only defines the bot instance and its guild lifecycle listeners.
 
 
 async def initialize_existing_guilds():
@@ -215,28 +186,6 @@ async def send_welcome_message(guild, settings):
 
     except Exception as e:
         print(f'❌ Failed to send welcome message to {guild.name}: {e}')
-
-
-@bot.event
-async def close():
-    """Called when the bot is shutting down."""
-    print('🔄 Bot is shutting down. Cleaning up...')
-
-    try:
-        if db_core.is_healthy():
-            await db_core.close()
-            print('✅ Database connection closed')
-    except Exception as e:
-        print(f'❌ Error closing database connection: {e}')
-
-    if error_notifier:
-        try:
-            await error_notifier.shutdown()
-            print('✅ Error notifier shut down')
-        except Exception as e:
-            print(f'❌ Error shutting down error notifier: {e}')
-
-    print('👋 Bot shutdown complete')
 
 
 def get_bot():
