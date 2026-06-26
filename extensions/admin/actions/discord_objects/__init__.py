@@ -4,13 +4,14 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-"""
-Admin Commands Module - Components v2
+"""Discord-entity actions: create + validate."""
 
-Provides the unified /admin panel command for all bot configuration.
-Uses Discord Components v2 LayoutViews for interactive UI.
-"""
+from .create import (
+    create_role, create_channel, create_role_action, create_channel_action,
+)
+from .validate import validate_entity, validate_role_assignment
 
-from .admin_cog import AdminCog
-
-__all__ = ["AdminCog"]
+__all__ = [
+    "create_role", "create_channel", "create_role_action", "create_channel_action",
+    "validate_entity", "validate_role_assignment",
+]

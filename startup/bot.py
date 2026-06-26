@@ -25,6 +25,9 @@ bot = commands.AutoShardedBot(
     case_insensitive=True,
 )
 
+# Logging indent helper
+s = " " * 5
+
 
 # NOTE: Startup orchestration (command sync, database init, on_ready, and shutdown)
 # is owned by main.py's unified startup sequence (mirrors the sibling EoS bots).

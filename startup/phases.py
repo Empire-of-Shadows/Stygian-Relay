@@ -1,14 +1,14 @@
 """
 Startup orchestration helpers (shared sibling-pattern across EoS bots).
 
-Provides the unified startup-phase logging used by every Empire of Shadows bot so
+Provides the unified startup-phase timing used by every Empire of Shadows bot so
 their boot logs read identically:
     - `startup_phase(name)`  → "🔄 Starting phase: …" / "✅ Completed phase: … in …s"
     - `log_startup_summary()` → "📈 Startup Performance Summary:" + table
-    - `log_all_commands(bot)` → "📝 Registered Prefix Commands …" / "⚡ Registered Slash Commands …"
 
-This module is intentionally dependency-light (stdlib `logging` + `tabulate`) so the
-exact same file can be dropped into each bot regardless of its logger API.
+Command logging lives in `startup/sync.py` (`log_all_commands`). This module is
+intentionally dependency-light (stdlib `logging` + `tabulate`) so the exact same file
+can be dropped into each bot regardless of its logger API.
 """
 
 import logging
@@ -22,7 +22,6 @@ __all__ = [
     "startup_metrics",
     "startup_phase",
     "log_startup_summary",
-    "log_all_commands",
 ]
 
 logger = logging.getLogger(__name__)
@@ -61,44 +60,3 @@ def log_startup_summary() -> None:
 
     table = tabulate(rows, headers=["Phase", "Duration (s)", "Percentage"], tablefmt="fancy_grid")
     logger.info(f"📈 Startup Performance Summary:\n{table}")
-
-
-async def log_all_commands(bot) -> None:
-    """Log all registered prefix and slash commands in tabular form."""
-    prefix_commands = [
-        [cmd.name, cmd.help or "No description provided", ", ".join(cmd.aliases) or "None"]
-        for cmd in bot.commands
-    ]
-
-    if prefix_commands:
-        prefix_table = tabulate(
-            prefix_commands,
-            headers=["Prefix Command", "Description", "Aliases"],
-            tablefmt="fancy_grid",
-        )
-        logger.info(f"📝 Registered Prefix Commands ({len(prefix_commands)}):\n{prefix_table}")
-    else:
-        logger.info("📝 No prefix commands registered")
-
-    slash_commands = []
-
-    def collect_commands(commands_, parent_name="N/A"):
-        for cmd in commands_:
-            if hasattr(cmd, "commands") and cmd.commands:
-                collect_commands(cmd.commands, cmd.name)
-            else:
-                slash_commands.append(
-                    [cmd.qualified_name, cmd.description or "No description provided", parent_name]
-                )
-
-    collect_commands(bot.tree.get_commands())
-
-    if slash_commands:
-        slash_table = tabulate(
-            slash_commands,
-            headers=["Slash Command", "Description", "Parent Command (Group)"],
-            tablefmt="fancy_grid",
-        )
-        logger.info(f"⚡ Registered Slash Commands ({len(slash_commands)}):\n{slash_table}")
-    else:
-        logger.info("⚡ No slash commands registered")

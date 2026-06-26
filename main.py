@@ -18,19 +18,26 @@ import logging
 import signal
 import sys
 import time
+from pathlib import Path
 
 import discord
 from dotenv import load_dotenv
 
-from bot import get_bot, set_error_notifier, initialize_existing_guilds
-from core.sync import load_cogs
-from core.startup import log_all_commands, log_startup_summary, startup_phase
+from startup.bot import get_bot, set_error_notifier, initialize_existing_guilds
+from startup.sync import load_cogs, log_all_commands
+from startup.phases import log_startup_summary, startup_phase
 from logger.log_config import setup_logging
 from status.idle import rotate_status
 from database import db_core, guild_manager
 from health_endpoint import initialize_health_server, stop_health_server
 
-load_dotenv()
+_env_dir = Path(__file__).parent / "docker"
+if (_env_dir / ".env").exists():
+    load_dotenv(_env_dir / ".env")
+else:
+    load_dotenv()
+# Dev override: docker/.env.local (gitignored) wins when present.
+load_dotenv(_env_dir / ".env.local", override=True)
 
 # --- Configuration ---
 import os  # noqa: E402
@@ -77,10 +84,10 @@ async def on_ready():
     )
 
     try:
-        async with startup_phase("Systems Initialization"):
+        async with startup_phase("Database Attachment"):
             await initialize_existing_guilds()
     except Exception:
-        logger.error("❌ Error during system initialization", exc_info=True)
+        logger.error("❌ Error during database attachment", exc_info=True)
 
     try:
         async with startup_phase("Cog Loading"):

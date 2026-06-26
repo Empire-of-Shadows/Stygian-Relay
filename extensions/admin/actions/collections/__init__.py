@@ -4,13 +4,24 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-"""
-Admin Commands Module - Components v2
+"""Collection actions: document doers + paginated-list node + export."""
 
-Provides the unified /admin panel command for all bot configuration.
-Uses Discord Components v2 LayoutViews for interactive UI.
-"""
+from .documents import (
+    list_documents,
+    count_documents,
+    delete_document,
+    purge_collection,
+    upsert_document,
+    insert_document,
+)
+from .nodes import paginated_list_node
+from .export import export_documents, export_action
+from .scoped import mutate_scoped
 
-from .admin_cog import AdminCog
-
-__all__ = ["AdminCog"]
+__all__ = [
+    "list_documents", "count_documents", "delete_document", "purge_collection",
+    "upsert_document", "insert_document",
+    "paginated_list_node",
+    "export_documents", "export_action",
+    "mutate_scoped",
+]

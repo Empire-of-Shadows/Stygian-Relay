@@ -4,13 +4,11 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-"""
-Admin Commands Module - Components v2
+"""Higher-level feature builders assembled from the doers/factories.
 
-Provides the unified /admin panel command for all bot configuration.
-Uses Discord Components v2 LayoutViews for interactive UI.
+Small set for now; grows as cross-bot patterns prove stable.
 """
 
-from .admin_cog import AdminCog
+from .access_lists import access_list_pair
 
-__all__ = ["AdminCog"]
+__all__ = ["access_list_pair"]
