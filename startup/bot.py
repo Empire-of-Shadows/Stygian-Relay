@@ -7,7 +7,7 @@ error_notifier = None
 
 
 def set_error_notifier(notifier):
-    """Sets the global error notifier instance from main.py."""
+    """Sets the global error notifier instance from Relay.py."""
     global error_notifier
     error_notifier = notifier
 
@@ -30,7 +30,7 @@ s = " " * 5
 
 
 # NOTE: Startup orchestration (command sync, database init, on_ready, and shutdown)
-# is owned by main.py's unified startup sequence (mirrors the sibling EoS bots).
+# is owned by Relay.py's unified startup sequence (mirrors the sibling EoS bots).
 # This module only defines the bot instance and its guild lifecycle listeners.
 
 

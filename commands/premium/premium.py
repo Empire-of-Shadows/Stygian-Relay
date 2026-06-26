@@ -348,7 +348,7 @@ class Premium(commands.Cog):
                 await interaction.followup.send("ℹ️ No premium codes found.", ephemeral=True)
                 return
 
-            from extensions.common.views import PaginatedEmbedView
+            from commands.common.views import PaginatedEmbedView
 
             def render(page_items, page_idx, total_pages):
                 e = discord.Embed(

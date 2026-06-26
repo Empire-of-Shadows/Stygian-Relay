@@ -1,4 +1,4 @@
-# extensions/forward/views/custom_views.py
+# commands/forward/views/custom_views.py
 
 import discord
 import logging

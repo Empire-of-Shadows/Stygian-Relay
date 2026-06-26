@@ -27,7 +27,7 @@ logger = logging.getLogger("sync")
 
 # Cog discovery roots. Priority cogs load first (sequential) for ordering-sensitive
 # setup; the rest load in parallel for a faster boot.
-COG_DIRECTORIES = ["extensions"]
+COG_DIRECTORIES = ["commands"]
 PRIORITY_COG_DIRECTORIES: list[str] = []
 
 
