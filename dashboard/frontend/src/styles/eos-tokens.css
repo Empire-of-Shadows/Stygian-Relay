@@ -1,0 +1,240 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Empire of Shadows — Design Tokens
+   Source of truth for color, type, spacing, shape, motion.
+   Derived from TheCodex/dashboard/frontend/src/styles/discord-theme.css
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Brand ───────────────────────────────────────────────────────── */
+  --eos-brand:           #4d0eb3;   /* "Imperial Violet" — the community theme color */
+  --eos-brand-light:     #7a3df0;   /* Hover / lift / gradient end */
+  --eos-brand-deep:      #2c0769;   /* Pressed / ambient glow shadow */
+  --eos-brand-gradient:  linear-gradient(135deg, #4d0eb3 0%, #7a3df0 100%);
+  --eos-brand-ring:      rgba(125, 74, 255, 0.35);
+  --eos-brand-glow:      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(77,14,179,0.25) 0%, transparent 60%),
+                         radial-gradient(ellipse 60% 40% at 80% 60%, rgba(122,61,240,0.08) 0%, transparent 50%);
+
+  /* ── Background scale (dark, layered) ────────────────────────────── */
+  --eos-bg-0:            #0a0a0d;   /* Floating / deepest (modals, dropdowns) */
+  --eos-bg-1:            #0f0f12;   /* Page background */
+  --eos-bg-2:            #1a1a1f;   /* Panels, sidebars, raised surfaces */
+  --eos-bg-input:        #140f26;   /* Inputs — slight violet undertone */
+  --eos-bg-card:         rgba(255, 255, 255, 0.08);   /* Glass card fill */
+
+  /* ── Glass / borders ─────────────────────────────────────────────── */
+  --eos-glass:           rgba(255, 255, 255, 0.06);
+  --eos-glass-heavy:     rgba(255, 255, 255, 0.08);
+  --eos-border-subtle:   rgba(255, 255, 255, 0.06);
+  --eos-border-input:    #3b2a69;   /* Violet-tinted input border */
+
+  /* ── Text ────────────────────────────────────────────────────────── */
+  --eos-fg-1:            #ffffff;   /* Headings, primary */
+  --eos-fg-2:            #cfd3e1;   /* Body */
+  --eos-fg-muted:        #9aa3b2;   /* Captions, hints, timestamps */
+  --eos-fg-accent:       #a97dff;   /* Brand-accented text (links inside cards) */
+
+  /* ── Semantic ────────────────────────────────────────────────────── */
+  --eos-success:         #3ddc97;
+  --eos-danger:          #ff6b6b;
+  --eos-warning:         #ffb86b;
+
+  /* ── Discord-message palette (preview chrome — do NOT skin) ──────── */
+  --dc-bg-primary:       #313338;
+  --dc-bg-secondary:     #2b2d31;
+  --dc-bg-tertiary:      #1e1f22;
+  --dc-bg-floating:      #111214;
+  --dc-text-normal:      #dbdee1;
+  --dc-text-muted:       #949ba4;
+  --dc-text-link:        #00a8fc;
+  --dc-header-primary:   #f2f3f5;
+  --dc-header-secondary: #b5bac1;
+  --dc-blurple:          #5865f2;
+  --dc-green:            #248046;
+  --dc-red:              #da373c;
+  --dc-yellow:           #f0b132;
+  --dc-border-subtle:    #3f4147;
+  --dc-button-primary:   #5865f2;
+  --dc-button-secondary: #4e5058;
+  --dc-button-success:   #248046;
+  --dc-button-danger:    #da373c;
+  --dc-container-bg:     #2b2d31;
+  --dc-separator:        #3f4147;
+  --dc-accent-bar-width: 4px;
+  --dc-radius:           8px;
+  --dc-radius-sm:        4px;
+
+  /* ── Type — families ─────────────────────────────────────────────── */
+  /* The Codex ships system-Segoe (Discord's stack). We add Cinzel as a
+     mystical display face for slides / hero / titling — used SPARINGLY. */
+  --eos-font-ui:         'Segoe UI', Tahoma, Geneva, Verdana, system-ui, sans-serif;
+  --eos-font-display:    'Cinzel', 'Trajan Pro', 'Times New Roman', serif;
+  --eos-font-mono:       ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Roboto Mono', monospace;
+
+  /* ── Type — sizes ────────────────────────────────────────────────── */
+  --eos-fs-display:      36px;   /* Login / hero titles */
+  --eos-fs-h1:           24px;   /* Discord h1 inside messages */
+  --eos-fs-h2:           20px;   /* Discord h2 inside messages */
+  --eos-fs-h3:           16px;   /* Discord h3 / card titles */
+  --eos-fs-app-title:    18px;   /* Header bar app name */
+  --eos-fs-body:         14px;   /* Default UI body */
+  --eos-fs-message:      14px;   /* Discord message body */
+  --eos-fs-label:        13px;   /* Pills, palette items */
+  --eos-fs-small:        12px;   /* Captions, timestamps, breadcrumbs */
+  --eos-fs-eyebrow:      12px;   /* Uppercase section labels */
+  --eos-fs-tiny:         11px;   /* Stat labels, micro */
+
+  /* ── Type — weights ──────────────────────────────────────────────── */
+  --eos-fw-regular:      400;
+  --eos-fw-medium:       500;
+  --eos-fw-semibold:     600;
+  --eos-fw-bold:         700;
+
+  /* ── Type — line-heights ─────────────────────────────────────────── */
+  --eos-lh-tight:        1.0;
+  --eos-lh-snug:         1.3;
+  --eos-lh-body:         1.375;  /* Used across UI + Discord text */
+  --eos-lh-loose:        1.6;    /* Long-form docs panels */
+
+  /* ── Shape — radii ───────────────────────────────────────────────── */
+  --eos-radius:          14px;   /* Cards, large surfaces */
+  --eos-radius-sm:       10px;   /* Buttons, inputs, pills */
+  --eos-radius-pill:     999px;  /* Tags, badges, primary CTAs on hero */
+  --dc-radius:           8px;    /* Discord message containers */
+  --dc-radius-sm:        4px;    /* Discord buttons, separators */
+
+  /* ── Spacing scale ───────────────────────────────────────────────── */
+  --eos-space-1:         4px;
+  --eos-space-2:         6px;
+  --eos-space-3:         8px;
+  --eos-space-4:         12px;
+  --eos-space-5:         16px;
+  --eos-space-6:         20px;
+  --eos-space-7:         24px;
+  --eos-space-8:         32px;
+  --eos-space-9:         48px;
+
+  /* ── Elevation / shadows ─────────────────────────────────────────── */
+  --eos-shadow:          0 8px 28px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
+  --eos-shadow-sm:       0 2px 12px rgba(77,14,179,0.30);  /* Brand CTA rest */
+  --eos-shadow-md:       0 4px 18px rgba(77,14,179,0.45);  /* Brand CTA hover */
+  --eos-shadow-success:  0 4px 14px rgba(61,220,151,0.30);
+  --eos-shadow-danger:   0 4px 14px rgba(255,107,107,0.30);
+  --eos-shadow-dropdown: 0 8px 16px rgba(0,0,0,0.24);
+
+  /* ── Backdrop blur ───────────────────────────────────────────────── */
+  --eos-blur-card:       blur(10px);
+  --eos-blur-header:     saturate(140%) blur(8px);
+
+  /* ── Motion ──────────────────────────────────────────────────────── */
+  --eos-ease:            ease;
+  --eos-ease-out:        ease-out;
+  --eos-dur-fast:        0.1s;    /* Color/filter swaps */
+  --eos-dur-base:        0.15s;   /* Borders, opacity */
+  --eos-dur-med:         0.2s;    /* Buttons (transform + filter) */
+  --eos-dur-slow:        0.25s;   /* Cards (lift + glow) */
+  --eos-dur-pulse:       2s;      /* Brand glow keyframe loop */
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Semantic typography classes
+   Use these in HTML; do not hand-set font-size/weight.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.eos-display {
+  font-family: var(--eos-font-display);
+  font-size:   var(--eos-fs-display);
+  font-weight: var(--eos-fw-bold);
+  line-height: var(--eos-lh-tight);
+  letter-spacing: 0.02em;
+  color: var(--eos-fg-1);
+}
+
+.eos-h1 {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-h1);
+  font-weight: var(--eos-fw-bold);
+  line-height: var(--eos-lh-snug);
+  color: var(--eos-fg-1);
+}
+
+.eos-h2 {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-h2);
+  font-weight: var(--eos-fw-bold);
+  line-height: var(--eos-lh-snug);
+  color: var(--eos-fg-1);
+}
+
+.eos-h3 {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-h3);
+  font-weight: var(--eos-fw-semibold);
+  line-height: var(--eos-lh-snug);
+  color: var(--eos-fg-1);
+}
+
+.eos-app-title {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-app-title);
+  font-weight: var(--eos-fw-semibold);
+  color: var(--eos-fg-1);
+}
+
+.eos-body {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-body);
+  font-weight: var(--eos-fw-regular);
+  line-height: var(--eos-lh-body);
+  color: var(--eos-fg-2);
+}
+
+.eos-label {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-label);
+  font-weight: var(--eos-fw-medium);
+  color: var(--eos-fg-2);
+}
+
+.eos-small {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-small);
+  font-weight: var(--eos-fw-regular);
+  color: var(--eos-fg-muted);
+}
+
+/* The "eyebrow" — uppercase tiny section labels used heavily in the
+   builder sidebar, property panel, page tree, validation, etc. */
+.eos-eyebrow {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-eyebrow);
+  font-weight: var(--eos-fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--eos-fg-muted);
+}
+
+.eos-stat {
+  font-family: var(--eos-font-ui);
+  font-size: 36px;
+  font-weight: var(--eos-fw-bold);
+  line-height: var(--eos-lh-tight);
+  color: var(--eos-fg-1);
+}
+
+.eos-stat-label {
+  font-family: var(--eos-font-ui);
+  font-size:   var(--eos-fs-tiny);
+  font-weight: var(--eos-fw-regular);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--eos-fg-muted);
+}
+
+.eos-code {
+  font-family: var(--eos-font-mono);
+  font-size: 12px;
+  background: var(--eos-bg-1);
+  color: var(--eos-fg-accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
