@@ -1,0 +1,1528 @@
+/* Empire of Shadows site theme - tokens lifted from Website/EcomBackend. */
+
+:root {
+  /* Aliases over canonical --eos-* tokens (see eos-tokens.css) so TheHost
+     and TheCodex stay visually in sync when tokens evolve. */
+  --bg-1: var(--eos-bg-1);
+  --bg-2: var(--eos-bg-2);
+  --brand: var(--eos-brand);
+  --brand-2: var(--eos-brand-light);
+  --text-1: var(--eos-fg-1);
+  --text-2: var(--eos-fg-2);
+  --muted: var(--eos-fg-muted);
+  --glass: var(--eos-glass);
+  --glass-heavy: var(--eos-glass-heavy);
+  --card: var(--eos-bg-card);
+  --card-bg: var(--eos-bg-card);
+  --card-border: var(--eos-border-subtle);
+  --ring: var(--eos-brand-ring);
+  --success: var(--eos-success);
+  --warning: var(--eos-warning);
+  --danger: var(--eos-danger);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 20px rgba(125, 74, 255, 0.1);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --max: 1200px;
+  --link: var(--eos-fg-accent);
+  --link-hover: #debaff;
+  /* Codex-vocabulary aliases - same tokens, the names discord-theme.css and the
+     shared components use - so either naming resolves and the two dashboards can
+     share styles verbatim. */
+  --bg-0: var(--eos-bg-0);
+  --bg-card: var(--eos-bg-card);
+  --bg-input: var(--eos-bg-input);
+  --bg-floating: var(--eos-bg-0);
+  --brand-light: var(--eos-brand-light);
+  --brand-gradient: var(--eos-brand-gradient);
+  --text-muted: var(--eos-fg-muted);
+  --text-accent: var(--eos-fg-accent);
+  --border-subtle: var(--eos-border-subtle);
+  color-scheme: dark;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--bg-1);
+  color: var(--text-2);
+  line-height: 1.375;
+  min-height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(77, 14, 179, 0.25) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 60%, rgba(122, 61, 240, 0.08) 0%, transparent 50%),
+    var(--bg-1);
+  pointer-events: none;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  /* Lets .dash-page bleed to the viewport edges without a horizontal
+     scrollbar. `clip` (unlike `hidden`) does not create a scroll container,
+     so the sticky .app-header keeps working. */
+  overflow-x: clip;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--link-hover);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-1);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--brand);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #6d29d1;
+}
+
+/* Layout - full-bleed to match TheCodex (no max-width cap; 24px gutters).
+   `.dash-page` still breaks out to the true viewport edge; its negative-margin
+   trick self-adjusts to whatever padding this container uses. */
+.container {
+  width: 100%;
+  padding: 0 24px;
+}
+
+/* App chrome - mirrors TheCodex .app-header */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: linear-gradient(180deg, rgba(15, 15, 18, 0.85) 0%, rgba(15, 15, 18, 0.7) 100%);
+  backdrop-filter: saturate(140%) blur(8px);
+  -webkit-backdrop-filter: saturate(140%) blur(8px);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--card-border);
+}
+
+.app-header h1 {
+  font-size: 18px;
+  color: var(--text-1);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+.app-header h1 img {
+  width: 26px;
+  height: 26px;
+  filter: drop-shadow(0 2px 8px rgba(77, 14, 179, 0.45));
+}
+.app-header__title-text {
+  font-family: var(--eos-font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.user-info > img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--glass-heavy);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+main {
+  /* No top padding: each page leads with its own .dash-hero (which self-pads
+     40px), so content sits flush under the sticky header like TheCodex. */
+  flex: 1;
+  min-width: 0;
+  padding-bottom: 2rem;
+}
+
+footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: center;
+  padding: 1.25rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.footer-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.footer-links a {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer-links a:hover {
+  color: var(--link);
+}
+
+/* Legal documents (Terms, Privacy Policy): readable prose width */
+.legal-doc {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.legal-doc .section.card {
+  line-height: 1.65;
+}
+
+.legal-doc h2 {
+  font-size: 1.15rem;
+}
+
+.legal-doc p {
+  margin: 0.6rem 0;
+  color: var(--text-2);
+}
+
+.legal-doc ul {
+  margin: 0.6rem 0;
+  padding-left: 1.4rem;
+}
+
+.legal-doc li {
+  margin: 0.35rem 0;
+  color: var(--text-2);
+}
+
+.legal-doc a {
+  color: var(--link);
+}
+
+/* Cards */
+.card {
+  position: relative;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  overflow: hidden;
+}
+.card--accent {
+  padding-left: 1.5rem;
+}
+.card--accent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--card-accent, var(--brand));
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(77, 14, 179, 0.35);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(77, 14, 179, 0.15);
+}
+.card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.12rem;
+}
+.card p {
+  margin: 0;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+@media (max-width: 960px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 680px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Buttons - flat .btn / .btn-* match TheCodex; .cta keeps the pill for the hero. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: white;
+  text-decoration: none;
+  gap: 6px;
+}
+.btn:hover {
+  transform: translateY(-1px);
+  filter: saturate(110%);
+}
+.btn:active {
+  transform: translateY(0);
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.15s ease, filter 0.2s ease, box-shadow 0.2s ease;
+  font-size: 0.95rem;
+}
+.cta:hover {
+  transform: translateY(-1px);
+  filter: saturate(115%);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.btn.ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.btn.ghost:hover {
+  color: var(--text-1);
+  border-color: var(--brand-2);
+  box-shadow: none;
+}
+.btn.danger {
+  background: linear-gradient(135deg, #c0392b, var(--danger));
+}
+.btn.small {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.nav-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  border: 2px solid transparent;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+.nav-button:hover {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.05);
+}
+.nav-button.active {
+  color: var(--text-1);
+  border-color: var(--brand);
+  background: rgba(77, 14, 179, 0.15);
+}
+
+/* Forms */
+label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(20, 15, 38, 0.6);
+  color: var(--text-1);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--brand-2);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+select option {
+  background-color: #1a1a1f;
+  color: var(--text-1);
+}
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: var(--brand);
+  color: var(--text-1);
+}
+
+.field {
+  margin-bottom: 1rem;
+}
+.field-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.field-row > * {
+  flex: 1;
+  min-width: 200px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle input {
+  width: 38px;
+  height: 22px;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle input::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle input:checked {
+  background: var(--brand);
+}
+.toggle input:checked::after {
+  transform: translateX(16px);
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-2);
+}
+.badge.success {
+  color: var(--success);
+  border-color: rgba(61, 220, 151, 0.3);
+}
+.badge.warning {
+  color: var(--warning);
+  border-color: rgba(255, 184, 107, 0.3);
+}
+.badge.danger {
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+th {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 1.25rem;
+}
+.tab {
+  padding: 0.6rem 1rem;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab:hover {
+  color: var(--text-1);
+}
+.tab.active {
+  color: var(--text-1);
+  border-bottom-color: var(--brand-2);
+}
+
+/* Page layout helpers */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.page-header h1 {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+}
+.muted {
+  color: var(--muted);
+}
+.section {
+  margin-bottom: 2rem;
+}
+.section h2 {
+  font-size: 1.15rem;
+  margin: 0 0 0.75rem;
+  color: var(--text-1);
+}
+
+/* Login card */
+.login-card {
+  max-width: 420px;
+  margin: 6rem auto;
+  text-align: center;
+  padding: 2.5rem 2rem;
+}
+.login-card .logo {
+  justify-content: center;
+  margin-bottom: 1rem;
+  font-size: 1.3rem;
+}
+
+/* Stat cards */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.stat .value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.stat .label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Alerts */
+.alert {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid;
+  margin-bottom: 1rem;
+  font-size: 0.92rem;
+}
+.alert.success {
+  background: rgba(61, 220, 151, 0.08);
+  border-color: rgba(61, 220, 151, 0.3);
+  color: var(--success);
+}
+.alert.danger {
+  background: rgba(255, 107, 107, 0.08);
+  border-color: rgba(255, 107, 107, 0.3);
+  color: var(--danger);
+}
+.alert.warning {
+  background: rgba(255, 184, 107, 0.08);
+  border-color: rgba(255, 184, 107, 0.3);
+  color: var(--warning);
+}
+
+/* Login hero - shared across TheHost and TheCodex dashboards.
+   Open-bottom panel: visual structure on top, dissolves into page below
+   so future ecosystem content can flow naturally beneath the CTA + tiles. */
+.login-hero {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  margin: 4rem auto 0;
+  padding: 3rem 2rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 18px 18px 0 0;
+  background:
+    radial-gradient(700px 300px at 50% -10%, rgba(125, 74, 255, 0.22), transparent 65%),
+    radial-gradient(500px 250px at 20% 30%, rgba(80, 200, 255, 0.08), transparent 70%),
+    radial-gradient(500px 250px at 80% 60%, rgba(125, 74, 255, 0.10), transparent 70%);
+  background-size: 200% 200%, 200% 200%, 200% 200%;
+  background-position: 50% 0%, 0% 50%, 100% 50%;
+  animation: hero-drift 28s ease-in-out infinite alternate;
+}
+@keyframes hero-drift {
+  0% {
+    background-position: 50% 0%, 0% 50%, 100% 50%;
+  }
+  100% {
+    background-position: 50% 100%, 100% 50%, 0% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-hero {
+    animation: none;
+  }
+}
+
+.login-hero .login-mark {
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 6px 18px rgba(77, 14, 179, 0.45));
+}
+.login-hero h1 {
+  margin: 0;
+  font-family: var(--eos-font-display);
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, #ffffff, #cfd3e1);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.login-hero .tagline {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 1rem;
+  max-width: 38ch;
+  line-height: 1.5;
+}
+.login-hero .cta {
+  margin-top: 0.25rem;
+  padding: 0.8rem 1.6rem;
+  font-size: 1rem;
+}
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 0.5rem;
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.login-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 560px;
+}
+@media (max-width: 520px) {
+  .login-tiles {
+    grid-template-columns: 1fr;
+  }
+}
+.tile-button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--card-bg);
+  color: var(--text-1);
+  text-align: left;
+  text-decoration: none;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.tile-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(125, 74, 255, 0.45);
+  background: rgba(125, 74, 255, 0.08);
+  box-shadow: 0 0 0 3px var(--ring);
+  color: var(--text-1);
+}
+.tile-button .tile-title {
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+.tile-button .tile-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.login-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.login-stats .stat-num {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-1);
+  margin-right: 0.35rem;
+}
+.login-stats .stat-sep {
+  opacity: 0.4;
+}
+
+/* Reserved space below the hero for future ecosystem info sections. */
+.login-main {
+  padding-top: clamp(1.5rem, 3vw, 2.5rem);
+}
+
+.login-below {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* Semantic button variants - parity with TheCodex .btn-* surface.
+   Cohabit with the existing .btn / .cta pill style above; both valid. */
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  box-shadow: 0 2px 12px rgba(77, 14, 179, 0.3);
+  border: none;
+  color: white;
+}
+.btn-primary:hover {
+  box-shadow: 0 4px 18px rgba(77, 14, 179, 0.45);
+}
+.btn-secondary {
+  background: var(--glass-heavy);
+  color: var(--text-2);
+  border: 1px solid var(--card-border);
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+.btn-success {
+  background: var(--success);
+  color: #0f0f12;
+  border: none;
+}
+.btn-success:hover {
+  box-shadow: 0 4px 14px rgba(61, 220, 151, 0.3);
+}
+.btn-danger {
+  background: var(--danger);
+  border: none;
+  color: white;
+}
+.btn-danger:hover {
+  box-shadow: 0 4px 14px rgba(255, 107, 107, 0.3);
+}
+.btn-link {
+  background: transparent;
+  color: var(--eos-fg-accent);
+  padding: 0;
+  border: none;
+}
+.btn-link:hover {
+  transform: none;
+  filter: none;
+  text-decoration: underline;
+}
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-success:disabled,
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+/* Page atoms shared with TheCodex aesthetic. */
+.section-title {
+  color: var(--text-1);
+  margin: 1.5rem 0 1rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.eyebrow {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  color: var(--eos-fg-accent);
+  text-transform: uppercase;
+}
+
+/* ── Dashboard full-bleed layout (mirrors TheCodex .app-layout) ───────
+   TheCodex's dashboard has no max-width container; its hero and content
+   span the full viewport with 24px gutters. The Host wraps every route in
+   .container (max-width: var(--max)), so the dashboard opts back out to the
+   full viewport here. Guarded by `#root { overflow-x: clip }`. */
+.dash-page {
+  width: 100%;
+}
+.dash-page__body {
+  /* Horizontal gutter comes from .container (24px); body adds none. */
+  padding: 0;
+}
+
+/* ── Dashboard hero (mirrors TheCodex .dash-hero) ─────────────────── */
+
+.dash-hero {
+  position: relative;
+  /* Negative horizontal margin cancels the .container gutter so the hero spans
+     edge to edge; its own 24px padding then sets the content inset. Works the
+     same whether the hero sits directly in .container or inside .dash-page. */
+  margin: 0 -24px 1.5rem;
+  padding: 40px 24px 28px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  overflow: hidden;
+}
+.dash-hero__orb {
+  position: absolute;
+  top: -120px;
+  right: -80px;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(169, 125, 255, 0.40) 0%, transparent 65%),
+    radial-gradient(circle at 70% 70%, rgba(77, 14, 179, 0.30) 0%, transparent 70%);
+  filter: blur(20px);
+  pointer-events: none;
+  animation: heroOrb 8s ease-in-out infinite;
+}
+@keyframes heroOrb {
+  0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.9; }
+  50% { transform: scale(1.08) translate(-12px, 8px); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-hero__orb { animation: none; }
+}
+.dash-hero__sigil {
+  width: 96px;
+  height: 96px;
+  border-radius: 16px;
+  object-fit: cover;
+  filter: drop-shadow(0 8px 24px rgba(77, 14, 179, 0.55));
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+.dash-hero__copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dash-hero__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  color: var(--eos-fg-accent);
+  text-transform: uppercase;
+}
+.dash-hero__title {
+  font-family: var(--eos-font-display);
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--text-1);
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+.dash-hero__sub {
+  font-size: 15px;
+  color: var(--text-2);
+  max-width: 540px;
+  margin: 0;
+}
+.dash-hero__strip {
+  margin-left: auto;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+  .dash-hero { flex-direction: column; align-items: flex-start; }
+  .dash-hero__strip { margin-left: 0; }
+}
+
+/* ── Empire stat tile (full version w/ pulse + delta) ─────────────── */
+
+.empire-stat {
+  min-width: 110px;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.empire-stat__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.empire-stat__value .delta {
+  font-size: 11px;
+  color: var(--success);
+  font-weight: 600;
+}
+.empire-stat__label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.empire-stat__pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  margin-right: 6px;
+  box-shadow: 0 0 8px var(--success);
+  animation: livePulse 2s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+/* ── Activity card (w/ left accent bar via --card-accent) ─────────── */
+
+.activity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+@media (max-width: 768px) {
+  .activity-grid { grid-template-columns: 1fr; }
+}
+
+.activity-card {
+  position: relative;
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: var(--radius);
+  padding: 20px 20px 20px 24px;
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow);
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  overflow: hidden;
+}
+.activity-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--card-accent, var(--brand));
+}
+.activity-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(77, 14, 179, 0.4);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(77, 14, 179, 0.18), 0 0 32px rgba(77, 14, 179, 0.18);
+}
+.activity-card--featured {
+  background:
+    linear-gradient(135deg, rgba(77, 14, 179, 0.25) 0%, rgba(122, 61, 240, 0.12) 60%, rgba(255, 255, 255, 0.04) 100%),
+    rgba(255, 255, 255, 0.04);
+  border-color: rgba(122, 61, 240, 0.4);
+  box-shadow: var(--shadow), 0 0 32px rgba(77, 14, 179, 0.30);
+}
+.activity-card__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.activity-card__sigil {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+  flex-shrink: 0;
+  font-size: 20px;
+}
+.activity-card__icon {
+  font-size: 20px;
+}
+.activity-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.activity-card__featured-tag {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--eos-fg-accent);
+  background: rgba(169, 125, 255, 0.12);
+  border: 1px solid rgba(169, 125, 255, 0.4);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
+.activity-card__stat {
+  font-size: 40px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.activity-card__stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+.activity-card__row {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 12px;
+}
+.activity-card__detail {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+@keyframes tag-glow {
+  0%, 100% { border-color: var(--brand); box-shadow: 0 0 8px rgba(77, 14, 179, 0.3); }
+  50% { border-color: var(--brand-2); box-shadow: 0 0 20px rgba(122, 61, 240, 0.5); }
+}
+.activity-card--glowing { animation: tag-glow 2s ease-in-out infinite; }
+.activity-card--dimmed { opacity: 0.5; }
+
+/* ── Status / streak badges ───────────────────────────────────────── */
+
+.status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.status-badge--pending { background: rgba(255, 184, 107, 0.15); color: var(--warning); }
+.status-badge--approved,
+.status-badge--implemented { background: rgba(61, 220, 151, 0.15); color: var(--success); }
+.status-badge--rejected { background: rgba(255, 107, 107, 0.15); color: var(--danger); }
+
+.streak-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.streak-badge--active { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; }
+.streak-badge--inactive { background: var(--glass); color: var(--muted); }
+
+/* ── Guild grid + cards ───────────────────────────────────────────── */
+
+.guild-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.guild-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+  text-decoration: none;
+  color: inherit;
+}
+.guild-card:hover {
+  border-color: rgba(77, 14, 179, 0.5);
+}
+.guild-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-1);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.guild-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.guild-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.guild-card--setup {
+  opacity: 0.75;
+  border-style: dashed;
+}
+.guild-card--setup:hover {
+  opacity: 1;
+  border-color: var(--success);
+}
+.guild-invite-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.guild-invite-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--success);
+  color: #0f0f12;
+  flex-shrink: 0;
+}
+
+/* ── Guild filter bar (optional, future) ──────────────────────────── */
+
+.guild-filter-bar {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+.guild-pill {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--glass-heavy);
+  border: 1px solid var(--card-border);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.guild-pill:hover {
+  border-color: rgba(77, 14, 179, 0.4);
+}
+.guild-pill.active {
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  border-color: transparent;
+  color: white;
+}
+.guild-pill img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+/* Bot-not-installed cue — dashed + dimmed. */
+.guild-pill--setup {
+  opacity: 0.7;
+  border-style: dashed;
+}
+.guild-pill--setup:hover {
+  opacity: 1;
+  border-color: var(--success);
+}
+
+/* ── Mod page (under construction) ─────────────────────────────────── */
+
+.mod-construction__sigil {
+  position: relative;
+  z-index: 1;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mod-construction__sigil img {
+  width: 72px;
+  height: 72px;
+  filter: drop-shadow(0 8px 24px rgba(77, 14, 179, 0.55));
+  animation: mod-bob 3.5s ease-in-out infinite;
+}
+.mod-construction__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--brand-2);
+  opacity: 0.6;
+  animation: mod-ring 2.4s ease-out infinite;
+}
+
+.mod-construction__bar {
+  margin-top: 0.9rem;
+  width: 100%;
+  max-width: 320px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--glass-heavy);
+  overflow: hidden;
+}
+.mod-construction__bar > span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+  animation: mod-sweep 1.8s ease-in-out infinite;
+}
+
+.mod-construction__teaser {
+  opacity: 0.92;
+}
+.mod-construction__float {
+  font-size: 20px;
+  animation: mod-bob 3.5s ease-in-out infinite;
+}
+.mod-construction__shimmer {
+  margin-top: 14px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--glass) 0%, rgba(255, 255, 255, 0.14) 50%, var(--glass) 100%);
+  background-size: 200% 100%;
+  animation: mod-shimmer 1.6s linear infinite;
+}
+
+@keyframes mod-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes mod-ring {
+  0% { transform: scale(0.85); opacity: 0.7; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+@keyframes mod-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
+}
+@keyframes mod-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mod-construction__sigil img,
+  .mod-construction__ring,
+  .mod-construction__bar > span,
+  .mod-construction__float,
+  .mod-construction__shimmer {
+    animation: none;
+  }
+  .mod-construction__bar > span { width: 100%; }
+}
+
+/* ── Admin "Guild Web" page ────────────────────────────────────────── */
+
+.guild-web-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .guild-web-layout { grid-template-columns: 1fr; }
+}
+
+.guild-web {
+  position: relative;
+  width: 100%;
+  min-height: 540px;
+  border-radius: var(--radius);
+  border: 1px solid var(--card-border);
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 42%, rgba(77, 14, 179, 0.14), transparent 70%),
+    var(--card-bg);
+  overflow: hidden;
+}
+.guild-web__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.guild-web__field {
+  animation: gw-drift 16s ease-in-out infinite alternate;
+}
+@keyframes gw-drift {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(6px, -5px); }
+}
+
+/* Vines */
+.guild-web__vine {
+  fill: none;
+  stroke: var(--brand-light);
+  stroke-width: 1.5;
+  stroke-opacity: 0.4;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: gw-draw 0.9s ease forwards;
+}
+@keyframes gw-draw { to { stroke-dashoffset: 0; } }
+.guild-web__vine.is-active {
+  stroke-opacity: 0.95;
+  stroke-width: 2.5;
+}
+
+/* Hub */
+.guild-web__hub { filter: drop-shadow(0 0 12px rgba(122, 61, 240, 0.5)); }
+.guild-web__hub-halo {
+  fill: rgba(122, 61, 240, 0.25);
+  animation: gw-pulse 2.4s ease-in-out infinite;
+}
+.guild-web__hub-ring { stroke: var(--brand-light); stroke-width: 2.5; }
+@keyframes gw-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.08); }
+}
+
+/* Nodes */
+.guild-web__node { cursor: pointer; transition: opacity 0.2s; }
+.guild-web__node:focus { outline: none; }
+.guild-web__node-bg { fill: var(--bg-2); }
+.guild-web__node-ring { stroke-width: 2.5; }
+.guild-web__node--admin .guild-web__node-ring { stroke: var(--brand-light); }
+.guild-web__node--mod .guild-web__node-ring { stroke: var(--warning); }
+.guild-web__node--admin { filter: drop-shadow(0 0 6px rgba(122, 61, 240, 0.35)); }
+.guild-web__node--mod { filter: drop-shadow(0 0 6px rgba(255, 184, 107, 0.30)); }
+.guild-web__node.is-setup .guild-web__node-ring { stroke-dasharray: 4 4; }
+.guild-web__node.is-setup { opacity: 0.8; }
+.guild-web__node.is-dim { opacity: 0.32; }
+.guild-web__node.is-selected .guild-web__node-ring,
+.guild-web__node:hover .guild-web__node-ring { stroke-width: 3.5; }
+.guild-web__node.is-selected { opacity: 1; filter: drop-shadow(0 0 14px rgba(122, 61, 240, 0.6)); }
+.guild-web__node:hover { opacity: 1; }
+.guild-web__node-label {
+  fill: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.guild-web__node-initial {
+  fill: var(--text-1);
+  font-size: 20px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* Action panel */
+.guild-web__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: sticky;
+  top: 80px;
+}
+.guild-web__panel-head { display: flex; align-items: center; gap: 12px; }
+.guild-web__panel-head .status-badge { margin-top: 4px; display: inline-block; }
+.guild-web__panel-actions { display: flex; flex-direction: column; gap: 8px; }
+.guild-web__panel-actions .btn { width: 100%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .guild-web__field { animation: none; }
+  .guild-web__vine { animation: none; stroke-dashoffset: 0; }
+  .guild-web__hub-halo { animation: none; }
+}
+
+/* ── Shared utilities (from TheCodex discord-theme.css) ────────────────
+   Classes Host components use but the sheet was missing - admin-section,
+   loading/skeleton/empty states. Horizontal gutters come from
+   .dash-page__body, so admin-section pads vertically only. */
+
+.admin-section {
+  border-top: 1px solid var(--border-subtle);
+  padding: 16px 0;
+  margin-top: 8px;
+}
+.admin-section h3 {
+  font-size: 14px;
+  color: var(--text-1);
+  margin-bottom: 12px;
+}
+.admin-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  color: var(--text-muted);
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
+}
+
+.page-skeleton { padding: 32px 24px; display: flex; flex-direction: column; gap: 20px; }
+.skeleton-bar {
+  background: linear-gradient(90deg, var(--bg-card) 0%, rgba(255, 255, 255, 0.06) 50%, var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 8px; height: 24px; width: 60%;
+}
+.skeleton-bar--lg { height: 48px; width: 40%; }
+.skeleton-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.skeleton-card {
+  background: linear-gradient(90deg, var(--bg-card) 0%, rgba(255, 255, 255, 0.06) 50%, var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 14px; min-height: 140px;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar, .skeleton-card { animation: none; }
+}
+
+.empty-state {
+  background: var(--bg-card);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.guild-icon-fallback {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+  font-size: 32px; font-weight: 600; color: var(--text-2);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: inherit;
+}

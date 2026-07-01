@@ -2,7 +2,7 @@
 Health Endpoint Module for Stygian-Relay Bot
 Provides HTTP endpoint for centralized health monitoring
 
-Port: 50005
+Port: 50013
 """
 
 import http.server
@@ -15,6 +15,7 @@ import json
 logger = logging.getLogger(__name__)
 
 _health_server = None
+_start_time = time.time()
 
 
 class ReusableTCPServer(socketserver.TCPServer):
@@ -34,10 +35,13 @@ class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
             return
 
         status = "healthy"
+        checks = {}
+        gateway_latency_ms = None
         response = {
             "timestamp": time.time(),
             "bot": "Stygian-Relay",
             "service": "Discord Message Forwarding Bot",
+            "uptime": int(time.time() - _start_time),
         }
 
         if self.bot_instance:
@@ -45,15 +49,23 @@ class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
                 connected = self.bot_instance.is_ready()
                 response["discord_connected"] = connected
                 response["guilds"] = len(self.bot_instance.guilds) if hasattr(self.bot_instance, 'guilds') else 0
-                response["latency_ms"] = round(self.bot_instance.latency * 1000, 2) if hasattr(self.bot_instance, 'latency') else None
+                if hasattr(self.bot_instance, 'latency'):
+                    gateway_latency_ms = round(self.bot_instance.latency * 1000, 2)
+                response["latency_ms"] = gateway_latency_ms
+                checks["discord"] = {
+                    "status": "healthy" if connected else "unhealthy",
+                    "latency_ms": gateway_latency_ms,
+                }
                 if not connected:
                     status = "degraded"
             except Exception as e:
                 logger.warning(f"Failed to get bot status: {e}")
                 response["discord_connected"] = False
+                checks["discord"] = {"status": "unhealthy"}
                 status = "degraded"
         else:
             response["discord_connected"] = False
+            checks["discord"] = {"status": "unhealthy"}
             status = "degraded"
 
         if self.db_manager:
@@ -67,18 +79,26 @@ class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     db_ok = False
                 response["database_connected"] = db_ok
+                checks["database"] = {"status": "healthy" if db_ok else "unhealthy"}
                 if not db_ok:
                     status = "degraded"
             except Exception as e:
                 logger.warning(f"Failed to get database status: {e}")
                 response["database_connected"] = False
+                checks["database"] = {"status": "unhealthy"}
                 status = "degraded"
         else:
             response["database_connected"] = False
+            checks["database"] = {"status": "unhealthy"}
             status = "degraded"
 
+        if gateway_latency_ms is not None:
+            response["gateway_latency_ms"] = gateway_latency_ms
+        response["checks"] = checks
         response["status"] = status
-        code = 200 if status == "healthy" else 503
+        # Degraded must return 200 so the monitor parses the body and renders
+        # amber; non-200 is read as DOWN. Only hard-down returns 503.
+        code = 503 if status == "unhealthy" else 200
 
         self.send_response(code)
         self.send_header('Content-type', 'application/json')
@@ -100,12 +120,12 @@ def stop_health_server():
         logger.info("Health check server stopped")
 
 
-def initialize_health_server(port=50005, bot=None, db_manager=None):
+def initialize_health_server(port=50013, bot=None, db_manager=None):
     """
     Initialize the health server in a background thread
 
     Args:
-        port (int): Port to listen on (default: 50005)
+        port (int): Port to listen on (default: 50013)
         bot: Discord bot instance (optional)
         db_manager: Database manager instance (optional)
 

@@ -1,69 +1,96 @@
+<div align="center">
+
 # Stygian Relay
 
-A powerful and customizable Discord bot for forwarding messages between channels with advanced filtering and logging capabilities. This bot is currently a work in progress.
+**Rule-based message forwarding bot for Empire of Shadows**
 
-## Current State
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://python.org)
+[![discord.py](https://img.shields.io/badge/discord.py-2.7+-5865F2?logo=discord&logoColor=white)](https://github.com/Rapptz/discord.py)
+[![MongoDB](https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 
-This bot is in active development. The core functionality of message forwarding, including message listening, rule processing, and message dispatching based on configured rules, is now implemented. A setup wizard guides you through the initial configuration. While the core forwarding is functional, some advanced features are still under development, and you may encounter bugs.
+Automatically mirrors messages between channels — within a server or across servers — based on configurable per-guild rules with filtering, transforms, and comprehensive audit logging.
 
-## How to Use Stygian Relay
+</div>
 
-Stygian Relay is designed to help you automate message forwarding within your Discord server. Here's how to get started and manage your forwarding rules:
+---
 
-### 🚀 Getting Started
+## ✨ Features
 
-### ⚙️ Commands
+<table>
+<tr>
+<td width="50%" valign="top">
 
-All bot commands start with `/forward`.
+### 📨 Forwarding Engine
+- Channel-to-channel message mirroring
+- Cross-server forwarding support
+- Rule-based dispatch — multiple rules per guild, each with its own source and destination
+- Setup wizard via `/forward setup` guides the initial configuration
 
-*   **`/forward setup`**:
-    Initiates an interactive setup wizard to guide you through configuring new message forwarding rules. This process includes:
-    1.  **Permission Check:** The bot verifies it has all necessary Discord permissions.
-    2.  **Log Channel:** You'll select a dedicated channel for the bot to send logs, errors, and important notifications.
-    3.  **First Forwarding Rule:** You'll create your initial rule by specifying a source channel (where messages come from) and a destination channel (where messages are sent).
+</td>
+<td width="50%" valign="top">
 
-*   **`/forward edit`**:
-    Access an interactive interface to view and modify your existing forwarding rules. You can adjust rule names, change source or destination channels, toggle activation status, and customize formatting options.
+### 🔍 Advanced Filtering
+- Filter by message content
+- Filter by message type (text, media, links, embeds, files, stickers)
+- Filter by message length
+- Allow and deny lists per rule
 
-*   **`/forward help`**:
-    Provides a comprehensive overview of the bot's features and commands directly within Discord. Use this command for quick reference and assistance.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
 
-### ✨ Core Features
+### 🗄️ Database-Backed Rules
+- All per-guild settings and forwarding rules stored in MongoDB
+- Rules survive restarts, redeploys, and bot outages
+- Rule state (active/inactive) togglable without deletion
 
-*   **Cross-channel Message Forwarding**: Automatically forward messages between any two channels, even across different servers.
-*   **Advanced Filtering**: Control which messages are forwarded based on content, message type (text, media, links, embeds, files, stickers), and message length. (Further advanced filtering like author/role is Planned).
-*   **Customizable Prefixes**: Set a unique command prefix for the bot in each server. (Planned)
-*   **Database Integration**: All per-guild settings and rules are securely stored in a database.
-*   **Extensible Design**: The bot's architecture allows for easy addition of new functionalities and extensions.
-*   **Comprehensive Logging**: Detailed logging with optional email notifications for critical errors. (Planned)
+</td>
+<td width="50%" valign="top">
 
-### 🔒 Required Permissions
+### 🔒 Permissions & Audit
+- Requires **Manage Server** permission to configure
+- Comprehensive audit logging of all forwarding activity
+- Dedicated log channel per guild for bot activity and errors
 
-For Stygian Relay to function optimally, ensure it has the following Discord permissions. The setup wizard will prompt you if any are missing.
+</td>
+</tr>
+</table>
 
-*   **Basic Permissions (Required for Core Functionality)** *Not all features are implemented yet*:
-    *   **View Channels**: To list and access channels for forwarding.
-    *   **Send Messages**: To post forwarded messages and command responses.
-    *   **Read Message History**: To retrieve messages from source channels for forwarding.
-    *   **Attach Files**: To forward messages containing file attachments.
-    *   **Embed Links**: To correctly display rich embeds in forwarded messages.
+### ⚙️ Admin Panel
+> `/admin panel` — unified configuration panel (Discord Components v2) for per-guild forwarding settings, rule management, and bot configuration.
 
-*   **Advanced Permissions (Recommended for Enhanced Experience)** *Features not implemented yet*:
-    *   **Manage Webhooks**: Enables more seamless and customizable message forwarding, allowing the bot to send messages with custom names and avatars.
-    *   **Manage Messages**: For features like deleting original messages after forwarding.
-    *   **Add Reactions**: For interactive features and user feedback.
+---
 
-*   **User Permissions** *Features not implemented yet*:
-    *   The user initiating the `/forward setup` command must possess the "Manage Server" permission.
+## 🔧 Required Permissions
 
-## Dependencies
+For Stygian Relay to forward messages correctly, the bot needs:
 
-The project's dependencies are listed in the `requirements.txt` file.
+| Permission | Why |
+|---|---|
+| **View Channels** | List and access source and destination channels |
+| **Send Messages** | Post forwarded messages to destination channels |
+| **Read Message History** | Retrieve messages from source channels |
+| **Attach Files** | Forward messages containing file attachments |
+| **Embed Links** | Display rich embeds in forwarded messages |
+| **Manage Webhooks** | *(Recommended)* Enables seamless forwarding with custom name and avatar |
 
-## Contributing
+---
 
-Contributions are welcome! Please open an issue or submit a pull request.
+## 🔧 Tech Stack
 
-## License
+| Layer | Technology |
+|---|---|
+| **Runtime** | Python 3.11+ |
+| **Discord** | discord.py 2.7+ |
+| **Database** | MongoDB · Motor (async) · asyncpg |
+| **Admin Panel** | Discord Components v2 (vendored `admin_engine`) |
+| **Storage** | Vendored `storage_engine` |
+| **Deployment** | Docker Compose · `obsidian_grid` network |
 
-This project is licensed under the MIT License.
+---
+
+<div align="center">
+<sub>Part of the **Empire of Shadows** ecosystem · `Informatinal/Stygian-Relay`</sub>
+</div>
