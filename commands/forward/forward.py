@@ -4,8 +4,8 @@ import time
 import discord
 from collections import Counter
 from discord.ext import commands
-from database import guild_manager
-from database.utils import normalize_channel_id
+from storage.bot_specific.relay import guild_manager
+from storage.bot_specific.relay.utils import normalize_channel_id
 import logging
 import random
 from datetime import datetime, timedelta, timezone

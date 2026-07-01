@@ -33,6 +33,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-EXPOSE 54005
+EXPOSE 54013
 
 CMD ["python", "-m", "dashboard.app"]

@@ -21,7 +21,7 @@ from typing import Any
 
 import discord
 
-from database import guild_manager, audit_log
+from storage.bot_specific.relay import guild_manager, audit_log
 
 import logging
 

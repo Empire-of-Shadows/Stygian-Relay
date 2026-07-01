@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 import logging
 from startup.bot import bot
-from logger.log_factory import log_performance, log_context
+from storage.logging import log_performance, log_context
 
 load_dotenv()
 

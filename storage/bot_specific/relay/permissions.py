@@ -7,7 +7,7 @@ the designated manager role.
 """
 import discord
 from typing import Optional
-from database import guild_manager
+from . import guild_manager
 import logging
 
 logger = logging.getLogger(__name__)

@@ -1,8 +1,8 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from database import guild_manager, audit_log
-from database.utils import ensure_utc
+from storage.bot_specific.relay import guild_manager, audit_log
+from storage.bot_specific.relay.utils import ensure_utc
 from datetime import datetime, timezone
 import logging
 import os

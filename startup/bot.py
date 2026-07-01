@@ -1,7 +1,12 @@
+import logging
+
 import discord
 from discord.ext import commands
 
-from database import db_core, guild_manager, audit_log
+from storage.manager import db_manager
+from storage.bot_specific.relay import guild_manager, audit_log
+
+logger = logging.getLogger("startup.bot")
 
 error_notifier = None
 
@@ -36,7 +41,7 @@ s = " " * 5
 
 async def initialize_existing_guilds():
     """Initialize database settings for all guilds the bot is currently in."""
-    print('🏰 Initializing settings for existing guilds...')
+    logger.info("🏰 Initializing settings for existing guilds...")
 
     initialized_count = 0
     for guild in bot.guilds:
@@ -44,24 +49,24 @@ async def initialize_existing_guilds():
             await guild_manager.setup_new_guild(str(guild.id), guild.name)
             initialized_count += 1
         except Exception as e:
-            print(f'❌ Failed to initialize guild {guild.name}: {e}')
+            logger.error(f"❌ Failed to initialize guild {guild.name}: {e}")
 
-    print(f'✅ Initialized settings for {initialized_count}/{len(bot.guilds)} guilds')
+    logger.info(f"✅ Initialized settings for {initialized_count}/{len(bot.guilds)} guilds")
 
 
 @bot.event
 async def on_guild_join(guild):
     """Called when the bot joins a new guild."""
-    print(f'🤖 Bot joined guild: {guild.name} (ID: {guild.id})')
+    logger.info(f"🤖 Bot joined guild: {guild.name} (ID: {guild.id})")
 
     try:
         settings = await guild_manager.setup_new_guild(str(guild.id), guild.name)
-        print(f'✅ Auto-configured guild: {guild.name}')
+        logger.info(f"✅ Auto-configured guild: {guild.name}")
 
         await send_welcome_message(guild, settings)
 
     except Exception as e:
-        print(f'❌ Failed to setup guild {guild.name}: {e}')
+        logger.error(f"❌ Failed to setup guild {guild.name}: {e}")
 
 
 @bot.event
@@ -78,9 +83,9 @@ async def on_guild_role_delete(role):
                 "auto_clear_manager_role",
                 {"prior_role_id": str(role.id), "reason": "role deleted"}
             )
-            print(f"🧹 Cleared dangling manager_role_id {role.id} for guild {role.guild.name}")
+            logger.info(f"🧹 Cleared dangling manager_role_id {role.id} for guild {role.guild.name}")
     except Exception as e:
-        print(f"❌ Error in on_guild_role_delete: {e}")
+        logger.error(f"❌ Error in on_guild_role_delete: {e}")
 
 
 @bot.event
@@ -122,34 +127,34 @@ async def on_guild_channel_delete(channel):
             )
 
         if affected:
-            print(
+            logger.info(
                 f"🧹 Deactivated {len(affected)} rule(s) referencing channel {channel.id} "
                 f"(deleted in {channel.guild.name})"
             )
     except Exception as e:
-        print(f"❌ Error in on_guild_channel_delete: {e}")
+        logger.error(f"❌ Error in on_guild_channel_delete: {e}")
 
 
 @bot.event
 async def on_guild_remove(guild):
     """Called when the bot leaves a guild."""
-    print(f'👋 Bot left guild: {guild.name} (ID: {guild.id})')
+    logger.info(f"👋 Bot left guild: {guild.name} (ID: {guild.id})")
 
     try:
         success = await guild_manager.remove_guild_data(str(guild.id), guild.name)
         if success:
-            print(f'✅ Removed data for guild: {guild.name}')
+            logger.info(f"✅ Removed data for guild: {guild.name}")
         else:
-            print(f'⚠️ Partial cleanup for guild: {guild.name}')
+            logger.warning(f"⚠️ Partial cleanup for guild: {guild.name}")
 
     except Exception as e:
-        print(f'❌ Error removing guild data for {guild.name}: {e}')
+        logger.error(f"❌ Error removing guild data for {guild.name}: {e}")
 
 
 async def send_welcome_message(guild, settings):
     """Sends a welcome message to a new guild if enabled."""
     try:
-        bot_settings_collection = db_core.get_collection("discord_forwarding_bot", "bot_settings")
+        bot_settings_collection = db_manager.get_raw_collection("discord_forwarding_bot", "bot_settings")
         bot_settings = await bot_settings_collection.find_one({"_id": "global_config"})
 
         if not bot_settings or not bot_settings.get("welcome_message_enabled", True):
@@ -164,7 +169,7 @@ async def send_welcome_message(guild, settings):
                     channel = text_channel
                     break
             else:
-                print(f"⚠️ No suitable channel found for welcome message in {guild.name}")
+                logger.warning(f"⚠️ No suitable channel found for welcome message in {guild.name}")
                 return
 
         embed = discord.Embed(
@@ -185,10 +190,10 @@ async def send_welcome_message(guild, settings):
         embed.set_footer(text="Use /help for more information")
 
         await channel.send(embed=embed)
-        print(f'📝 Sent welcome message to guild: {guild.name}')
+        logger.info(f"📝 Sent welcome message to guild: {guild.name}")
 
     except Exception as e:
-        print(f'❌ Failed to send welcome message to {guild.name}: {e}')
+        logger.error(f"❌ Failed to send welcome message to {guild.name}: {e}")
 
 
 def get_bot():

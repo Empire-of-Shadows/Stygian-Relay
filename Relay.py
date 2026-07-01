@@ -2,35 +2,27 @@
 Stygian-Relay Discord bot — main orchestrator.
 
 Unified startup sequence (mirrors Ecom / TheHost / TheCodex / ImperialReminder):
-    1. Load env
-    2. setup_logging  → error reporter + root logging
+    1. Load env from docker/.env (+ .env.local override)
+    2. setup_application_logging (shared storage.logging) + root sink + email ErrorReporter
     3. main(): banner + Python/discord.py versions
-    4. _async_main(): install signal handlers → init database (db_core) → start error
-       notifier loop → start health endpoint (50005)
+    4. _async_main(): install signal handlers → init database (db_manager) → start error
+       notifier loop → start health endpoint (50013)
     5. start_services(): bot.start raced against shutdown_event
     6. on_ready (idempotent via _init_done):
-       Systems Initialization → Cog Loading → Command Sync → Status Setup
+       Database Attachment → Cog Loading → Command Sync → Status Setup
     7. shutdown_handler(): health → error notifier → database → bot
 """
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import time
 from pathlib import Path
 
-import discord
+# Load env from docker/.env (with root .env fallback) before importing anything that reads env.
 from dotenv import load_dotenv
-
-from startup.bot import get_bot, set_error_notifier, initialize_existing_guilds
-from startup.sync import load_cogs, log_all_commands
-from startup.phases import log_startup_summary, startup_phase
-from logger.log_config import setup_logging
-from status.idle import rotate_status
-from database import db_core, guild_manager
-from health_endpoint import initialize_health_server, stop_health_server
-
 _env_dir = Path(__file__).parent / "docker"
 if (_env_dir / ".env").exists():
     load_dotenv(_env_dir / ".env")
@@ -39,21 +31,103 @@ else:
 # Dev override: docker/.env.local (gitignored) wins when present.
 load_dotenv(_env_dir / ".env.local", override=True)
 
-# --- Configuration ---
-import os  # noqa: E402
+import discord
+
+from startup.bot import get_bot, set_error_notifier, initialize_existing_guilds
+from startup.sync import load_cogs, attach_databases, log_all_commands
+from startup.phases import log_startup_summary, startup_phase
+from storage.logging import setup_application_logging
+from logger.error_reporter import ErrorReporter, ReportingHandler
+from status.idle import rotate_status
+from storage.manager import db_manager
+from health_endpoint import initialize_health_server, stop_health_server
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 APPLICATION_NAME = "discord-bot-relay"
-HEALTH_PORT = 50005
+HEALTH_PORT = 50013
 
 bot = get_bot()
 
-error_notifier = setup_logging(
-    app_name=APPLICATION_NAME,
-    bot_instance=bot,
-    default_level=logging.INFO,
-)
+
+def _configure_logging():
+    """Adopt the shared storage.logging engine while keeping relay's email ErrorReporter.
+
+    storage.logging configures per-named loggers (get_logger) and leaves the root logger
+    unconfigured. Relay's code base (including the ported domain layer) logs through plain
+    ``logging.getLogger(...)`` in many modules, so we also configure the ROOT logger with the
+    engine's console+file formatters — every module emits in the identical line format used by
+    the sibling bots. get_logger-created loggers (the app/performance loggers + the vendored
+    engine) own their handlers, so we stop them propagating to root to avoid double lines.
+
+    Returns the email ErrorReporter (or None when EMAIL/PASSWORD are unset).
+    """
+    from logging.handlers import RotatingFileHandler
+
+    from storage.logging.factory import LoggerManager
+    from storage.logging.formatters import ColoredConsoleFormatter, IndentedFormatter
+
+    # App logger + JSON performance logger + the shared
+    # "Application logging initialized for: discord-bot-relay" line (sibling parity).
+    setup_application_logging(
+        app_name=APPLICATION_NAME,
+        log_level=logging.INFO,
+        log_dir="logs",
+        enable_performance_logging=True,
+        max_file_size=20 * 1024 * 1024,
+        backup_count=10,
+    )
+
+    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+    # Root logger: catch-all sink for the bot's plain logging.getLogger(...) modules.
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.handlers.clear()
+
+    console = logging.StreamHandler()
+    console.setFormatter(ColoredConsoleFormatter(fmt))
+    root.addHandler(console)
+
+    os.makedirs("logs", exist_ok=True)
+    file_handler = RotatingFileHandler(
+        os.path.join("logs", f"{APPLICATION_NAME}.log"),
+        maxBytes=20 * 1024 * 1024,
+        backupCount=10,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(IndentedFormatter(fmt))
+    root.addHandler(file_handler)
+
+    # get_logger loggers carry their own handlers; stop them double-printing through root.
+    for _named in LoggerManager().get_all_loggers().values():
+        _named.propagate = False
+
+    # Quiet noisy driver loggers (match sibling behavior).
+    for _noisy in (
+        "pymongo", "pymongo.connection", "pymongo.serverSelection",
+        "pymongo.topology", "motor",
+    ):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
+
+    # Relay's email ErrorReporter stays a bot-owned add-on: route ERROR+ records to it.
+    notifier = None
+    email = os.getenv("EMAIL")
+    password = os.getenv("PASSWORD")
+    if email and password:
+        notifier = ErrorReporter(email=email, app_password=password, bot_instance=bot)
+        reporting_handler = ReportingHandler(notifier=notifier)
+        reporting_handler.setLevel(logging.ERROR)
+        root.addHandler(reporting_handler)
+        logging.info("Error reporter initialized and handler added.")
+    else:
+        logging.warning("Email or password not found; email error reporting disabled.")
+    return notifier
+
+
+error_notifier = _configure_logging()
 set_error_notifier(error_notifier)
 
 logger = logging.getLogger("main")
@@ -66,8 +140,8 @@ async def on_ready():
     """
     Handle bot readiness. Idempotent across gateway reconnects via _init_done.
 
-    On first ready: scan existing guilds, load cogs, sync commands, set status,
-    log startup summary. On reconnect: just refresh presence and return.
+    On first ready: attach storage managers, scan existing guilds, load cogs, sync commands,
+    set status, log startup summary. On reconnect: just refresh presence and return.
     """
     if getattr(bot, "_init_done", False):
         try:
@@ -85,6 +159,7 @@ async def on_ready():
 
     try:
         async with startup_phase("Database Attachment"):
+            await attach_databases()
             await initialize_existing_guilds()
     except Exception:
         logger.error("❌ Error during database attachment", exc_info=True)
@@ -145,7 +220,7 @@ async def shutdown_handler():
 
     try:
         logger.info("🔄 Closing database connections...")
-        await db_core.close()
+        await db_manager.close()
         logger.info("✅ Database connections closed")
     except Exception as e:
         logger.error(f"❌ Error during database cleanup: {e}")
@@ -227,10 +302,7 @@ async def _async_main(shutdown_event: asyncio.Event):
 
     try:
         logger.info("🔄 Initializing database manager...")
-        success = await db_core.initialize()
-        if not success:
-            raise RuntimeError("Database initialization returned failure")
-        await guild_manager.initialize_default_settings()
+        await db_manager.initialize()
         logger.info("✅ Database manager initialized successfully")
     except Exception as e:
         logger.critical(f"💥 Failed to initialize database manager: {e}")
@@ -241,7 +313,7 @@ async def _async_main(shutdown_event: asyncio.Event):
         logger.info("✅ Error notification loop started")
 
     try:
-        initialize_health_server(port=HEALTH_PORT, bot=bot, db_manager=db_core)
+        initialize_health_server(port=HEALTH_PORT, bot=bot, db_manager=db_manager)
         logger.info("✅ Health check endpoint initialized")
     except Exception as e:
         logger.error(f"❌ Failed to start health endpoint: {e}")

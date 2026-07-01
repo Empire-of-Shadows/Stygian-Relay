@@ -52,7 +52,7 @@ COOKIE_DOMAIN: str | None = os.getenv("COOKIE_DOMAIN") or None
 
 IS_PRODUCTION = os.getenv("IS_PRODUCTION", "").lower() in ("1", "true", "yes")
 HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "54005"))
+PORT = int(os.getenv("PORT", "54013"))
 
 CORS_ORIGINS: list[str] = [
     "http://localhost:5173",

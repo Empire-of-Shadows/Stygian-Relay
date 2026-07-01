@@ -178,7 +178,7 @@ class RuleCreationFlow:
     ) -> list[discord.Guild]:
         """Source guild first, then any other guild the bot AND user share
         whose inbound allowlist opts the source guild in."""
-        from database import guild_manager
+        from storage.bot_specific.relay import guild_manager
 
         invoking_user = interaction.user
         source_id = interaction.guild_id
@@ -298,7 +298,7 @@ class RuleCreationFlow:
             return
 
         if target_guild.id != interaction.guild_id:
-            from database import guild_manager
+            from storage.bot_specific.relay import guild_manager
             if not await guild_manager.is_inbound_allowed(
                 str(target_guild.id), interaction.guild_id
             ):
@@ -558,7 +558,7 @@ class RuleCreationFlow:
             session.forwarding_rules.append(rule)
             await state_manager.update_session(interaction.guild_id, {"rules": session.forwarding_rules})
 
-            from database import guild_manager
+            from storage.bot_specific.relay import guild_manager
             destination_guild_id = (
                 session.destination_guild_id or interaction.guild_id
             )

@@ -6,9 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:54005",
-      "/auth": "http://localhost:54005",
-      "/health": "http://localhost:54005",
+      "/api": "http://localhost:54013",
+      "/auth": "http://localhost:54013",
+      "/health": "http://localhost:54013",
     },
   },
   build: {

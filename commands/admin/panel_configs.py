@@ -2,14 +2,14 @@
 PanelNode trees for the Stygian-Relay settings panel.
 
 Defines four sections (core, features, forwarding_rules, premium) wired to
-database.guild_manager. Each successful write also writes an audit_log entry.
+storage.bot_specific.relay.guild_manager. Each successful write also writes an audit_log entry.
 """
 
 import re
 
 import discord
 
-from database import audit_log, guild_manager
+from storage.bot_specific.relay import audit_log, guild_manager
 
 from .views.panel_engine import PanelNode
 

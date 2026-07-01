@@ -2,7 +2,7 @@
 Health Endpoint Module for Stygian-Relay Bot
 Provides HTTP endpoint for centralized health monitoring
 
-Port: 50005
+Port: 50013
 """
 
 import http.server
@@ -120,12 +120,12 @@ def stop_health_server():
         logger.info("Health check server stopped")
 
 
-def initialize_health_server(port=50005, bot=None, db_manager=None):
+def initialize_health_server(port=50013, bot=None, db_manager=None):
     """
     Initialize the health server in a background thread
 
     Args:
-        port (int): Port to listen on (default: 50005)
+        port (int): Port to listen on (default: 50013)
         bot: Discord bot instance (optional)
         db_manager: Database manager instance (optional)
 
