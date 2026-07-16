@@ -95,6 +95,7 @@ export interface BlockedReason {
 
 export interface StatsTotals {
   forwarded: number;
+  lifetime: number;
   blocked: number;
   today_forwarded: number;
   daily_average: number;

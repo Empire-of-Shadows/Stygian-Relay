@@ -657,6 +657,40 @@ class GuildManager:
         except Exception as e:
             logger.warning(f"daily_counters bulk_write failed: {e}")
 
+        # Persistent all-time counter per guild. `guild_settings` has no TTL, so
+        # this outlives the 90-day message_logs and 3-day daily_counters windows
+        # and is the only reliable source for an all-time forwarded total. On the
+        # first bump for a guild we seed it from the currently-visible history (a
+        # floor - anything older than the message_logs TTL is already gone), then
+        # it grows exactly from there.
+        guild_totals: Dict[str, int] = {}
+        for (gid, _day), delta in successes.items():
+            guild_totals[gid] = guild_totals.get(gid, 0) + delta
+
+        settings_coll = self.db.get_collection("discord_forwarding_bot", "guild_settings")
+        for gid, delta in guild_totals.items():
+            try:
+                doc = await settings_coll.find_one({"guild_id": gid}, {"lifetime_forwarded": 1})
+                if doc is None:
+                    continue  # no settings doc to attach the counter to
+                if "lifetime_forwarded" not in doc:
+                    # `logs` already holds this batch (inserted above), so the
+                    # seed count includes it - set, don't also increment.
+                    seed = await logs.count_documents({"guild_id": gid, "success": True})
+                    res = await settings_coll.update_one(
+                        {"guild_id": gid, "lifetime_forwarded": {"$exists": False}},
+                        {"$set": {"lifetime_forwarded": seed}},
+                    )
+                    if res.matched_count:
+                        continue
+                    # Lost the seed race to a concurrent writer; fall through to
+                    # a normal increment so this batch is still counted.
+                await settings_coll.update_one(
+                    {"guild_id": gid}, {"$inc": {"lifetime_forwarded": delta}}
+                )
+            except Exception as e:
+                logger.warning(f"lifetime_forwarded update failed for {gid}: {e}")
+
     async def record_denial(self, guild_id: str, reason: str, delta: int = 1) -> None:
         """
         Bump the per-(guild, UTC day, reason) blocked-event counter that backs

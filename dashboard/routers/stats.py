@@ -149,10 +149,20 @@ async def guild_stats(
     fanout_ratio = round(total_forwarded / unique_sources, 2) if unique_sources else 0.0
 
     # ── Enrich rules with names + channels from the guild config ───────────
-    settings_doc = await db.guild_settings().find_one({"guild_id": gid}, {"rules": 1})
+    settings_doc = await db.guild_settings().find_one(
+        {"guild_id": gid}, {"rules": 1, "lifetime_forwarded": 1}
+    )
     rules = (settings_doc or {}).get("rules") or []
     rule_map = {r.get("rule_id"): r for r in rules}
     active_rules = sum(1 for r in rules if r.get("is_active"))
+
+    # All-time forwarded is a persistent counter the bot maintains on the guild
+    # doc. Until the bot has seeded it (first forward after this feature shipped)
+    # it may be absent - fall back to the currently-visible history so the number
+    # is still sensible, matching the floor the bot will seed.
+    lifetime = (settings_doc or {}).get("lifetime_forwarded")
+    if lifetime is None:
+        lifetime = await db.message_logs().count_documents({"guild_id": gid, "success": True})
 
     per_rule = []
     for row in facet.get("per_rule", []):
@@ -201,6 +211,7 @@ async def guild_stats(
         "is_premium": limits["is_premium"],
         "totals": {
             "forwarded": total_forwarded,
+            "lifetime": int(lifetime),
             "blocked": total_blocked,
             "today_forwarded": today_forwarded,
             "daily_average": daily_average,

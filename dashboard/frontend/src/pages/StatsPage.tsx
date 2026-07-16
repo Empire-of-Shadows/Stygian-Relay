@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Channel, StatsResponse, PerRuleStat, PerSourceStat } from "../api/types";
+import type { Channel, StatsResponse, PerRuleStat, PerSourceStat, BlockedReason } from "../api/types";
 
 const RANGES = [7, 30, 90] as const;
 
@@ -54,7 +54,7 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
   const [hover, setHover] = useState<number | null>(null);
   const n = daily.length;
   const W = 720;
-  const H = 160;
+  const H = 170;
   const padTop = 10;
   const padBottom = 22;
   const innerH = H - padTop - padBottom;
@@ -68,8 +68,6 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
 
   const active = hover ?? (n > 0 ? n - 1 : 0);
   const cur = daily[active];
-
-  // A few evenly-spaced date ticks along the axis.
   const tickIdx = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
 
   return (
@@ -91,7 +89,6 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
               <stop offset="100%" stopColor="var(--brand)" stopOpacity="0.04" />
             </linearGradient>
           </defs>
-          {/* baseline + mid gridlines */}
           <line className="grid-line" x1="0" y1={padTop + innerH} x2={W} y2={padTop + innerH} />
           <line className="grid-line" x1="0" y1={padTop + innerH / 2} x2={W} y2={padTop + innerH / 2} />
           <path d={areaPath} fill="url(#trendFill)" />
@@ -157,7 +154,7 @@ function HoursChart({ hourly }: { hourly: number[] }) {
   );
 }
 
-// ── Generic horizontal share bars ──────────────────────────────────────────
+// ── Generic horizontal share bars (used for busiest source channels) ───────
 type ShareItem = { key: string; name: string; meta?: string; value: number; muted?: boolean };
 function ShareBars({ items }: { items: ShareItem[] }) {
   const max = Math.max(1, ...items.map((i) => i.value));
@@ -177,6 +174,111 @@ function ShareBars({ items }: { items: ShareItem[] }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ── Route cards — the "top rules" display ──────────────────────────────────
+function RouteCards({
+  rules,
+  total,
+  guildId,
+  channelName,
+}: {
+  rules: PerRuleStat[];
+  total: number;
+  guildId: string;
+  channelName: (id: string) => string;
+}) {
+  return (
+    <div className="route-grid">
+      {rules.slice(0, 9).map((r, i) => {
+        const status = r.deleted ? "deleted" : r.is_active ? "active" : "paused";
+        const statusLabel = r.deleted ? "No longer exists" : r.is_active ? "Active" : "Paused";
+        const crossGuild = !r.deleted && r.destination_guild_id !== "" && r.destination_guild_id !== guildId;
+        const share = total > 0 ? Math.round((r.forwarded / total) * 100) : 0;
+        return (
+          <div
+            key={r.rule_id}
+            className={`route-card${r.deleted || !r.is_active ? " route-card--muted" : ""}`}
+            style={{ "--share": `${share}%` } as CSSProperties}
+          >
+            <div className="route-card__top">
+              <span className="route-rank">#{i + 1}</span>
+              <span className="route-name" title={r.deleted ? "Deleted rule" : r.rule_name}>
+                {r.deleted ? "Deleted rule" : r.rule_name}
+              </span>
+              <span className={`route-status route-status--${status}`} title={statusLabel} aria-label={statusLabel} />
+            </div>
+            {r.deleted ? (
+              <div className="route-path route-path--gone">Rule no longer exists</div>
+            ) : (
+              <div className="route-path">
+                <span className="chan-chip" title={channelName(r.source_channel_id)}>{channelName(r.source_channel_id)}</span>
+                <span className="route-arrow" aria-label="forwards to">▶</span>
+                <span className="chan-chip" title={channelName(r.destination_channel_id)}>{channelName(r.destination_channel_id)}</span>
+                {crossGuild && <span className="route-xguild" title="Forwards to another server">↗ server</span>}
+              </div>
+            )}
+            <div className="route-card__foot">
+              <span className="route-count">{fmt(r.forwarded)}</span>
+              <span className="route-count-label">forwarded</span>
+              {share > 0 && <span className="route-share">{share}%</span>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Today's usage gauge (compact side-rail card) ───────────────────────────
+function UsageCard({ today, limit, premium }: { today: number; limit: number; premium: boolean }) {
+  const pct = Math.min(100, (today / Math.max(1, limit)) * 100);
+  const atCap = today >= limit;
+  return (
+    <div className="card">
+      <div className="chart-head">
+        <h3>Today's usage</h3>
+        {premium && <span className="badge success">Premium</span>}
+      </div>
+      <div className="usage-bar">
+        <span style={{
+          width: `${pct.toFixed(1)}%`,
+          background: atCap
+            ? "linear-gradient(135deg, var(--warning), #e8913a)"
+            : "linear-gradient(135deg, var(--brand), var(--brand-2))",
+        }} />
+      </div>
+      <div className="chart-caption" style={{ marginTop: 8 }}>
+        <b>{fmt(today)}</b> / {fmt(limit)} {atCap ? "· cap reached" : `· ${Math.round(pct)}% of cap`}
+      </div>
+    </div>
+  );
+}
+
+// ── Blocked-by-reason breakdown (compact side-rail card) ───────────────────
+function BlockedCard({ reasons, totalBlocked }: { reasons: BlockedReason[]; totalBlocked: number }) {
+  return (
+    <div className="card share-list">
+      <h3 style={{ margin: 0, fontSize: 15 }}>Why messages were blocked</h3>
+      {reasons.map((b) => {
+        const meta = reasonMeta(b.reason);
+        const pct = totalBlocked > 0 ? (b.count / totalBlocked) * 100 : 0;
+        return (
+          <div key={b.reason} className="reason-row">
+            <div className="reason-row__head">
+              <span className="reason-row__dot" style={{ background: meta.color }} />
+              <span className="reason-row__name">{meta.label}</span>
+              <span className="reason-row__val">{fmt(b.count)}</span>
+            </div>
+            {meta.desc && <div className="reason-row__desc">{meta.desc}</div>}
+            <div className="share-track">
+              <div className="share-fill" style={{ width: `${pct}%`, background: meta.color }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -220,19 +322,6 @@ export function StatsPage() {
     return name ? `#${name}` : `#${id}`;
   };
 
-  const ruleItems: ShareItem[] = useMemo(
-    () => (stats?.per_rule ?? []).map((r: PerRuleStat) => ({
-      key: r.rule_id,
-      name: r.deleted ? "Deleted rule" : r.rule_name,
-      meta: r.deleted
-        ? undefined
-        : `${channelName(r.source_channel_id)} → ${channelName(r.destination_channel_id)}`,
-      value: r.forwarded,
-      muted: r.deleted || !r.is_active,
-    })),
-    [stats, channels],
-  );
-
   const sourceItems: ShareItem[] = useMemo(
     () => (stats?.per_source ?? []).map((s: PerSourceStat) => ({
       key: s.channel_id,
@@ -246,6 +335,7 @@ export function StatsPage() {
 
   const t = stats?.totals;
   const hasActivity = !!t && (t.forwarded > 0 || t.blocked > 0);
+  const hasBlocked = !!stats && stats.blocked_by_reason.length > 0;
 
   return (
     <div className="dash-page">
@@ -273,7 +363,8 @@ export function StatsPage() {
       {stats && t && (
         <>
           <div className="stats-tiles">
-            <Tile accent value={fmt(t.forwarded)} label="Forwarded" sub={`in the last ${days} days`} />
+            <Tile accent value={fmt(t.lifetime)} label="All-time" sub="messages forwarded" />
+            <Tile value={fmt(t.forwarded)} label="Forwarded" sub={`last ${days} days`} />
             <Tile
               value={`${fmt(t.today_forwarded)} / ${fmt(stats.daily_limit)}`}
               label="Today"
@@ -285,28 +376,6 @@ export function StatsPage() {
             <Tile value={fmt(t.blocked)} label="Blocked" sub={stats.blocked_by_reason.length ? `${stats.blocked_by_reason.length} reasons` : "none"} />
           </div>
 
-          {/* Today's quota gauge */}
-          <div className="card" style={{ marginBottom: 24 }}>
-            <div className="chart-head">
-              <h3>Today's usage</h3>
-              <div className="chart-caption">
-                <b>{fmt(t.today_forwarded)}</b> / {fmt(stats.daily_limit)}
-                {stats.is_premium && <span className="badge success" style={{ marginLeft: 8 }}>Premium</span>}
-              </div>
-            </div>
-            <div style={{ height: 12, background: "rgba(255,255,255,0.08)", borderRadius: 999, overflow: "hidden" }}>
-              <div style={{
-                height: "100%",
-                width: `${Math.min(100, (t.today_forwarded / Math.max(1, stats.daily_limit)) * 100).toFixed(1)}%`,
-                background: t.today_forwarded >= stats.daily_limit
-                  ? "linear-gradient(135deg, var(--warning), #e8913a)"
-                  : "linear-gradient(135deg, var(--brand), var(--brand-2))",
-                borderRadius: 999,
-                transition: "width 0.5s ease",
-              }} />
-            </div>
-          </div>
-
           {!hasActivity && (
             <div className="empty-state" style={{ padding: "40px 24px" }}>
               No forwarding activity in this period yet. Once your rules start relaying messages, analytics will appear here.
@@ -315,78 +384,30 @@ export function StatsPage() {
 
           {hasActivity && (
             <>
-              <div className="section">
+              <div className="bento bento--2-1">
                 <TrendChart daily={stats.daily} />
+                <div className="bento-stack">
+                  <UsageCard today={t.today_forwarded} limit={stats.daily_limit} premium={stats.is_premium} />
+                  {hasBlocked && <BlockedCard reasons={stats.blocked_by_reason} totalBlocked={t.blocked} />}
+                </div>
               </div>
 
-              <div className="section">
+              <div className={sourceItems.length > 0 ? "bento bento--2-1" : "bento"}>
                 <HoursChart hourly={stats.hourly} />
+                {sourceItems.length > 0 && (
+                  <div className="card">
+                    <div className="chart-head"><h3>Busiest source channels</h3></div>
+                    <ShareBars items={sourceItems} />
+                  </div>
+                )}
               </div>
 
-              {ruleItems.length > 0 && (
+              {stats.per_rule.length > 0 && (
                 <div className="section">
                   <h2>Top rules</h2>
-                  <div className="card"><ShareBars items={ruleItems.slice(0, 10)} /></div>
+                  <RouteCards rules={stats.per_rule} total={t.forwarded} guildId={guildId} channelName={channelName} />
                 </div>
               )}
-
-              {sourceItems.length > 0 && (
-                <div className="section">
-                  <h2>Busiest source channels</h2>
-                  <div className="card"><ShareBars items={sourceItems} /></div>
-                </div>
-              )}
-
-              {stats.blocked_by_reason.length > 0 && (
-                <div className="section">
-                  <h2>Why messages were blocked</h2>
-                  <div className="card share-list">
-                    {stats.blocked_by_reason.map((b) => {
-                      const meta = reasonMeta(b.reason);
-                      const pct = t.blocked > 0 ? (b.count / t.blocked) * 100 : 0;
-                      return (
-                        <div key={b.reason} className="reason-row">
-                          <div className="reason-row__head">
-                            <span className="reason-row__dot" style={{ background: meta.color }} />
-                            <span className="reason-row__name">{meta.label}</span>
-                            <span className="reason-row__val">{fmt(b.count)}</span>
-                          </div>
-                          {meta.desc && <div className="reason-row__desc">{meta.desc}</div>}
-                          <div className="share-track">
-                            <div className="share-fill" style={{ width: `${pct}%`, background: meta.color }} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="section">
-                <h2>Recent days</h2>
-                <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-                  <div style={{ overflowX: "auto" }}>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Date</th>
-                          <th>Forwarded</th>
-                          <th>Blocked</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...stats.daily].reverse().slice(0, 14).map((d) => (
-                          <tr key={d.date}>
-                            <td className="muted">{shortDate(d.date)}</td>
-                            <td>{fmt(d.forwarded)}</td>
-                            <td className="muted">{fmt(d.blocked)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
             </>
           )}
         </>
