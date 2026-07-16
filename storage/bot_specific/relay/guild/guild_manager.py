@@ -1,3 +1,9 @@
+# ───────────────────────────────────────────────────────────────────────────
+# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
+#     python tools/sync_storage_engine.py
+# Drift is enforced by:  python tools/sync_storage_engine.py --check
+# ───────────────────────────────────────────────────────────────────────────
 import os
 import asyncio
 import time
@@ -7,9 +13,9 @@ from datetime import datetime, timedelta, timezone
 import logging
 import pymongo
 from pymongo import UpdateOne
-from .exceptions import DatabaseOperationError
+from ..exceptions import DatabaseOperationError
 from .constants import DEFAULT_BOT_SETTINGS, DEFAULT_GUILD_SETTINGS_TEMPLATE
-from .rule_schema import CURRENT_RULE_SCHEMA_VERSION, migrate_rule, migrate_rules
+from ..forwarding.rule_schema import CURRENT_RULE_SCHEMA_VERSION, migrate_rule, migrate_rules
 
 logger = logging.getLogger("GuildManager")
 

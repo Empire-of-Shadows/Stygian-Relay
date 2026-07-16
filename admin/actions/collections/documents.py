@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ...bindings import (
+from ...settings.bindings import (
     db_find, db_count, db_delete_one, db_delete_many, db_update_one, db_insert_one,
 )
 

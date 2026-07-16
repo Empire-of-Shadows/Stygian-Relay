@@ -17,8 +17,8 @@ Centralizes the role-based access logic every bot shares:
 - ``effective_mod_allowed`` — resolve a node's mod access from the declarative ``mod_allowed``
   flags in the panel tree (a menu's ``True`` cascades to children; a child's ``False`` overrides).
 
-Backend reads go through the bindings seam; those imports are lazy (inside the functions) so
-``bindings`` can import this module without a cycle.
+Backend reads go through the bindings seam (``settings/bindings.py``); those imports are lazy
+(inside the functions) so ``bindings`` can import this module without a cycle.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ async def resolve_panel_role_from_config(
     if perms is not None and perms.manage_guild:
         return "admin"
 
-    from .bindings import config_get  # lazy: avoid bindings<->auth import cycle
+    from .settings.bindings import config_get  # lazy: avoid bindings<->auth import cycle
 
     admin_ids = {int(r) for r in (await config_get(guild_id, admin_path, default=[]) or [])}
     mod_ids = {int(r) for r in (await config_get(guild_id, mod_path, default=[]) or [])}
@@ -74,7 +74,7 @@ def effective_mod_allowed(root, node) -> bool:
     result then cascades to its descendants.
     """
     try:
-        from .bindings import MOD_ALLOWED_CATEGORIES  # legacy fallback (optional)
+        from .settings.bindings import MOD_ALLOWED_CATEGORIES  # legacy fallback (optional)
     except Exception:
         MOD_ALLOWED_CATEGORIES = frozenset()
 

@@ -20,7 +20,7 @@ logger = get_logger("DefineCollections")
 # Relay's single application database (preserved name — data reused, no migration).
 RELAY_DB = "discord_forwarding_bot"
 
-# Collections owned by relay's domain layer (storage/bot_specific/relay/guild_manager.py).
+# Collections owned by relay's domain layer (storage/bot_specific/relay/guild/guild_manager.py).
 # Mirrors database/constants.REQUIRED_COLLECTIONS.
 _RELAY_COLLECTIONS = [
     "guild_settings",

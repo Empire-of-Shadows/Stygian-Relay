@@ -1,3 +1,9 @@
+# ───────────────────────────────────────────────────────────────────────────
+# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
+#     python tools/sync_storage_engine.py
+# Drift is enforced by:  python tools/sync_storage_engine.py --check
+# ───────────────────────────────────────────────────────────────────────────
 """
 Permission checking utilities for guild settings management.
 
@@ -7,7 +13,7 @@ the designated manager role.
 """
 import discord
 from typing import Optional
-from . import guild_manager
+from .. import guild_manager
 import logging
 
 logger = logging.getLogger(__name__)

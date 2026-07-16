@@ -4,17 +4,14 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-class DatabaseConnectionError(Exception):
-    """
-    Raised when there is an issue with the database connection.
-    This could be due to a network error, authentication failure, or other connection-related issues.
-    """
-    pass
+"""Stygian-Relay admin audit trail (writes the ``audit_logs`` collection).
 
+Name-collides with the engine's generic ``storage_engine/services/audit_log.py`` -- that is the
+promotion signal firing on purpose. Evaluated and NOT promoted: relay's
+``AuditLog.log(category, guild_id, actor_id, action, payload)`` is a bespoke signature that
+relay's admin bindings already adapt to. Combining the two is real work, not a rename.
+"""
 
-class DatabaseOperationError(Exception):
-    """
-    Raised when a database operation fails.
-    This could be due to a query error, constraint violation, or other operation-related issues.
-    """
-    pass
+from .writer import AuditLog
+
+__all__ = ["AuditLog"]

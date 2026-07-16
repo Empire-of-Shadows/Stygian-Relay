@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pymongo
 
-from storage.manager import db_manager as db_core
+from storage.settings.manager import db_manager as db_core
 from ..models.setup_state import SetupState
 
 logger = logging.getLogger(__name__)

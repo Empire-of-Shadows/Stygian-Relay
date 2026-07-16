@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from ...bindings import config_get, config_set, config_unset, invalidate_caches
+from ...settings.bindings import config_get, config_set, config_unset, invalidate_caches
 
 logger = logging.getLogger("AdminActions.config")
 

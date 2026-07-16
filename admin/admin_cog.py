@@ -29,8 +29,8 @@ from discord.ext import commands
 # All bot-specific backends (config, audit, premium, cache invalidation, panel-role
 # resolution, branding text, mod-tier set) are reached through this per-bot seam, so
 # this engine file stays byte-identical across every bot. Each bot ships its own
-# admin/bindings.py wiring these to its real backend.
-from .bindings import (
+# admin/settings/bindings.py wiring these to its real backend.
+from .settings.bindings import (
     MOD_ALLOWED_CATEGORIES,
     OVERVIEW_FOOTER,
     SETUP_GUIDE_TEXT,
@@ -43,7 +43,7 @@ from .bindings import (
 )
 from .permission_checks import check_channel_permissions, check_role_permissions
 from .auth import effective_mod_allowed
-from .panel_configs import MAIN_PANEL
+from .settings.panel_configs import MAIN_PANEL
 from .views.panel_engine import (
     PanelNode,
     ActionContext,

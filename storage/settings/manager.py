@@ -2,7 +2,7 @@
 
 Composes the vendored engine base (``DatabaseManagerBase``) with relay's two mixins
 (``DefineCollections`` + ``DatabaseProperties``) and instantiates the shared ``db_manager`` the
-rest of the bot imports (``from storage.manager import db_manager``).
+rest of the bot imports (``from storage.settings.manager import db_manager``).
 
 Relay's domain layer (``storage/bot_specific/relay/{guild_manager,audit}.py``) was carried over
 from the retired bespoke ``database/`` package and still expresses its richer queries against a
@@ -18,9 +18,9 @@ from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 
 from storage.database_manager import DatabaseManagerBase
-from storage.define_collections import DefineCollections
-from storage.database_properties import DatabaseProperties
-from storage import bindings
+from storage.settings.define_collections import DefineCollections
+from storage.settings.database_properties import DatabaseProperties
+from storage.settings import bindings
 
 
 class DatabaseManager(DatabaseManagerBase, DefineCollections, DatabaseProperties):

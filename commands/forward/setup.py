@@ -18,7 +18,7 @@ from .setup_helpers.interaction_utils import safe_respond
 from .models.setup_state import SetupState
 from .views import CustomView
 from storage.bot_specific.relay import guild_manager
-from storage.bot_specific.relay.permissions import can_manage_guild_settings, get_permission_error_message
+from storage.bot_specific.relay.guild.permissions import can_manage_guild_settings, get_permission_error_message
 
 logger = logging.getLogger(__name__)
 

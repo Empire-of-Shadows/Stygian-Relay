@@ -4,17 +4,8 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-class DatabaseConnectionError(Exception):
-    """
-    Raised when there is an issue with the database connection.
-    This could be due to a network error, authentication failure, or other connection-related issues.
-    """
-    pass
+"""Stygian-Relay message-forwarding rules: schema version + migration registry."""
 
+from .rule_schema import CURRENT_RULE_SCHEMA_VERSION, migrate_rule, migrate_rules
 
-class DatabaseOperationError(Exception):
-    """
-    Raised when a database operation fails.
-    This could be due to a query error, constraint violation, or other operation-related issues.
-    """
-    pass
+__all__ = ["CURRENT_RULE_SCHEMA_VERSION", "migrate_rule", "migrate_rules"]

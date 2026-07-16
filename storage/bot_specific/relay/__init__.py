@@ -1,4 +1,10 @@
-"""Stygian-Relay domain layer (bot-owned, NOT vendored).
+# ───────────────────────────────────────────────────────────────────────────
+# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
+#     python tools/sync_storage_engine.py
+# Drift is enforced by:  python tools/sync_storage_engine.py --check
+# ───────────────────────────────────────────────────────────────────────────
+"""Stygian-Relay domain layer (master-owned; vendored into relay only).
 
 Carried over from the retired bespoke ``database/`` package. Reaches Mongo through the shared
 engine ``db_manager`` (``storage/manager.py``) via its back-compat ``get_collection`` /
@@ -13,8 +19,8 @@ Exposes the module-level singletons the rest of the bot imports (same names the 
 
 from typing import Any, Dict
 
-from storage.manager import db_manager
-from .guild_manager import GuildManager
+from ...settings.manager import db_manager
+from .guild.guild_manager import GuildManager
 from .audit import AuditLog
 from .exceptions import DatabaseConnectionError, DatabaseOperationError
 

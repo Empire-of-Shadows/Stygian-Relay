@@ -16,15 +16,17 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-# Relative imports so this resolves against the vendored ``storage`` package.
-from .cache.backend import CacheBackend
-from .cache.local import LocalCache
+# Relative imports so this resolves against the vendored ``storage`` package. The engine sits
+# one level up now that the seam lives in storage/settings/.
+from ..cache.backend import CacheBackend
+from ..cache.local import LocalCache
 
 # Relay's entrypoint (Relay.py) loads docker/.env (+ .env.local override) before use, but
 # bindings is imported as soon as ``storage.manager`` is first touched — which can precede the
 # entrypoint's own load (e.g. when a cog module is imported first). Load here too so the URI is
 # always present. (Idempotent: load_dotenv() only fills unset keys unless override=True.)
-_env_dir = Path(__file__).resolve().parent.parent / "docker"
+# Three levels up: storage/settings/bindings.py -> settings -> storage -> the bot root.
+_env_dir = Path(__file__).resolve().parent.parent.parent / "docker"
 if (_env_dir / ".env").exists():
     load_dotenv(_env_dir / ".env")
 else:

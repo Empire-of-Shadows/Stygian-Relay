@@ -27,7 +27,7 @@ logger = logging.getLogger("Sync")
 
 # Cog discovery roots. Priority cogs load first (sequential) for ordering-sensitive
 # setup; the rest load in parallel for a faster boot.
-COG_DIRECTORIES = ["commands"]
+COG_DIRECTORIES = ["commands", "admin"]
 PRIORITY_COG_DIRECTORIES: list[str] = []
 
 
@@ -172,7 +172,7 @@ async def attach_databases():
 
     try:
         # Shared engine DatabaseManager (pooled pymongo connections).
-        from storage.manager import db_manager
+        from storage.settings.manager import db_manager
         try:
             await db_manager.initialize()
             result, is_success = await attach_attribute("db_manager", db_manager)
