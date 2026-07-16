@@ -86,11 +86,6 @@ export const api = {
     request<StatsResponse>(`/api/guilds/${gid}/stats?days=${days}`),
 
   premium: (gid: string) => request<PremiumStatus>(`/api/guilds/${gid}/premium`),
-  redeemCode: (gid: string, code: string) =>
-    request<{ ok: boolean; tier: string; expires_at: string | null }>(
-      `/api/guilds/${gid}/premium/redeem`,
-      { method: "POST", body: JSON.stringify({ code }) }
-    ),
 
   config: (gid: string) => request<GuildConfig>(`/api/guilds/${gid}/config`),
   saveConfig: (gid: string, patch: Partial<GuildConfig>) =>

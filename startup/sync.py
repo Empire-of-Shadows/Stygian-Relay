@@ -27,7 +27,7 @@ logger = logging.getLogger("Sync")
 
 # Cog discovery roots. Priority cogs load first (sequential) for ordering-sensitive
 # setup; the rest load in parallel for a faster boot.
-COG_DIRECTORIES = ["commands"]
+COG_DIRECTORIES = ["commands", "admin"]
 PRIORITY_COG_DIRECTORIES: list[str] = []
 
 
@@ -172,7 +172,7 @@ async def attach_databases():
 
     try:
         # Shared engine DatabaseManager (pooled pymongo connections).
-        from storage.manager import db_manager
+        from storage.settings.manager import db_manager
         try:
             await db_manager.initialize()
             result, is_success = await attach_attribute("db_manager", db_manager)
@@ -181,7 +181,7 @@ async def attach_databases():
             failed_logs.append(f"{s}❌ db_manager → Error: {db_error}\n")
             raise  # Can't continue without db_manager
 
-        from storage.bot_specific.relay import guild_manager, audit_log
+        from storage.bot_specific.relay import guild_manager, audit_log, premium_manager
 
         # GuildManager — ensure global bot settings + indexes + one-shot migrations (idempotent).
         try:
@@ -191,6 +191,15 @@ async def attach_databases():
         except Exception as gm_error:
             failed_logs.append(f"{s}❌ guild_manager → Error: {gm_error}\n")
             raise  # Cogs depend on guild_manager
+
+        # PremiumManager — entitlement indexes + one-shot legacy-subscription migration
+        # (idempotent). The premium cog attaches later and drives events/reconcile.
+        try:
+            await premium_manager.initialize()
+            result, is_success = await attach_attribute("premium_manager", premium_manager)
+            (success_logs if is_success else failed_logs).append(result)
+        except Exception as pm_error:
+            failed_logs.append(f"{s}❌ premium_manager → Error: {pm_error}\n")
 
         # AuditLog — records guild/premium/setting actions to the audit_logs collection.
         try:
@@ -232,30 +241,45 @@ async def log_all_commands(bot) -> None:
     else:
         logger.info("📝 No prefix commands registered")
 
-    slash_rows: list[list[str]] = []
-    leaf_count = 0
+    def build_rows(commands_iter):
+        """Flatten a command iterable into tree rows + a leaf (invocable) count."""
+        rows: list[list[str]] = []
+        leaves = 0
 
-    def add_command(cmd, depth: int = 0):
-        nonlocal leaf_count
-        label = ("  " * depth + "↳ " if depth else "") + cmd.name
-        description = getattr(cmd, "description", None) or "No description provided"
-        if isinstance(cmd, discord.app_commands.Group):
-            slash_rows.append([label, description, "Group"])
-            for sub in cmd.commands:
-                add_command(sub, depth + 1)
-        else:
-            leaf_count += 1
-            slash_rows.append([label, description, "Subcmd" if depth else "Slash"])
+        def add_command(cmd, depth: int = 0):
+            nonlocal leaves
+            label = ("  " * depth + "↳ " if depth else "") + cmd.name
+            description = getattr(cmd, "description", None) or "No description provided"
+            if isinstance(cmd, discord.app_commands.Group):
+                rows.append([label, description, "Group"])
+                for sub in cmd.commands:
+                    add_command(sub, depth + 1)
+            else:
+                leaves += 1
+                rows.append([label, description, "Subcmd" if depth else "Slash"])
 
-    for cmd in bot.tree.get_commands():
-        add_command(cmd)
+        for cmd in commands_iter:
+            add_command(cmd)
+        return rows, leaves
 
-    if slash_rows:
-        slash_table = tabulate(
-            slash_rows,
-            headers=["Command", "Description", "Type"],
-            tablefmt="fancy_grid",
-        )
-        logger.info(f"⚡ Registered Slash Commands ({leaf_count}):\n{slash_table}")
+    # Global commands (synced to every guild).
+    global_rows, global_leaves = build_rows(bot.tree.get_commands())
+    if global_rows:
+        table = tabulate(global_rows, headers=["Command", "Description", "Type"], tablefmt="fancy_grid")
+        logger.info(f"⚡ Registered Global Slash Commands ({global_leaves}):\n{table}")
     else:
-        logger.info("⚡ No slash commands registered")
+        logger.info("⚡ No global slash commands registered")
+
+    # Guild-scoped commands (e.g. the owner-only `/premium-admin` group). These live in a
+    # separate part of the tree and never appear in the global list, so enumerate every guild
+    # the tree has commands registered for and log each one.
+    guild_ids = sorted(getattr(bot.tree, "_guild_commands", {}).keys())
+    for gid in guild_ids:
+        rows, leaves = build_rows(bot.tree.get_commands(guild=discord.Object(id=gid)))
+        if not rows:
+            continue
+        guild = bot.get_guild(gid)
+        in_guild = "" if guild else "  [bot NOT in this guild - guild sync will fail]"
+        gname = f"{guild.name} ({gid})" if guild else str(gid)
+        table = tabulate(rows, headers=["Command", "Description", "Type"], tablefmt="fancy_grid")
+        logger.info(f"⚡ Registered Guild Slash Commands for {gname} ({leaves}):{in_guild}\n{table}")

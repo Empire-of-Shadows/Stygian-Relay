@@ -1,4 +1,10 @@
-"""Stygian-Relay domain layer (bot-owned, NOT vendored).
+# ───────────────────────────────────────────────────────────────────────────
+# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
+#     python tools/sync_storage_engine.py
+# Drift is enforced by:  python tools/sync_storage_engine.py --check
+# ───────────────────────────────────────────────────────────────────────────
+"""Stygian-Relay domain layer (master-owned; vendored into relay only).
 
 Carried over from the retired bespoke ``database/`` package. Reaches Mongo through the shared
 engine ``db_manager`` (``storage/manager.py``) via its back-compat ``get_collection`` /
@@ -13,15 +19,29 @@ Exposes the module-level singletons the rest of the bot imports (same names the 
 
 from typing import Any, Dict
 
-from storage.manager import db_manager
-from .guild_manager import GuildManager
+from ...settings.manager import db_manager
+from .guild.guild_manager import GuildManager
 from .audit import AuditLog
+from .premium import PremiumManager, PremiumState, SCOPE_GUILD
 from .exceptions import DatabaseConnectionError, DatabaseOperationError
 
 # Domain managers over the shared engine db_manager (constructed at import; the engine is
 # initialized later by Relay.py before any of these are used).
 guild_manager = GuildManager(db_manager)
 audit_log = AuditLog(db_manager)
+
+
+def _on_premium_state_change(scope: str, scope_id: str) -> None:
+    """Drop GuildManager's cached premium/limits for a guild whose state just changed, so a
+    grant/revoke/entitlement event is reflected on the next read instead of after the TTL."""
+    if scope == SCOPE_GUILD:
+        guild_manager._invalidate_premium(str(scope_id))
+
+
+# Entitlement-backed premium (per-guild today, per-user ready). Recompute invalidates the
+# guild premium cache via the hook above. Real tier ordering is supplied by the cog from its
+# per-bot SKU map; the master default is unranked.
+premium_manager = PremiumManager(db_manager, on_state_change=_on_premium_state_change)
 
 
 async def ensure_database_connection() -> bool:
@@ -49,8 +69,11 @@ __all__ = [
     "db_manager",
     "guild_manager",
     "audit_log",
+    "premium_manager",
     "GuildManager",
     "AuditLog",
+    "PremiumManager",
+    "PremiumState",
     "DatabaseConnectionError",
     "DatabaseOperationError",
     "ensure_database_connection",

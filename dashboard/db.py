@@ -71,14 +71,14 @@ def message_logs():
     return relay_client()["discord_forwarding_bot"]["message_logs"]
 
 
-def premium_subscriptions():
-    """discord_forwarding_bot.premium_subscriptions - per-guild premium subs."""
-    return relay_client()["discord_forwarding_bot"]["premium_subscriptions"]
+def entitlements():
+    """discord_forwarding_bot.entitlements - raw premium entitlement records (per id)."""
+    return relay_client()["discord_forwarding_bot"]["entitlements"]
 
 
-def premium_codes():
-    """discord_forwarding_bot.premium_codes - activation codes."""
-    return relay_client()["discord_forwarding_bot"]["premium_codes"]
+def premium_state():
+    """discord_forwarding_bot.premium_state - derived per-scope premium status."""
+    return relay_client()["discord_forwarding_bot"]["premium_state"]
 
 
 def audit_logs():

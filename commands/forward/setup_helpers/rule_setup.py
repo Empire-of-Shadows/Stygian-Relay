@@ -1,7 +1,7 @@
 from typing import Dict, Any, List, Tuple
 import discord
 
-from storage.bot_specific.relay.rule_schema import CURRENT_RULE_SCHEMA_VERSION
+from storage.bot_specific.relay.forwarding.rule_schema import CURRENT_RULE_SCHEMA_VERSION
 
 
 class RuleSetupHelper:

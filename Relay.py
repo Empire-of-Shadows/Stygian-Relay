@@ -39,7 +39,7 @@ from startup.phases import log_startup_summary, startup_phase
 from storage.logging import setup_application_logging
 from logger.error_reporter import ErrorReporter, ReportingHandler
 from status.idle import rotate_status
-from storage.manager import db_manager
+from storage.settings.manager import db_manager
 from health_endpoint import initialize_health_server, stop_health_server
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
