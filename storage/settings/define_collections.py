@@ -29,8 +29,13 @@ _RELAY_COLLECTIONS = [
     "rate_limits",
     "bot_settings",
     "user_permissions",
+    # Entitlement-backed premium: raw `entitlements` records fold into the derived
+    # `premium_state` doc per scope (indexes owned by PremiumManager._ensure_indexes).
+    "entitlements",
+    "premium_state",
+    # Retired code-redemption store. Kept registered so the one-shot legacy migration can
+    # read it; no new writes. `premium_codes` is dropped - codes are no longer issued.
     "premium_subscriptions",
-    "premium_codes",
     "audit_logs",
     "runtime_state",
     "daily_counters",

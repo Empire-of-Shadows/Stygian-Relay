@@ -20,8 +20,13 @@ REQUIRED_COLLECTIONS = {
     'rate_limits',
     'bot_settings',
     'user_permissions',
+    # Entitlement-backed premium (per-guild now, per-user ready). `entitlements` holds one
+    # record per Discord entitlement id (plus manual grants); `premium_state` is the derived
+    # fast-read doc per scope. `premium_subscriptions` is the retired code-redemption store,
+    # read once by the legacy migration and otherwise dormant.
+    'entitlements',
+    'premium_state',
     'premium_subscriptions',
-    'premium_codes',
     'audit_logs',
     'runtime_state',
     # Atomic per-(guild, day) forwarded counters; TTL'd 3 days after the

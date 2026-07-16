@@ -23,14 +23,14 @@ class DatabaseProperties:
         return self.get_collection_manager("message_logs")
 
     @property
-    def premium_subscriptions(self) -> CollectionManager:
-        """Active/expired premium subscriptions per guild."""
-        return self.get_collection_manager("premium_subscriptions")
+    def entitlements(self) -> CollectionManager:
+        """Raw premium entitlement records (one per entitlement id; incl. manual grants)."""
+        return self.get_collection_manager("entitlements")
 
     @property
-    def premium_codes(self) -> CollectionManager:
-        """Premium activation codes."""
-        return self.get_collection_manager("premium_codes")
+    def premium_state(self) -> CollectionManager:
+        """Derived per-scope premium status (folded from entitlements)."""
+        return self.get_collection_manager("premium_state")
 
     @property
     def audit_logs(self) -> CollectionManager:

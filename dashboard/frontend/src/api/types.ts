@@ -91,9 +91,9 @@ export interface StatsResponse {
 
 export interface PremiumStatus {
   guild_id: string;
-  tier: "free" | "premium" | "lifetime";
+  tier: string;
+  tiers: string[];
   is_premium: boolean;
-  is_lifetime: boolean;
   expires_at: string | null;
   max_rules: number;
   daily_limit: number;

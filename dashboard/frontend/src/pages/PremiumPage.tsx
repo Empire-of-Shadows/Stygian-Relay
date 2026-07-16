@@ -6,9 +6,6 @@ import type { PremiumStatus } from "../api/types";
 export function PremiumPage() {
   const { guildId } = useParams<{ guildId: string }>();
   const [premium, setPremium] = useState<PremiumStatus | null>(null);
-  const [code, setCode] = useState("");
-  const [redeeming, setRedeeming] = useState(false);
-  const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -16,26 +13,9 @@ export function PremiumPage() {
     api.premium(guildId).then(setPremium).catch((e) => setError(String(e)));
   }, [guildId]);
 
-  async function handleRedeem(e: React.FormEvent) {
-    e.preventDefault();
-    if (!guildId || !code.trim()) return;
-    setRedeeming(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const res = await api.redeemCode(guildId, code.trim());
-      setSuccess(`Code redeemed! Tier: ${res.tier}${res.expires_at ? ` — expires ${new Date(res.expires_at).toLocaleDateString()}` : " (lifetime)"}`);
-      setCode("");
-      const updated = await api.premium(guildId);
-      setPremium(updated);
-    } catch (e) {
-      setError(String(e).replace(/^Error: \d+: /, ""));
-    } finally {
-      setRedeeming(false);
-    }
-  }
-
   if (!guildId) return null;
+
+  const tierLabel = premium?.tiers?.length ? premium.tiers.join(", ") : premium?.tier ?? "free";
 
   return (
     <div className="dash-page" style={{ maxWidth: 640, margin: "0 auto" }}>
@@ -47,7 +27,6 @@ export function PremiumPage() {
       </div>
 
       {error && <div className="alert danger">{error}</div>}
-      {success && <div className="alert success">{success}</div>}
 
       {premium && (
         <div className="card" style={{ marginBottom: 24 }}>
@@ -55,7 +34,7 @@ export function PremiumPage() {
           <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
             <div className="stat">
               <span className="value" style={{ fontSize: "1.4rem", textTransform: "capitalize" }}>
-                {premium.tier}
+                {tierLabel}
               </span>
               <span className="label">Tier</span>
             </div>
@@ -68,36 +47,28 @@ export function PremiumPage() {
               <span className="label">Daily Limit</span>
             </div>
           </div>
-          {premium.is_premium && !premium.is_lifetime && premium.expires_at && (
+          {premium.is_premium && premium.expires_at && (
             <p className="muted" style={{ marginTop: 12, fontSize: 13 }}>
               Expires: {new Date(premium.expires_at).toLocaleDateString()}
             </p>
           )}
-          {premium.is_lifetime && (
-            <p style={{ marginTop: 12, fontSize: 13, color: "var(--success)" }}>Lifetime subscription active</p>
+          {premium.is_premium && !premium.expires_at && (
+            <p style={{ marginTop: 12, fontSize: 13, color: "var(--success)" }}>
+              Active - no expiry
+            </p>
           )}
         </div>
       )}
 
-      <div className="card">
-        <h3 style={{ marginBottom: 12 }}>Redeem a Code</h3>
-        <form onSubmit={handleRedeem}>
-          <div className="field">
-            <label>Activation Code</label>
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="XXXX-XXXX-XXXX"
-              required
-              style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}
-            />
-          </div>
-          <button type="submit" className="btn btn-primary" disabled={redeeming || !code.trim()}>
-            {redeeming ? "Redeeming…" : "Redeem Code"}
-          </button>
-        </form>
-      </div>
+      {premium && !premium.is_premium && (
+        <div className="card">
+          <h3 style={{ marginBottom: 12 }}>Upgrade to Premium</h3>
+          <p className="muted" style={{ fontSize: 14 }}>
+            Premium unlocks more forwarding rules, higher daily limits, and ad-free forwards.
+            Premium is managed through Discord - once active it appears here automatically.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

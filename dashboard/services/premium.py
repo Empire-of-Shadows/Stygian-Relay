@@ -1,4 +1,9 @@
-"""Premium status helpers for the Relay dashboard."""
+"""Premium status helpers for the Relay dashboard (entitlement-backed, read-only).
+
+Reads the derived ``premium_state`` doc that the bot's PremiumManager maintains from
+entitlements. The dashboard never writes premium - grants happen in Discord (real entitlements)
+or via the bot's owner `/premium grant` command.
+"""
 
 from __future__ import annotations
 
@@ -7,31 +12,39 @@ from datetime import datetime, timezone
 from dashboard import db
 
 
-async def get_premium_subscription(guild_id: str) -> dict | None:
-    """Return the active premium subscription doc, or None."""
-    now = datetime.now(timezone.utc)
-    sub = await db.premium_subscriptions().find_one({
-        "guild_id": str(guild_id),
-        "is_active": True,
-        "is_lifetime": True,
-    })
-    if sub:
-        return sub
-    sub = await db.premium_subscriptions().find_one({
-        "guild_id": str(guild_id),
-        "is_active": True,
-        "expires_at": {"$gt": now},
-    })
-    return sub
+def _ensure_utc(dt):
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+async def get_premium_status(guild_id: str) -> dict:
+    """Return the derived premium status for a guild from the ``premium_state`` doc."""
+    doc = await db.premium_state().find_one({"_id": f"guild:{str(guild_id)}"})
+    if not doc or not doc.get("is_premium"):
+        return {"is_premium": False, "tier": "free", "tiers": [], "expires_at": None}
+
+    expires_at = _ensure_utc(doc.get("expires_at"))
+    if expires_at is not None and expires_at <= datetime.now(timezone.utc):
+        # Lapsed since the bot last recomputed; the next reconcile flips the stored doc.
+        return {"is_premium": False, "tier": "free", "tiers": [], "expires_at": None}
+
+    tiers = doc.get("tiers") or []
+    return {
+        "is_premium": True,
+        "tier": doc.get("tier") or (tiers[0] if tiers else "premium"),
+        "tiers": tiers,
+        "expires_at": expires_at,
+    }
 
 
 async def is_guild_premium(guild_id: str) -> bool:
-    """True if the guild has an active subscription."""
-    return await get_premium_subscription(str(guild_id)) is not None
+    """True if the guild has active premium."""
+    return (await get_premium_status(str(guild_id)))["is_premium"]
 
 
 async def get_guild_limits(guild_id: str) -> dict:
-    """Return rule and daily-message limits for the guild based on premium tier."""
+    """Return rule and daily-message limits for the guild based on premium status."""
     settings_doc = await db.bot_settings().find_one({"_id": "global_config"})
     settings_doc = settings_doc or {}
     premium = await is_guild_premium(str(guild_id))

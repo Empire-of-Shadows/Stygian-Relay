@@ -37,8 +37,25 @@ BOT_NAME = "Stygian-Relay"
 MOD_ALLOWED_CATEGORIES: set[str] = set()
 
 SETUP_GUIDE_TEXT = (
-    "Set a **Manager Role** and **Log Channel** under Core, then enable "
-    "**Message Forwarding** and add Forwarding Rules."
+    "**Getting started with Stygian-Relay**\n"
+    "Relay mirrors messages from one channel to another, in this server or "
+    "across servers. Work through the sections below to go live:\n"
+    "\n"
+    "**1. Core** - Set a **Manager Role** so trusted members can change these "
+    "settings without full admin, and a **Log Channel** where the bot posts "
+    "activity and errors.\n"
+    "**2. Feature Toggles** - Turn on **Message Forwarding** (the master "
+    "switch; while it is off, no rules fire). Optionally enable **Error "
+    "Notifications** for in-channel alerts, and use the **Inbound Forward "
+    "Allowlist** to choose which other servers may forward messages into this "
+    "one.\n"
+    "**3. Forwarding Rules** - Add a rule for each source to destination pair "
+    "you want mirrored. This section also shows your active rules and how many "
+    "messages have been forwarded today.\n"
+    "**4. Premium** - Check your subscription status and per-server limits "
+    "(rules and daily forwards). Run `/premium status` for full details.\n"
+    "\n"
+    "You can hide this guide any time with the button below."
 )
 OVERVIEW_FOOTER = ""
 

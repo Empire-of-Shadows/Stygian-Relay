@@ -13,6 +13,7 @@ import discord
 from storage.bot_specific.relay import audit_log, guild_manager
 
 from ..views.panel_engine import PanelNode
+from .forwarding_actions import make_add_rule_node, make_manage_rules_node
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -163,7 +164,7 @@ async def _forwarding_rules_description(guild: discord.Guild) -> str:
             src = r.get("source_channel_id")
             dst = r.get("destination_channel_id")
             name = r.get("rule_name") or "(unnamed)"
-            parts.append(f"• **{name}** — <#{src}> → <#{dst}>")
+            parts.append(f"• **{name}** - <#{src}> -> <#{dst}>")
         if len(active) > 10:
             parts.append(f"…and {len(active) - 10} more.")
     else:
@@ -174,24 +175,29 @@ async def _forwarding_rules_description(guild: discord.Guild) -> str:
 
 async def _premium_description(guild: discord.Guild) -> str:
     gid = str(guild.id)
-    is_prem = await guild_manager.is_premium_guild(gid)
-    sub = await guild_manager.get_premium_subscription(gid)
+    state = await guild_manager.get_premium_state(gid)
 
-    if not is_prem:
+    if not state or not state.get("is_premium"):
         return (
             "**Status:** Free Tier\n\n"
-            "Upgrade by redeeming a premium code with `/redeem-code`.\n"
-            "Run `/premium-status` for full details."
+            "Premium unlocks more forwarding rules, higher daily limits, and ad-free forwards.\n"
+            "Run `/premium status` for full details."
         )
-    if sub and sub.get("is_lifetime"):
-        return "**Status:** ✨ Lifetime Premium\n\nRun `/premium-status` for full details."
 
-    expires = sub.get("expires_at") if sub else None
-    expiry_str = expires.strftime("%Y-%m-%d %H:%M UTC") if expires else "Unknown"
+    tiers = state.get("tiers") or []
+    tier_str = ", ".join(tiers) if tiers else (state.get("tier") or "Premium")
+    expires = state.get("expires_at")
+    if not expires:
+        return (
+            f"**Status:** ✨ Premium ({tier_str})\n"
+            f"**Expires:** Never\n\n"
+            f"Run `/premium status` for full details."
+        )
+    expiry_str = expires.strftime("%Y-%m-%d %H:%M UTC")
     return (
-        f"**Status:** Premium\n"
+        f"**Status:** Premium ({tier_str})\n"
         f"**Expires:** {expiry_str}\n\n"
-        f"Extend by redeeming another code with `/redeem-code`."
+        f"Run `/premium status` for full details."
     )
 
 
@@ -282,6 +288,10 @@ FORWARDING_RULES_NODE = PanelNode(
     kind="menu",
     description="View and manage your forwarding rules.",
     async_description=_forwarding_rules_description,
+    children={
+        "add_rule": make_add_rule_node(),
+        "manage_rules": make_manage_rules_node(),
+    },
 )
 
 PREMIUM_NODE = PanelNode(

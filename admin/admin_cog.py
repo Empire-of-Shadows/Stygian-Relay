@@ -632,6 +632,20 @@ class AdminCog(commands.Cog):
             n.label for n in (grandparent_node, parent_node, node) if n is not None
         ) if parent_node is not None else None
 
+        async def _resolve_menu_description():
+            """Live description for this menu when the node defines an
+            ``async_description`` (async (guild) -> str). Returns None to fall
+            back to the node's static description / description_builder inside
+            build_menu_view. Re-resolved on every (re)render so the summary
+            reflects current state."""
+            if node.async_description is None:
+                return None
+            try:
+                return await node.async_description(guild)
+            except Exception:
+                logger.exception("async_description failed for %s", node.key)
+                return None
+
         async def _build_current_view():
             new_summary = await self._gather_summaries(node, guild.id)
             new_locked = await self._compute_locked_keys(node, guild.id)
@@ -645,6 +659,7 @@ class AdminCog(commands.Cog):
                 guild=guild,
                 is_premium=await self._is_premium(guild.id),
                 breadcrumb=breadcrumb,
+                description_override=await _resolve_menu_description(),
             )
 
         async def on_select(sel_interaction: discord.Interaction, child_key: str):
@@ -760,6 +775,7 @@ class AdminCog(commands.Cog):
             guild=guild,
             is_premium=await self._is_premium(guild.id),
             breadcrumb=breadcrumb,
+            description_override=await _resolve_menu_description(),
         )
         if session:
             session.register_view(layout)
@@ -1858,6 +1874,19 @@ class AdminCog(commands.Cog):
             cat_data: dict[str, str | dict[str, str]] = {}
             for child_key, child_node in cat_node.children.items():
                 if child_node.kind == "menu":
+                    # Pure feature-toggle menu (a switch with no sub-settings):
+                    # report its on/off state, never "Not configured".
+                    if child_node.toggle_get and not child_node.children:
+                        try:
+                            enabled = await child_node.toggle_get(guild_id)
+                        except Exception:
+                            enabled = None
+                        cat_data[child_key] = (
+                            ("Enabled" if enabled else "Disabled")
+                            if enabled is not None
+                            else "Not configured"
+                        )
+                        continue
                     # Sub-menu: gather each sub-child
                     sub_data: dict[str, str] = {}
                     for sub_key, sub_node in child_node.children.items():
@@ -1940,6 +1969,17 @@ class AdminCog(commands.Cog):
                 except Exception:
                     summary_map[key] = []
             elif child.kind == "menu":
+                # A menu that exists purely to host a feature toggle (no
+                # sub-settings) is summarized by its on/off state, never
+                # "Not configured" - a toggle is always enabled or disabled.
+                if child.toggle_get and not child.children:
+                    try:
+                        enabled = await child.toggle_get(guild_id)
+                    except Exception:
+                        enabled = None
+                    if enabled is not None:
+                        summary_map[key] = ["__toggle_on__" if enabled else "__toggle_off__"]
+                        continue
                 # Recursively check sub-children to count customized settings
                 customized = []
                 has_stored_value = False

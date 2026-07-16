@@ -303,6 +303,10 @@ def _child_summary(node: PanelNode, values: list, guild: discord.Guild | None = 
         val1 = values[0] if len(values) > 0 else ""
         return str(val1) if val1 else "Not set"
     if kind == "menu":
+        # Feature-toggle menu (a menu whose only purpose is an on/off switch):
+        # always report its state, never "Not configured".
+        if n == 1 and values[0] in ("__toggle_on__", "__toggle_off__"):
+            return "Enabled" if values[0] == "__toggle_on__" else "Disabled"
         # Single-child menus pass a pre-formatted display string
         if n == 1 and len(node.children) == 1:
             return str(values[0])

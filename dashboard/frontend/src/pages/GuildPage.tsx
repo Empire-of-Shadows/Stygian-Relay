@@ -27,7 +27,7 @@ export function GuildPage() {
       to: `/guilds/${guildId}/premium`,
       icon: "👑",
       title: "Premium",
-      desc: "View your current plan, rule limits, and redeem activation codes.",
+      desc: "View your current plan, tier, and rule limits.",
     },
     {
       to: `/guilds/${guildId}/audit-log`,
