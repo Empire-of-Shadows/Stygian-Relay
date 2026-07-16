@@ -1526,3 +1526,147 @@ tr:hover td {
   background: rgba(255, 255, 255, 0.05);
   border-radius: inherit;
 }
+
+/* ── Stats / analytics page ────────────────────────────────────────────── */
+
+.stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.empire-stat__sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.empire-stat--accent {
+  background:
+    linear-gradient(135deg, rgba(77, 14, 179, 0.22) 0%, rgba(122, 61, 240, 0.10) 70%, rgba(255, 255, 255, 0.04) 100%),
+    rgba(255, 255, 255, 0.04);
+  border-color: rgba(122, 61, 240, 0.35);
+}
+
+/* Segmented range selector (7 / 30 / 90 days) */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--glass-heavy);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+}
+.seg button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.seg button:hover { color: var(--text-1); }
+.seg button.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-2));
+}
+
+/* Chart card + caption */
+.chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.chart-head h3 { margin: 0; font-size: 15px; color: var(--text-1); }
+.chart-caption {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chart-caption b { color: var(--text-1); font-weight: 600; }
+.chart-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart-svg .grid-line { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; }
+.chart-svg .axis-label { fill: var(--muted); font-size: 10px; }
+
+/* Vertical slice hit areas over a chart (hover without coordinate math) */
+.hit-row {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.hit-row .hit { flex: 1; cursor: crosshair; }
+.chart-wrap { position: relative; }
+
+/* Busiest-hours bars */
+.hours-grid {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  align-items: end;
+  gap: 3px;
+  height: 120px;
+}
+.hour-bar {
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  background: var(--brand-2);
+  transition: filter 0.12s, opacity 0.12s;
+}
+.hour-bar:hover { filter: brightness(1.25); }
+.hours-axis {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 3px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+/* Horizontal share bars (top rules / channels) */
+.share-list { display: flex; flex-direction: column; gap: 10px; }
+.share-row { display: flex; flex-direction: column; gap: 4px; }
+.share-row__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.share-row__name { color: var(--text-1); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-row__meta { color: var(--muted); font-size: 12px; }
+.share-row__val { color: var(--text-1); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.share-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.share-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand), var(--brand-2));
+}
+.share-fill--muted { background: rgba(255, 255, 255, 0.22); }
+
+/* Blocked reason breakdown */
+.reason-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.reason-row__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.reason-row__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.reason-row__name { color: var(--text-1); font-weight: 600; }
+.reason-row__val { margin-left: auto; color: var(--text-1); font-weight: 700; font-variant-numeric: tabular-nums; }
+.reason-row__desc { font-size: 12px; color: var(--muted); }

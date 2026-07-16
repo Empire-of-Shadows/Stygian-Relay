@@ -74,19 +74,48 @@ export interface DailyCount {
 
 export interface PerRuleStat {
   rule_id: string;
+  rule_name: string;
+  source_channel_id: string;
+  destination_channel_id: string;
+  destination_guild_id: string;
+  is_active: boolean;
+  deleted: boolean;
   forwarded: number;
+}
+
+export interface PerSourceStat {
+  channel_id: string;
+  forwarded: number;
+}
+
+export interface BlockedReason {
+  reason: string;
+  count: number;
+}
+
+export interface StatsTotals {
+  forwarded: number;
+  blocked: number;
+  today_forwarded: number;
+  daily_average: number;
+  unique_sources: number;
+  fanout_ratio: number;
+  active_rules: number;
+  peak: { date: string; forwarded: number } | null;
 }
 
 export interface StatsResponse {
   guild_id: string;
   period_days: number;
-  total_forwarded: number;
-  total_blocked: number;
-  today_forwarded: number;
+  generated_at: string;
   daily_limit: number;
   is_premium: boolean;
+  totals: StatsTotals;
   daily: DailyCount[];
+  hourly: number[];
   per_rule: PerRuleStat[];
+  per_source: PerSourceStat[];
+  blocked_by_reason: BlockedReason[];
 }
 
 export interface PremiumStatus {

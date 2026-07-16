@@ -91,6 +91,11 @@ def daily_counters():
     return relay_client()["discord_forwarding_bot"]["daily_counters"]
 
 
+def denial_counters():
+    """discord_forwarding_bot.denial_counters - per-(guild, day, reason) blocked counts (TTL 90d)."""
+    return relay_client()["discord_forwarding_bot"]["denial_counters"]
+
+
 def bot_settings():
     """discord_forwarding_bot.bot_settings - global bot configuration."""
     return relay_client()["discord_forwarding_bot"]["bot_settings"]

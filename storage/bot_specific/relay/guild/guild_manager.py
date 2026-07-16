@@ -206,6 +206,18 @@ class GuildManager:
                 "expires_at", expireAfterSeconds=0
             )
 
+            # denial_counters: per-(guild, day, reason) blocked-event buckets
+            # for dashboard analytics. _id = "{guild_id}:{YYYY-MM-DD}:{reason}"
+            # (already unique). expires_at TTL keeps ~90 days to line up with
+            # the message_logs analytics window; the (guild_id, date) index
+            # serves the dashboard's ranged reads.
+            await db["denial_counters"].create_index(
+                "expires_at", expireAfterSeconds=0
+            )
+            await db["denial_counters"].create_index(
+                [("guild_id", pymongo.ASCENDING), ("date", pymongo.DESCENDING)]
+            )
+
             logger.info("✅ Database indexes verified")
         except Exception as e:
             logger.warning(f"Failed to ensure indexes (non-fatal): {e}")
@@ -644,6 +656,45 @@ class GuildManager:
             await counters.bulk_write(ops, ordered=False)
         except Exception as e:
             logger.warning(f"daily_counters bulk_write failed: {e}")
+
+    async def record_denial(self, guild_id: str, reason: str, delta: int = 1) -> None:
+        """
+        Bump the per-(guild, UTC day, reason) blocked-event counter that backs
+        the dashboard's denial analytics.
+
+        Denials are counts, not per-event documents: rate-limit and daily-limit
+        rejections can fire on every message once a guild is over its cap, so a
+        single ``$inc`` upsert per (guild, day, reason) keeps the write cost flat
+        no matter the volume. Safe under concurrency for the same reason
+        ``daily_counters`` is. It is best-effort telemetry: it swallows all
+        errors so a blocked message never fails to be *blocked* because the
+        analytics write did.
+        """
+        gid = str(guild_id) if guild_id else ""
+        if not gid or delta <= 0:
+            return
+        now = datetime.now(timezone.utc)
+        day_iso = now.date().isoformat()
+        day_start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        counters = self.db.get_collection("discord_forwarding_bot", "denial_counters")
+        try:
+            await counters.update_one(
+                {"_id": f"{gid}:{day_iso}:{reason}"},
+                {
+                    "$inc": {"count": delta},
+                    "$setOnInsert": {
+                        "guild_id": gid,
+                        "date": day_iso,
+                        "reason": reason,
+                        # Retained ~90 days to match the message_logs TTL so the
+                        # forwarded and blocked series cover the same window.
+                        "expires_at": day_start + timedelta(days=90),
+                    },
+                },
+                upsert=True,
+            )
+        except Exception as e:
+            logger.warning(f"denial_counters update failed for {gid}/{reason}: {e}")
 
     async def get_daily_message_count(self, guild_id: str, date: datetime = None) -> int:
         """

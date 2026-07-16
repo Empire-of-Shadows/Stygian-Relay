@@ -226,6 +226,7 @@ class Forwarding(commands.Cog):
         # Rate limit per guild.
         if not self._bucket_for(message.guild.id).take():
             self._bump_metric(message.guild.id, METRIC_RATE_LIMITED)
+            await guild_manager.record_denial(gid_str, METRIC_RATE_LIMITED)
             logger.debug(f"Rate-limited forward for guild {gid_str}")
             return
 
@@ -234,6 +235,7 @@ class Forwarding(commands.Cog):
         daily_count = await guild_manager.get_daily_message_count(gid_str)
         if daily_count >= daily_limit:
             self._bump_metric(message.guild.id, METRIC_DAILY_LIMIT_HIT)
+            await guild_manager.record_denial(gid_str, METRIC_DAILY_LIMIT_HIT)
             if guild_settings.get("features", {}).get("notify_on_error", True):
                 last_warn = await guild_manager.get_runtime_state(gid_str, "daily_warn")
                 now = datetime.now(timezone.utc)
@@ -376,6 +378,7 @@ class Forwarding(commands.Cog):
         """
         rule_id = rule.get("rule_id", "?")
         self._bump_metric(guild_settings.get("guild_id"), METRIC_PERM_FAILURE)
+        await guild_manager.record_denial(guild_settings.get("guild_id"), METRIC_PERM_FAILURE)
         now = time.monotonic()
         last = self._perm_warn.get(rule_id, 0.0)
         if now - last >= _PERM_WARN_COOLDOWN_SECONDS:
