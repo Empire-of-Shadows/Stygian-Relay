@@ -4,7 +4,7 @@ Relay has only two tiers (no mod tier):
   - "admin": Discord MANAGE_GUILD OR the configured manager_role_id
   - "none":  no panel access
 
-Mirrors `admin/bindings.py::resolve_panel_role`.
+Mirrors `commands/admin/bindings.py::resolve_panel_role`.
 """
 
 from __future__ import annotations

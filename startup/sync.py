@@ -20,14 +20,14 @@ from discord.ext import commands
 from tabulate import tabulate
 
 from startup.bot import bot, s
-from storage_engine.log import log_performance
+from storage.logging import log_performance
 
 logger = logging.getLogger("Sync")
 
 
 # Cog discovery roots. Priority cogs load first (sequential) for ordering-sensitive
 # setup; the rest load in parallel for a faster boot.
-COG_DIRECTORIES = ["commands", "admin"]
+COG_DIRECTORIES = ["commands"]
 PRIORITY_COG_DIRECTORIES: list[str] = []
 
 

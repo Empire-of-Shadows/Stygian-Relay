@@ -11,7 +11,7 @@ import discord
 
 from storage.bot_specific.relay import audit_log, guild_manager
 
-from admin_engine.views.panel_engine import PanelNode
+from .views.panel_engine import PanelNode
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

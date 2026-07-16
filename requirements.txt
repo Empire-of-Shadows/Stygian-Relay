@@ -14,7 +14,3 @@ ruff==0.14.4
 discord.py>=2.7.1
 motor~=3.7.1
 pymongo>=4.4.0,<5.0.0
-
-# Shared engines (storage_engine + admin_engine) fetched from GitHub at build time.
-# Pin to a release tag once EmpireSystems cuts one; tracks the deploy branch (dev) for now.
-EmpireSystems[admin,discord] @ git+https://github.com/Empire-of-Shadows/EmpireSystems.git@dev

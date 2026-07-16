@@ -1,10 +1,8 @@
 """Concrete DatabaseManager for Stygian-Relay (bot-owned, NOT vendored).
 
-Composes the installed engine base (``DatabaseManagerBase``) with relay's ``DefineCollections``
-mixin (the collection registry) and instantiates the shared ``db_manager`` the rest of the bot
-imports (``from storage.manager import db_manager``). Typed per-collection accessors
-(``db_manager.guild_settings`` etc.) are auto-derived by the engine from the registry keys, so
-there is no longer a separate ``database_properties`` mixin.
+Composes the vendored engine base (``DatabaseManagerBase``) with relay's two mixins
+(``DefineCollections`` + ``DatabaseProperties``) and instantiates the shared ``db_manager`` the
+rest of the bot imports (``from storage.manager import db_manager``).
 
 Relay's domain layer (``storage/bot_specific/relay/{guild_manager,audit}.py``) was carried over
 from the retired bespoke ``database/`` package and still expresses its richer queries against a
@@ -19,12 +17,13 @@ from __future__ import annotations
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 
-from storage_engine.database_manager import DatabaseManagerBase
+from storage.database_manager import DatabaseManagerBase
 from storage.define_collections import DefineCollections
+from storage.database_properties import DatabaseProperties
 from storage import bindings
 
 
-class DatabaseManager(DatabaseManagerBase, DefineCollections):
+class DatabaseManager(DatabaseManagerBase, DefineCollections, DatabaseProperties):
     """Relay's MongoDB manager: engine core + relay's collection registry + compat seam."""
 
     def get_collection(self, database_name: str, collection_name: str) -> AsyncCollection:

@@ -1,11 +1,11 @@
-"""storage_engine bindings — Stygian-Relay (bot-owned).
+"""storage_engine bindings — Stygian-Relay (bot-owned, NOT vendored).
 
-The single integration point between the installed ``storage_engine`` package and relay's
-environment. The engine reads these names by name. Everything under ``storage/`` is now bot-owned
-seam (``bindings.py`` / ``define_collections.py`` / ``manager.py`` + ``storage/bot_specific/relay/``);
-the engine itself is installed, not vendored here.
+The single integration point between the vendored storage engine and relay's environment.
+The engine imports these names by name; everything else under ``storage/`` (except the
+bot-owned ``define_collections.py`` / ``database_properties.py`` / ``manager.py`` and
+``storage/bot_specific/relay/``) is vendored engine code — do not edit it here.
 
-Template: ``EmpireSystems/Settings/storage/bindings_reference.py``.
+Template: ``EmpireSystems/storage_engine/bindings_reference.py``.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-# The storage engine installs as the ``storage_engine`` package — import it absolutely.
-from storage_engine.cache.backend import CacheBackend
-from storage_engine.cache.local import LocalCache
+# Relative imports so this resolves against the vendored ``storage`` package.
+from .cache.backend import CacheBackend
+from .cache.local import LocalCache
 
 # Relay's entrypoint (Relay.py) loads docker/.env (+ .env.local override) before use, but
 # bindings is imported as soon as ``storage.manager`` is first touched — which can precede the
