@@ -24,19 +24,25 @@ from .fields import (
 from ..data.colors import hex_validator, to_hex
 
 
-def _id_accessors(path: str, *, multi: bool):
-    """(get, set, clear) for an id list/scalar at ``path`` (roles/channels)."""
+def _id_accessors(path: str, *, multi: bool, as_str: bool = False):
+    """(get, set, clear) for an id list/scalar at ``path`` (roles/channels).
+
+    ``as_str=True`` stores/returns ids as strings (for bots that key state by string
+    id, e.g. EcomRebuild) instead of ints. Discord's role/channel selects render the
+    current selection from either form."""
+    cast = str if as_str else int
+
     async def _get(guild_id):
         if multi:
-            return [int(x) for x in await get_config_list(guild_id, path)]
+            return [cast(x) for x in await get_config_list(guild_id, path)]
         v = await get_config_field(guild_id, path)
-        return [int(v)] if v else []
+        return [cast(v)] if v else []
 
     async def _set(guild_id, values):
         if multi:
-            return await set_config_list(guild_id, path, [int(v) for v in values])
+            return await set_config_list(guild_id, path, [cast(v) for v in values])
         if values:
-            return await set_config_field(guild_id, path, int(values[0]))
+            return await set_config_field(guild_id, path, cast(values[0]))
         return await clear_config_field(guild_id, path)
 
     async def _clear(guild_id):
@@ -47,12 +53,13 @@ def _id_accessors(path: str, *, multi: bool):
 
 def role_leaf(key, path, *, label, description="", multi=False, max_values=10,
               requires_role_manage=False, mod_allowed=None, premium_label=None,
-              pre_check=None) -> PanelNode:
+              pre_check=None, str_ids=False) -> PanelNode:
     """role_select leaf storing a single role id (``multi=False``) or a list.
 
     ``pre_check`` is an optional ``async (interaction, guild_id) -> LayoutView | None`` gate
-    (e.g. ``auth.manage_guild_pre_check`` for admin/mod role-access nodes)."""
-    g, s, c = _id_accessors(path, multi=multi)
+    (e.g. ``auth.manage_guild_pre_check`` for admin/mod role-access nodes).
+    ``str_ids=True`` stores ids as strings (see ``_id_accessors``)."""
+    g, s, c = _id_accessors(path, multi=multi, as_str=str_ids)
     return PanelNode(
         key=key, label=label, kind="role_select", description=description,
         get_values=g, set_values=s, clear_values=c,
@@ -64,9 +71,11 @@ def role_leaf(key, path, *, label, description="", multi=False, max_values=10,
 
 def channel_leaf(key, path, *, label, description="", channel_types=None, multi=False,
                  max_values=10, required_channel_perms=None, mod_allowed=None,
-                 premium_label=None) -> PanelNode:
-    """channel_select leaf storing a single channel id (``multi=False``) or a list."""
-    g, s, c = _id_accessors(path, multi=multi)
+                 premium_label=None, str_ids=False) -> PanelNode:
+    """channel_select leaf storing a single channel id (``multi=False``) or a list.
+
+    ``str_ids=True`` stores ids as strings (see ``_id_accessors``)."""
+    g, s, c = _id_accessors(path, multi=multi, as_str=str_ids)
     return PanelNode(
         key=key, label=label, kind="channel_select", description=description,
         channel_types=channel_types, get_values=g, set_values=s, clear_values=c,
@@ -97,6 +106,29 @@ def option_leaf(key, path, *, label, options, description="", multi=False, max_v
         options=options, get_values=_get, set_values=_set,
         min_values=1, max_values=(max_values if multi else 1),
         premium_values=premium_values, mod_allowed=mod_allowed, premium_label=premium_label,
+    )
+
+
+def bool_leaf(key, path, *, label, description="", true_label="Enabled",
+              false_label="Disabled", mod_allowed=None, premium_label=None) -> PanelNode:
+    """option_select leaf storing a real Python bool at ``path`` (a two-choice picker).
+
+    Use for a standalone on/off setting that is NOT a menu's own toggle (menus use
+    ``menu_group(toggle_path=...)``). Stores a true ``bool`` so downstream ``if flag:`` checks
+    behave - unlike ``option_leaf``, which would persist the string ``"True"``/``"False"``.
+    """
+    async def _get(guild_id):
+        return ["true" if await get_config_field(guild_id, path) else "false"]
+
+    async def _set(guild_id, values):
+        return await set_config_field(guild_id, path, bool(values and values[0] == "true"))
+
+    return PanelNode(
+        key=key, label=label, kind="option_select", description=description,
+        options=[("true", true_label, ""), ("false", false_label, "")],
+        get_values=_get, set_values=_set,
+        min_values=1, max_values=1,
+        mod_allowed=mod_allowed, premium_label=premium_label,
     )
 
 
@@ -157,6 +189,89 @@ def int_leaf(key, path, *, label, description="", minimum=None, maximum=None,
         get_values=_get, set_values=_set, clear_values=_clear,
         modal_title=modal_title or f"Set {label}", modal_label=label,
         modal_validator=_validate, modal_min_length=1, modal_max_length=20,
+        modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
+    )
+
+
+def float_leaf(key, path, *, label, description="", minimum=None, maximum=None,
+               modal_title="", mod_allowed=None, premium_label=None) -> PanelNode:
+    """modal_input leaf storing a float at ``path`` (range-validated).
+
+    The decimal sibling of ``int_leaf`` - use for multipliers / rates (e.g. an XP
+    bonus of ``1.15``) where a whole number is too coarse.
+    """
+    def _validate(raw: str):
+        try:
+            n = float(str(raw).strip())
+        except (TypeError, ValueError):
+            return False, None, "Please enter a number (decimals allowed)."
+        if minimum is not None and n < minimum:
+            return False, None, f"Must be at least {minimum}."
+        if maximum is not None and n > maximum:
+            return False, None, f"Must be at most {maximum}."
+        return True, n, ""
+
+    async def _get(guild_id):
+        v = await get_config_field(guild_id, path)
+        return [str(v)] if v is not None else []
+
+    async def _set(guild_id, values):
+        if values and str(values[0]).strip() != "":
+            return await set_config_field(guild_id, path, float(values[0]))
+        return await clear_config_field(guild_id, path)
+
+    async def _clear(guild_id):
+        return await clear_config_field(guild_id, path)
+
+    return PanelNode(
+        key=key, label=label, kind="modal_input", description=description,
+        get_values=_get, set_values=_set, clear_values=_clear,
+        modal_title=modal_title or f"Set {label}", modal_label=label,
+        modal_validator=_validate, modal_min_length=1, modal_max_length=20,
+        modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
+    )
+
+
+def int_list_leaf(key, path, *, label, description="", minimum=None, maximum=None,
+                  modal_title="", mod_allowed=None, premium_label=None) -> PanelNode:
+    """modal_input leaf storing a list of ints, entered/shown as a comma-separated list
+    (e.g. ``10, 25, 50``). Empty input clears the list. Round-trips cleanly: the current
+    value is pre-filled as the same comma-separated form the validator parses."""
+    def _validate(raw):
+        text = str(raw).strip()
+        if not text:
+            return True, [], ""
+        out = []
+        for part in text.replace(" ", "").split(","):
+            if not part:
+                continue
+            try:
+                n = int(part)
+            except (TypeError, ValueError):
+                return False, None, f"'{part}' is not a whole number."
+            if minimum is not None and n < minimum:
+                return False, None, f"Values must be at least {minimum}."
+            if maximum is not None and n > maximum:
+                return False, None, f"Values must be at most {maximum}."
+            out.append(n)
+        return True, out, ""
+
+    async def _get(guild_id):
+        v = await get_config_field(guild_id, path)
+        return [", ".join(str(x) for x in v)] if v else []
+
+    async def _set(guild_id, values):
+        return await set_config_field(guild_id, path, list(values[0]) if values else [])
+
+    async def _clear(guild_id):
+        return await clear_config_field(guild_id, path)
+
+    return PanelNode(
+        key=key, label=label, kind="modal_input", description=description,
+        get_values=_get, set_values=_set, clear_values=_clear,
+        modal_title=modal_title or f"Set {label}", modal_label=label,
+        modal_placeholder="e.g. 10, 25, 50, 75, 100",
+        modal_validator=_validate, modal_min_length=0, modal_max_length=200,
         modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
     )
 

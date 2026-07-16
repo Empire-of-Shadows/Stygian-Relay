@@ -8,5 +8,9 @@
 
 from . import timezone_options
 from .colors import parse_hex, to_hex, hex_validator
+from .numbers import int_value_validator, float_value_validator
 
-__all__ = ["timezone_options", "parse_hex", "to_hex", "hex_validator"]
+__all__ = [
+    "timezone_options", "parse_hex", "to_hex", "hex_validator",
+    "int_value_validator", "float_value_validator",
+]

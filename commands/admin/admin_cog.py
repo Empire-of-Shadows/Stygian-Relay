@@ -197,6 +197,14 @@ class AdminCog(commands.Cog):
             f"(role={panel_role})"
         )
 
+        # Building the overview reads config for every panel node, which on a cold
+        # cache can exceed Discord's 3s interaction window (error 10062 "Unknown
+        # interaction"). Acknowledge immediately with a deferred ephemeral response,
+        # then deliver the panel via edit_original_response below. Using the ORIGINAL
+        # response (not a followup) keeps it the same message the refresh handlers
+        # (e.g. on_main_select -> interaction.edit_original_response) already edit.
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
         # Fetch setup guide visibility state
         guide_state = {"hidden": bool(await get_setting("hide_setup_guide", guild.id, default=False))}
 
@@ -335,7 +343,9 @@ class AdminCog(commands.Cog):
             return layout
 
         layout = await _build_overview()
-        await interaction.response.send_message(view=layout, ephemeral=True)
+        # Deferred above, so edit the original (thinking) response into the panel
+        # instead of send_message. This is the message edit_original_response targets.
+        await interaction.edit_original_response(view=layout)
         session.touch()
 
     # -- Category Menu on Message 2 --------------------------------------------
@@ -594,7 +604,7 @@ class AdminCog(commands.Cog):
                 else:
                     await interaction.response.send_message(view=notice, ephemeral=True)
             except Exception:
-                pass
+                logger.exception("failed to send action failure notice for %s", node.key)
 
     # -- Node Kind Handlers ----------------------------------------------------
     # -- Menu nodes (on message 2, e.g. counting_roles sub-menu) ---------------
@@ -1696,8 +1706,14 @@ class AdminCog(commands.Cog):
                 else:
                     try:
                         await pick_interaction.edit_original_response(view=await _build_region_layout())
-                    except discord.HTTPException:
-                        pass
+                    except discord.HTTPException as e:
+                        # Best-effort UI refresh: the original response may be gone/expired.
+                        logger.debug(
+                            "Skipping grouped region refresh for %s in guild %s due to HTTPException: %s",
+                            node.key,
+                            guild.id,
+                            e,
+                        )
                 if refresh_parent:
                     await refresh_parent()
             else:

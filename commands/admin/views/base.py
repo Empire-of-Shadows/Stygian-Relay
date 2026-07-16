@@ -132,8 +132,8 @@ class LockedLayoutView(discord.ui.LayoutView):
                     ),
                     ephemeral=True,
                 )
-            except discord.HTTPException:
-                pass
+            except discord.HTTPException as exc:
+                logger.warning("failed to send access denied notice: %s", exc)
             return False
         if self._touch is not None:
             try:
