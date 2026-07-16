@@ -35,9 +35,9 @@ load_dotenv(_env_dir / ".env.local", override=True)
 
 
 # ── Connections (ENGINE CONTRACT: MONGO_URIS) ──────────────────────────────────
-# Relay uses a single primary connection. NOTE: relay's env var is MONGODB_URI (not MONGO_URI).
+# Relay uses a single primary connection. NOTE: relay's env var is MONGO_URI (not MONGO_URI).
 MONGO_URIS: Dict[str, Optional[str]] = {
-    "primary": os.getenv("MONGODB_URI"),
+    "primary": os.getenv("MONGO_URI"),
 }
 
 
