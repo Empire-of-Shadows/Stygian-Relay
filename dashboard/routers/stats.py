@@ -56,7 +56,7 @@ async def guild_stats(
         {"$sort": {"forwarded": -1}},
         {"$limit": 25},
     ]
-    rule_cursor = db.message_logs().aggregate(per_rule_pipeline)
+    rule_cursor = await db.message_logs().aggregate(per_rule_pipeline)
     per_rule = [
         {"rule_id": doc["_id"], "forwarded": doc["forwarded"]}
         async for doc in rule_cursor
