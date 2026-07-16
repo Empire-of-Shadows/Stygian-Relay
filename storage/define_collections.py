@@ -1,7 +1,7 @@
 """Collection registry — Stygian-Relay (bot-owned, NOT vendored).
 
-Registers relay's collections so the engine builds a ``CollectionManager`` (and typed accessor,
-see ``database_properties.py``) for each. All live in the single ``discord_forwarding_bot``
+Registers relay's collections so the engine builds a ``CollectionManager`` (and an auto-derived
+``db_manager.<key>`` accessor) for each. All live in the single ``discord_forwarding_bot``
 database (name preserved so existing data is reused — no migration).
 
 Indexes are intentionally **omitted** here: relay's index shapes are created by
@@ -9,11 +9,11 @@ Indexes are intentionally **omitted** here: relay's index shapes are created by
 truth, including the TTL indexes), and declaring them again here would risk duplicate-name
 conflicts. Registering the collections still gives the engine awareness + typed access.
 
-Template: ``EmpireSystems/storage_engine/define_collections_reference.py``.
+Template: ``EmpireSystems/Settings/storage/collections_reference.py``.
 """
 
-from storage.core.collection_config import CollectionConfig
-from storage.logging import get_logger
+from storage_engine.core.collection_config import CollectionConfig
+from storage_engine.log import get_logger
 
 logger = get_logger("DefineCollections")
 

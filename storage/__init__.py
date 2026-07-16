@@ -1,74 +1,8 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from storage_engine/ — DO NOT EDIT HERE.
-# Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
-#     python tools/sync_storage_engine.py
-# Drift is enforced by:  python tools/sync_storage_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
-"""storage_engine — the Empire of Shadows shared MongoDB storage engine.
+"""Stygian-Relay storage seam (bot-owned).
 
-This is the MASTER copy. It is vendored byte-for-byte into each bot's ``storage/``
-directory by ``tools/sync_storage_engine.py``. Like ``admin_engine``, it is an
-engine/library package, not a standalone app: the concrete ``DatabaseManager`` and the
-collection registry live in each bot (the bot-owned mixins + ``bindings.py``), so this
-master package is intentionally NOT fully importable on its own — only the
-backend-agnostic pieces (``cache``, ``helpers``, ``core.connection_pool``,
-``core.collection_config``) import cleanly without a bot present.
-
-The package is imported as ``storage_engine`` in the master and as ``storage`` once
-vendored into a bot; engine modules use relative imports so the same code works in both.
-
-Public surface (shown master-relative):
-    from storage_engine.core import (
-        ConnectionPool, CollectionManager, CollectionConfig, with_retry,
-    )
-    from storage_engine.database_manager import (
-        DatabaseManagerBase, ensure_unique_constraint, paginate_results, batch_upsert,
-    )
-    from storage_engine.cache import CacheBackend, LocalCache, ChangeStreamWatcher
-    from storage_engine.config import GuildConfigStore, normalize_guild_id_to_str
-    from storage_engine.buffer import BatchWriter
-    from storage_engine.interaction import InteractionStateStore, pack, parse
-    from storage_engine.content import CachedLoader
-    from storage_engine.services import AuditLog, SetupGate, SingletonLock, UserPreferenceCache
-    from storage_engine.logging import get_logger, setup_application_logging
+The storage engine installs as the ``storage_engine`` package. This ``storage/`` package holds
+only relay's wiring: ``bindings`` (Mongo URIs + cache), ``define_collections`` (the collection
+registry; typed ``db_manager.<key>`` accessors are auto-derived by the engine), the concrete
+``manager`` (``db_manager``), and the ``bot_specific/relay/`` domain layer. Import the engine absolutely
+(``from storage_engine... import ...``); these siblings import each other via ``storage.*``.
 """
-
-from .core import CollectionConfig, CollectionManager, ConnectionPool, with_retry
-from .cache import CacheBackend, ChangeStreamWatcher, LocalCache
-from .config import GuildConfigStore, normalize_guild_id_to_str
-from .buffer import BatchWriter
-from .interaction import InteractionStateStore, CustomId, pack, parse
-from .content import CachedLoader
-from .services import AuditLog, SetupGate, SingletonLock, UserPreferenceCache
-from .logging import (
-    get_logger,
-    setup_application_logging,
-    log_performance,
-    log_context,
-)
-
-__all__ = [
-    "ConnectionPool",
-    "CollectionManager",
-    "CollectionConfig",
-    "with_retry",
-    "CacheBackend",
-    "LocalCache",
-    "ChangeStreamWatcher",
-    "GuildConfigStore",
-    "normalize_guild_id_to_str",
-    "BatchWriter",
-    "InteractionStateStore",
-    "CustomId",
-    "pack",
-    "parse",
-    "CachedLoader",
-    "AuditLog",
-    "SetupGate",
-    "SingletonLock",
-    "UserPreferenceCache",
-    "get_logger",
-    "setup_application_logging",
-    "log_performance",
-    "log_context",
-]

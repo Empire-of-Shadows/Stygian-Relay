@@ -36,7 +36,7 @@ import discord
 from startup.bot import get_bot, set_error_notifier, initialize_existing_guilds
 from startup.sync import load_cogs, attach_databases, log_all_commands
 from startup.phases import log_startup_summary, startup_phase
-from storage.logging import setup_application_logging
+from storage_engine.log import setup_application_logging
 from logger.error_reporter import ErrorReporter, ReportingHandler
 from status.idle import rotate_status
 from storage.manager import db_manager
@@ -51,68 +51,30 @@ bot = get_bot()
 
 
 def _configure_logging():
-    """Adopt the shared storage.logging engine while keeping relay's email ErrorReporter.
+    """Adopt the shared ``storage_engine.log`` engine (loguru) while keeping relay's email
+    ErrorReporter.
 
-    storage.logging configures per-named loggers (get_logger) and leaves the root logger
-    unconfigured. Relay's code base (including the ported domain layer) logs through plain
-    ``logging.getLogger(...)`` in many modules, so we also configure the ROOT logger with the
-    engine's console+file formatters — every module emits in the identical line format used by
-    the sibling bots. get_logger-created loggers (the app/performance loggers + the vendored
-    engine) own their handlers, so we stop them propagating to root to avoid double lines.
+    ``setup_application_logging`` now owns everything the bot used to wire by hand: it installs
+    the loguru console + rotating-file + JSON sinks, routes the stdlib root through a single
+    loguru ``InterceptHandler`` (so every ``logging.getLogger(...)`` module — including the
+    ported domain layer — funnels into one shared format), and silences the noisy pymongo/motor
+    loggers. We then attach relay's email ``ReportingHandler`` to the root so ERROR+ records are
+    also emailed.
 
     Returns the email ErrorReporter (or None when EMAIL/PASSWORD are unset).
     """
-    from logging.handlers import RotatingFileHandler
-
-    from storage.logging.factory import LoggerManager
-    from storage.logging.formatters import ColoredConsoleFormatter, IndentedFormatter
-
-    # App logger + JSON performance logger + the shared
-    # "Application logging initialized for: discord-bot-relay" line (sibling parity).
+    # Console + rotating file + JSON sinks, the stdlib -> loguru intercept, noisy-logger
+    # silencing, and the shared "Application logging initialized for: discord-bot-relay" line.
     setup_application_logging(
         app_name=APPLICATION_NAME,
         log_level=logging.INFO,
         log_dir="logs",
         enable_performance_logging=True,
-        max_file_size=20 * 1024 * 1024,
-        backup_count=10,
     )
 
-    level_name = os.getenv("LOG_LEVEL", "INFO").upper()
-    level = getattr(logging, level_name, logging.INFO)
-    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-
-    # Root logger: catch-all sink for the bot's plain logging.getLogger(...) modules.
-    root = logging.getLogger()
-    root.setLevel(level)
-    root.handlers.clear()
-
-    console = logging.StreamHandler()
-    console.setFormatter(ColoredConsoleFormatter(fmt))
-    root.addHandler(console)
-
-    os.makedirs("logs", exist_ok=True)
-    file_handler = RotatingFileHandler(
-        os.path.join("logs", f"{APPLICATION_NAME}.log"),
-        maxBytes=20 * 1024 * 1024,
-        backupCount=10,
-        encoding="utf-8",
-    )
-    file_handler.setFormatter(IndentedFormatter(fmt))
-    root.addHandler(file_handler)
-
-    # get_logger loggers carry their own handlers; stop them double-printing through root.
-    for _named in LoggerManager().get_all_loggers().values():
-        _named.propagate = False
-
-    # Quiet noisy driver loggers (match sibling behavior).
-    for _noisy in (
-        "pymongo", "pymongo.connection", "pymongo.serverSelection",
-        "pymongo.topology", "motor",
-    ):
-        logging.getLogger(_noisy).setLevel(logging.WARNING)
-
-    # Relay's email ErrorReporter stays a bot-owned add-on: route ERROR+ records to it.
+    # Relay's email ErrorReporter stays a bot-owned add-on: route ERROR+ records to it. The
+    # engine installs the root InterceptHandler via logging.basicConfig(force=True), so attach
+    # this handler AFTER setup; ERROR+ records propagate to root and reach both sinks.
     notifier = None
     email = os.getenv("EMAIL")
     password = os.getenv("PASSWORD")
@@ -120,7 +82,7 @@ def _configure_logging():
         notifier = ErrorReporter(email=email, app_password=password, bot_instance=bot)
         reporting_handler = ReportingHandler(notifier=notifier)
         reporting_handler.setLevel(logging.ERROR)
-        root.addHandler(reporting_handler)
+        logging.getLogger().addHandler(reporting_handler)
         logging.info("Error reporter initialized and handler added.")
     else:
         logging.warning("Email or password not found; email error reporting disabled.")

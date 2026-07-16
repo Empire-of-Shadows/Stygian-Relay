@@ -10,8 +10,9 @@ It mirrors/forwards messages between channels (and across guilds) according to p
 Empire of Shadows ecosystem (see the monorepo root `../../CLAUDE.md` and the engine masters in
 `../../EmpireSystems/`).
 
-- **Entry point:** `Relay.py` — loads `docker/.env` (+ `.env.local` override) → sets up logging →
-  signal handlers → DB init → health endpoint (**port 50005**) → `on_ready` (database attach via
+- **Entry point:** `Relay.py` — loads `docker/.env` (+ `.env.local` override) → `storage_engine.log`
+  (loguru) setup (+ email ErrorReporter on root) → signal handlers → `db_manager` init → health endpoint
+  (**port 50013**) → `on_ready` (Database Attachment via `attach_databases` +
   `initialize_existing_guilds`, cog load, command sync, status).
 - **Run locally:** `python Relay.py`  ·  **Docker:** `docker/stygian.sh` (joins `obsidian_grid`).
 
@@ -21,37 +22,40 @@ Empire of Shadows ecosystem (see the monorepo root `../../CLAUDE.md` and the eng
 |---|---|
 | `Relay.py` | Main entrypoint (bot-named, PascalCase). |
 | `startup/` | `bot.py` (instance/intents/token), `sync.py` (parallel+priority cog loader, command table), `phases.py` (startup metrics/summary). Canonical ecosystem startup package. |
-| `commands/` | Slash-command cogs: `admin/`, `common/`, `forward/`, `premium/`. `COG_DIRECTORIES = ["commands"]`. |
-| `commands/admin/` | **Vendored `admin_engine`** (the shared `/admin panel`) + bot-owned `bindings.py`, `panel_configs.py`, `actions/__init__.py`. Branding text + tier resolution are inlined in `bindings.py` (valid variant — engine reads them through the bindings seam, no separate `panel_branding.py`/`role_auth.py`). |
-| `database/` | **Bespoke data layer** (`core.py` → `db_core`, `guild_manager.py`, `rule_schema.py`, `permissions.py`, `audit.py`, `utils.py`, `exceptions.py`, `constants.py`). ⚠️ **Not yet migrated to the shared `storage_engine`** — see Standardization below. |
-| `logger/` | Rich logging (`log_config.py`, `log_factory.py`) with an email `ErrorReporter` (`error_reporter.py`, `email_templates.py`, `reporting_types.py`). (Email transport is moving to Proton.) |
+| `commands/` | The bot's own slash-command cogs: `common/`, `forward/`, `premium/`. |
+| `admin/` | Bot-owned admin **seam** (top-level, a sibling of `storage/`): `bindings.py` (backend seam; also inlines branding + tier resolution), `panel_configs.py` (`MAIN_PANEL` tree), `admin_setup.py` (the cog loader shim). `admin_engine` is an **installed package** — the shim injects the seam into its `AdminCog` (`AdminCog(bot, bindings=…, panel=MAIN_PANEL)`). Discovered via `COG_DIRECTORIES = ["commands", "admin"]`. |
+| `storage/` | Bot-owned storage **seam** only: `bindings.py`, `define_collections.py` (collection registry), `manager.py` (→ the shared `db_manager`). `storage_engine` is an **installed package** (typed `db_manager.<key>` accessors are auto-derived from the registry — there is no `database_properties.py`). Relay's domain layer lives under `storage/bot_specific/relay/` (`guild_manager.py`, `audit.py`, `rule_schema.py`, `permissions.py`, `utils.py`, `exceptions.py`, `constants.py`) and reaches Mongo through the engine's pymongo connection (`db_manager.get_raw_collection` / `get_client`; two back-compat accessors on the concrete `DatabaseManager` keep the ported query logic unchanged). |
+| `logger/` | Bot-owned email `ErrorReporter` add-on (`error_reporter.py`, `email_templates.py`, `reporting_types.py`) — the survivor of the old logging package; wired onto the root logger in `Relay.py` (ERROR+ → email). Structured logging itself now comes from `storage_engine.log` (loguru). (Email transport is moving to Proton.) |
 | `status/` | Presence / idle rotation. |
 | `context/` | Reference docs (e.g. `componentsv2guide.md` — gitignored). |
 | `docker/` | Dockerfile, docker-compose, `.env(.local)`, `stygian.sh`. |
 | `dashboard/` | ⚠️ **Does not exist yet** — relay has no web dashboard. See Standardization. |
 
-## The admin panel (vendored)
+## The admin panel (installed engine)
 
-`commands/admin/` is the shared `admin_engine`, **vendored byte-for-byte** from
-`../../EmpireSystems/admin_engine/` by `../../tools/sync_admin_engine.py`. **Never edit the
-vendored files** — edit the master and re-run the sync. Drift gate:
-`python tools/sync_admin_engine.py --check --bot relay` (run from the monorepo root). Bot-owned
-(non-vendored) files: `bindings.py` (the backend seam — also inlines branding + tier resolution),
-`panel_configs.py` (`MAIN_PANEL` tree), `actions/__init__.py`.
+The `/admin panel` is the shared **`admin_engine`**, an **installed package** (from
+`../../EmpireSystems/` — `pip install EmpireSystems[admin]`, see `requirements.txt`), never edited
+in place. Relay supplies only the small seam in the top-level **`admin/`** directory: `bindings.py`
+(the backend seam — also inlines branding + tier resolution), `panel_configs.py` (`MAIN_PANEL`
+tree), and `admin_setup.py` (the cog loader shim). The engine no longer relative-imports the seam;
+the shim injects it via `AdminCog(bot, bindings=bindings, panel=panel_configs.MAIN_PANEL)`. Seam
+templates live at `../../EmpireSystems/Settings/admin/`.
 
 ## Standardization status (ecosystem audit)
 
-Relay is being aligned to the ecosystem standard (`../../audit/STANDARD.md`). **Done:** `startup/`
+Relay is aligned to the ecosystem standard (`../../audit/STANDARD.md`). **Done:** `startup/`
 package, `commands/` cog dir, `Relay.py` entrypoint, dead `cogs/` removed, lowercase `context/`,
-this `CLAUDE.md`. **Pending (large, tracked follow-ups):**
-1. **`database/` → shared `storage_engine`** — adopt the vendored `storage/` (bindings/manager +
-   `DefineCollections`/`DatabaseProperties` mixins, `db_core` → `db_manager`, generic
-   `CollectionManager` capabilities), add `relay` to `tools/sync_storage_engine.py`, and base the
-   logger on `storage.logging` (keeping the `ErrorReporter` as a bot-owned add-on, Proton-bound).
-2. **Build a dashboard** (`dashboard/`) from the standard FastAPI + React/Vite skeleton.
+this `CLAUDE.md`, and the **storage + logging + engine-distribution migration** — the bespoke
+`database/` was retired in favour of the shared `storage_engine`; its domain layer moved under
+`storage/bot_specific/relay/` and runs on the shared `db_manager`, logging is now based on
+`storage_engine.log` (loguru; the email `ErrorReporter` kept as a bot-owned add-on, Proton-bound),
+and both engines are now **installed packages** (`EmpireSystems`, fetched from GitHub at build)
+with admin moved out of `commands/` into a top-level `admin/` seam — no vendored copies or sync tools.
+**Pending (large, tracked follow-up):**
+1. **Build a dashboard** (`dashboard/`) from the standard FastAPI + React/Vite skeleton.
 
 ## Conventions
 
-- Async/await throughout; structured logging; graceful shutdown (signal handlers).
-- MongoDB via the bespoke `database/` layer today (→ `storage_engine` after migration).
-- Health endpoint on `:50005`. All services share the external `obsidian_grid` Docker network.
+- Async/await throughout; structured logging (`storage_engine.log`); graceful shutdown (signal handlers).
+- MongoDB via the shared `storage_engine` (`db_manager`); relay's domain logic lives in `storage/bot_specific/relay/`.
+- Health endpoint on `:50013`. All services share the external `obsidian_grid` Docker network.
