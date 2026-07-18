@@ -17,7 +17,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from storage.bot_specific.relay.premium import (
+from storage.premium import (
     SCOPE_GUILD,
     SCOPE_USER,
     SOURCE_EVENT,

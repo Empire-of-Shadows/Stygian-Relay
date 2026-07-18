@@ -11,7 +11,7 @@ A dict-level, guild-scoped config store generalized from EcomRebuild's
 ``_extra`` catch-all, change-stream coherency). The engine standardizes *persistence,
 caching, and CRUD* around a guild config document; the bot keeps its own typed
 ``GuildConfig`` dataclass, feature layout, and schema-version migration — those stay
-bot-owned (see ``guild_config_reference.py``).
+bot-owned (see ``docs/storage_engine/guild-config.md``).
 
 ``GuildConfigStore`` reads hit-first through the ``CollectionManager`` it is given, so
 it shares the manager's pluggable cache and the engine's ``ChangeStreamWatcher`` (list

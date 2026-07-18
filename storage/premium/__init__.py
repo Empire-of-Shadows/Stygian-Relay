@@ -4,19 +4,23 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-"""Relay premium domain layer (master-owned; per-guild now, per-user future-proofed).
+"""Entitlement-backed premium engine (bot-agnostic; per-guild now, per-user future-proofed).
 
-Entitlement-backed premium: raw ``entitlements`` records fold into a fast-read
-``premium_state`` doc per scope. The concrete singleton is wired in the package facade
-(``storage/bot_specific/relay/__init__.py``) so callers do:
+Raw ``entitlements`` records fold into a fast-read ``premium_state`` doc per scope. The
+application DB name is injected when the manager is constructed, so this package has no per-bot
+coupling - a bot wires its own singleton (with its DB name, SKU/tier map, and any opt-in legacy
+migration) in its seam and imports the shared types/constants from here::
 
-    from storage.bot_specific.relay import premium_manager
+    from storage.premium import PremiumManager, PremiumState, SCOPE_GUILD
 
-The per-bot SKU map + settings live in the cog's ``premium/settings`` seam, not here - this
-module is bot-agnostic.
+The per-bot SKU map + settings live in the consuming cog's ``premium/settings`` seam, not here.
 """
 
 from .constants import (
+    DISCORD_SOURCES,
+    ENTITLEMENTS_COLLECTION,
+    PREMIUM_STATE_COLLECTION,
+    RECONCILE_HEALTH_KEY,
     SCOPE_GUILD,
     SCOPE_USER,
     SOURCE_EVENT,
@@ -34,6 +38,10 @@ __all__ = [
     "PremiumState",
     "compute_state",
     "entitlement_is_active",
+    "ENTITLEMENTS_COLLECTION",
+    "PREMIUM_STATE_COLLECTION",
+    "RECONCILE_HEALTH_KEY",
+    "DISCORD_SOURCES",
     "SCOPE_GUILD",
     "SCOPE_USER",
     "SOURCE_EVENT",

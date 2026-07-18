@@ -10,7 +10,7 @@ Generalized from EcomRebuild ``storage/config_manager.py``. This is the *engine*
 it standardizes how a per-guild config document is read (hit-first), written (surgical
 dotted ``$set`` / ``$unset`` / full-doc upsert), and invalidated. It deliberately knows
 nothing about a bot's feature schema — the bot wraps it with its own ``GuildConfig``
-dataclass for typed access (see ``guild_config_reference.py``).
+dataclass for typed access (see ``docs/storage_engine/guild-config.md``).
 
 Caching & coherency are delegated to the ``CollectionManager`` it is constructed with:
 reads pass ``cache_key=f"guild:{gid}"`` so they share the manager's pluggable

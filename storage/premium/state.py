@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from ..utils import ensure_utc
+from ._time import ensure_utc
 from .constants import TIER_FREE, TIER_UNKNOWN
 
 

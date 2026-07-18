@@ -4,31 +4,35 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-"""storage_engine.logging — the shared structured logger.
+"""storage_engine.log — the shared, loguru-powered structured logger.
 
-The single, vendored home for the ecosystem's structured logger (colored console + indented/JSON
-rotating files, a shared global level via ``LOG_LEVEL``, and a small performance-timing toolkit).
-Promoted from the per-bot ``utils/logger.py`` copies so every bot — and the engine itself — logs
-through identical code instead of each bot maintaining its own copy.
+The single vendored home for the ecosystem's logger. **loguru** does the rendering (colored,
+aligned console + rotating file + optional JSON, beautiful tracebacks, built-in rotation and
+retention); the stdlib is kept as the front door so ``get_logger`` returns a real
+``logging.Logger`` and every call site — plus discord.py / pymongo — funnels into loguru via an
+``InterceptHandler``.
 
-The engine consumes ``get_logger`` via the sibling ``logging_compat`` seam; bots import the public
-surface straight from here::
+Bots import the public surface::
 
-    from storage.logging import get_logger, setup_application_logging
+    from storage.log import get_logger, setup_application_logging
 
-Naming note: this package is called ``logging``, but ``import logging`` inside these modules is an
-absolute import and always resolves to the stdlib — only ``from .logging import ...`` (leading
-dot) reaches this package.
+The engine consumes ``get_logger`` via the sibling ``logging_compat`` seam.
+
+Naming note: this package is ``log`` (not ``logging``) so ``import logging`` is always the stdlib
+and can never be shadowed by this directory.
 """
 
 from __future__ import annotations
 
-from .factory import LoggerManager, get_logger, set_global_level
-from .formatters import (
-    ColoredConsoleFormatter,
-    IndentedFormatter,
-    JSONFormatter,
-    LogFilter,
+# Re-exported for opt-in richness (logger.bind / logger.catch / structured kwargs).
+from loguru import logger
+
+from .factory import (
+    CONSOLE_FORMAT,
+    FILE_FORMAT,
+    InterceptHandler,
+    get_logger,
+    set_global_level,
 )
 from .performance import PerformanceLogger, log_context, log_performance
 from .setup import (
@@ -39,6 +43,7 @@ from .setup import (
 )
 
 __all__ = [
+    "logger",
     "get_logger",
     "setup_application_logging",
     "set_global_level",
@@ -48,9 +53,7 @@ __all__ = [
     "get_simple_logger",
     "get_debug_logger",
     "get_production_logger",
-    "LoggerManager",
-    "ColoredConsoleFormatter",
-    "IndentedFormatter",
-    "JSONFormatter",
-    "LogFilter",
+    "InterceptHandler",
+    "CONSOLE_FORMAT",
+    "FILE_FORMAT",
 ]

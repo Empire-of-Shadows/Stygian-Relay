@@ -13,7 +13,7 @@ Template: ``EmpireSystems/storage_engine/define_collections_reference.py``.
 """
 
 from storage.core.collection_config import CollectionConfig
-from storage.logging import get_logger
+from storage.log import get_logger
 
 logger = get_logger("DefineCollections")
 

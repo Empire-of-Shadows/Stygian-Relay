@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from storage.bot_specific.relay.premium import PremiumState
+from storage.premium import PremiumState
 
 EVENT_GRANTED = "premium_granted"
 EVENT_UPGRADED = "premium_upgraded"

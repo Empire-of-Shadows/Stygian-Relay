@@ -6,5 +6,6 @@ backfill), persists them through the shared storage system, and exposes a stable
 `settings` seam (`settings/config.py`); every other module here is copied unchanged.
 
 Public API for other cogs:  `from commands.premium.api import is_premium, get_tier, require_premium`
-Data/logic:                 storage master `storage.bot_specific.relay.premium` (PremiumManager)
+Data/logic:                 shared engine `storage.premium` (PremiumManager); the relay singleton
+                            is wired in `storage.bot_specific.relay` and attached as `bot.premium_manager`
 """

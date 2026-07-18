@@ -3,5 +3,6 @@ python-dotenv~=1.2.2
 pymongo~=4.17.0          # async client (AsyncMongoClient) + bson
 pytz~=2026.2
 backoff~=2.2.1           # retry/backoff in the vendored storage engine
+loguru~=0.7.2            # structured logging in the vendored storage engine (storage.log)
 tabulate~=0.10.0
 certifi>=2026.6.17       # CA bundle for the email ErrorReporter SMTP TLS context

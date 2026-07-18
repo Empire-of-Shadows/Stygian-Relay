@@ -17,7 +17,7 @@ from typing import Optional
 import discord
 from discord import app_commands
 
-from storage.bot_specific.relay.premium import SCOPE_GUILD, PremiumState
+from storage.premium import SCOPE_GUILD, PremiumState
 
 
 class PremiumRequired(app_commands.CheckFailure):

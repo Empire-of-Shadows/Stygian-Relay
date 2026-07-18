@@ -15,7 +15,7 @@ and to key by **collection registry key** instead of a raw collection object.
 
 Use it only for writes that are safe to defer — atomic ``$inc`` counters and override
 ``$set``s. Read-modify-write logic and values returned to the caller must stay direct. See
-``buffered_writes_reference.py`` and ``docs/storage_engine/write-buffering.md``.
+``docs/storage_engine/write-buffering.md``.
 """
 
 from .batch_writer import BatchWriter

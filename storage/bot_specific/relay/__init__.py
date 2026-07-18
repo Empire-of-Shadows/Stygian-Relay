@@ -20,9 +20,9 @@ Exposes the module-level singletons the rest of the bot imports (same names the 
 from typing import Any, Dict
 
 from ...settings.manager import db_manager
+from ...premium import PremiumManager, PremiumState, SCOPE_GUILD
 from .guild.guild_manager import GuildManager
 from .audit import AuditLog
-from .premium import PremiumManager, PremiumState, SCOPE_GUILD
 from .exceptions import DatabaseConnectionError, DatabaseOperationError
 
 # Domain managers over the shared engine db_manager (constructed at import; the engine is
@@ -41,7 +41,12 @@ def _on_premium_state_change(scope: str, scope_id: str) -> None:
 # Entitlement-backed premium (per-guild today, per-user ready). Recompute invalidates the
 # guild premium cache via the hook above. Real tier ordering is supplied by the cog from its
 # per-bot SKU map; the master default is unranked.
-premium_manager = PremiumManager(db_manager, on_state_change=_on_premium_state_change)
+premium_manager = PremiumManager(
+    db_manager,
+    db_name="discord_forwarding_bot",
+    legacy_subscriptions_collection="premium_subscriptions",
+    on_state_change=_on_premium_state_change,
+)
 
 
 async def ensure_database_connection() -> bool:

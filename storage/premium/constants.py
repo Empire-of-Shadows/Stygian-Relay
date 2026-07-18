@@ -6,11 +6,12 @@
 # ───────────────────────────────────────────────────────────────────────────
 """Premium domain constants (collection names, scopes, sources, tier sentinels).
 
-Master-owned, bot-agnostic. Real tier labels come from the per-bot SKU map in the cog's
-``premium/settings`` seam; only the sentinels ("free"/"unknown") live here.
+Master-owned engine module, bot-agnostic. Real tier labels come from the per-bot SKU map in
+the consuming cog's ``premium/settings`` seam; only the sentinels ("free"/"unknown") live here.
 """
 
-# Collections (in the relay application DB, discord_forwarding_bot).
+# Collection names (within whatever application DB the PremiumManager is constructed with -
+# the bot injects the DB name; these are just the collection names inside it).
 ENTITLEMENTS_COLLECTION = "entitlements"
 PREMIUM_STATE_COLLECTION = "premium_state"
 
@@ -29,7 +30,7 @@ SOURCE_MANUAL = "manual"            # owner-granted; not a real Discord entitlem
 # these: a manual grant never appears in Discord's list endpoint, so it must never be swept.
 DISCORD_SOURCES = (SOURCE_EVENT, SOURCE_RECONCILE, SOURCE_INTERACTION)
 
-# Tier sentinels. A guild with no active entitlement is "free"; an entitlement whose SKU is
+# Tier sentinels. A scope with no active entitlement is "free"; an entitlement whose SKU is
 # not in the per-bot settings map is stored as "unknown" (and warned about) rather than dropped.
 TIER_FREE = "free"
 TIER_UNKNOWN = "unknown"

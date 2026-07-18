@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from storage.bot_specific.relay.premium import TIER_UNKNOWN
+from storage.premium import TIER_UNKNOWN
 
 logger = logging.getLogger("PremiumSettings")
 

@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 import discord
 
-from storage.bot_specific.relay.premium import SCOPE_GUILD, SCOPE_USER, TIER_UNKNOWN
+from storage.premium import SCOPE_GUILD, SCOPE_USER, TIER_UNKNOWN
 
 from .settings import PremiumSettings
 

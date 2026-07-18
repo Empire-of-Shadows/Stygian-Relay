@@ -17,7 +17,7 @@ recur across the bots. Each record is::
 * ``iter_active`` lets a cog re-register persistent views on startup (``bot.add_view``).
 
 Expiry is delegated to a **TTL index on ``expires_at``** that the bot declares on the
-collection (see ``interaction_state_reference.py``); MongoDB reaps stale rows, replacing the
+collection (see ``docs/storage_engine/interaction-state.md``); MongoDB reaps stale rows, replacing the
 per-feature cleanup tasks (e.g. TheCodex ``cleanup_old_mappings``). ``guild_id`` and
 ``message_id`` are normalized to ``str``.
 """

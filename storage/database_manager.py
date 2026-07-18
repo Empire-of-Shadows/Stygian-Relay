@@ -10,24 +10,33 @@ This is the engine half of the database manager. It owns connection pooling, dat
 discovery, collection-manager construction, index creation, transactions, the shared
 cache + change-stream coherency, health checks, and graceful shutdown.
 
-It is ABSTRACT in practice: it does not know any bot's collections. Each bot supplies
-that via two mixins it composes into a concrete ``DatabaseManager`` (exactly how
-``admin_cog`` imports ``MAIN_PANEL`` from the bot):
+It is ABSTRACT in practice: it does not know any bot's collections. Each bot supplies that
+collection registry — a ``dict[str, CollectionConfig]`` — directly at construction (see
+``Settings/storage/collections_reference.py``):
 
-    # bot-owned, NOT vendored — see define_collections_reference.py / database_properties_reference.py
-    class DatabaseManager(DatabaseManagerBase, DefineCollections, DatabaseProperties):
-        pass
+    # bot-owned — see Settings/storage/collections_reference.py
+    db_manager = DatabaseManagerBase(
+        primary_uri=bindings.MONGO_URIS["primary"],
+        cache=bindings.build_cache(),
+        watched_collections=bindings.WATCHED_COLLECTIONS,
+        collection_configs=COLLECTIONS,
+    )
 
-    db_manager = DatabaseManager(watched_collections=WATCHED_COLLECTIONS)
+Attribute-style accessors are auto-derived from the registry: every collection is reachable
+as ``db_manager.<registry_key>``, and additionally as ``db_manager.<accessor>`` when a
+``CollectionConfig.accessor`` alias is set — so there is no separate "database properties"
+file. Both resolve through :meth:`get_collection_manager`.
 
-``DefineCollections`` must provide ``_define_collection_configs(self)`` (populates
-``self._collection_configs``); ``DatabaseProperties`` provides typed accessors. The base
-intentionally does NOT define ``_define_collection_configs`` so the mixin's version wins
-via MRO regardless of base ordering.
+LEGACY: a bot may instead compose a ``DefineCollections`` mixin that implements
+``_define_collection_configs(self)`` (populating ``self._collection_configs``); when
+``collection_configs`` is not passed, the base resolves that mixin method via MRO. New bots
+should prefer the ``collection_configs=`` keyword.
 """
 
 import os
+import json
 import asyncio
+from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional
 from datetime import datetime, timedelta, timezone
 
@@ -52,13 +61,16 @@ logger = get_logger("DatabaseManager")
 class DatabaseManagerBase:
     """MongoDB manager with pooling, CRUD, shared cache, coherency, and health checks.
 
-    Subclass with the bot's ``DefineCollections`` + ``DatabaseProperties`` mixins.
+    Construct with the bot's collection registry via ``collection_configs=`` (see
+    ``Settings/storage/collections_reference.py``); a legacy ``DefineCollections`` mixin is
+    also accepted. Collections are exposed as ``db_manager.<key>`` / ``db_manager.<accessor>``.
     """
 
     def __init__(self, primary_uri: str = None, secondary_uri: str = None, *,
                  cache: Optional[CacheBackend] = None,
                  cache_defaults: Optional[Dict[str, Any]] = None,
                  watched_collections: Optional[List[str]] = None,
+                 collection_configs: Optional[Dict[str, CollectionConfig]] = None,
                  **additional_uris):
         self.primary_uri = primary_uri or os.getenv("MONGO_URI")
         self.secondary_uri = secondary_uri
@@ -93,17 +105,63 @@ class DatabaseManagerBase:
         self._initialized = False
         self._lock = asyncio.Lock()
 
-        # The bot's DefineCollections mixin provides _define_collection_configs (populates
-        # self._collection_configs). The base deliberately does NOT define it, so the
-        # mixin's version always wins via MRO regardless of base ordering; we resolve it by
-        # name and raise a clear error if no mixin was composed in.
-        define = getattr(self, "_define_collection_configs", None)
-        if define is None:
-            raise NotImplementedError(
-                "Compose a DefineCollections mixin that implements "
-                "_define_collection_configs(). See define_collections_reference.py."
-            )
-        define()
+        # Collection registry: prefer the configs passed directly; otherwise fall back to a
+        # DefineCollections mixin's _define_collection_configs (legacy, resolved via MRO).
+        if collection_configs is not None:
+            self._collection_configs = dict(collection_configs)
+        else:
+            define = getattr(self, "_define_collection_configs", None)
+            if define is None:
+                raise NotImplementedError(
+                    "Pass collection_configs=... or compose a DefineCollections mixin that "
+                    "implements _define_collection_configs(). "
+                    "See Settings/storage/collections_reference.py."
+                )
+            define()
+
+        # Auto-derive attribute accessors (db_manager.<key> / db_manager.<accessor>).
+        self._build_accessor_map()
+
+    def _build_accessor_map(self) -> None:
+        """Map attribute name -> registry key for ``db_manager.<name>`` access.
+
+        Every collection is reachable by its registry key, and additionally by its optional
+        ``CollectionConfig.accessor`` alias. Names that would shadow a real manager attribute
+        or clash with another collection raise a clear error at construction time.
+        """
+        reserved = set(dir(self))  # real attributes/methods must not be shadowed
+        accessors: Dict[str, str] = {}
+        for key, config in self._collection_configs.items():
+            for name in (key, getattr(config, "accessor", None)):
+                if not name:
+                    continue
+                if name in reserved:
+                    raise ValueError(
+                        f"Collection accessor {name!r} collides with an existing "
+                        f"DatabaseManager attribute; rename the registry key or accessor."
+                    )
+                if accessors.get(name, key) != key:
+                    raise ValueError(
+                        f"Collection accessor {name!r} is claimed by both "
+                        f"{accessors[name]!r} and {key!r}; make it unique."
+                    )
+                accessors[name] = key
+        self._accessor_map = accessors
+
+    def __getattr__(self, name: str) -> "CollectionManager":
+        """Resolve collection accessors to their managers.
+
+        Only invoked when normal attribute lookup fails, so it never shadows real
+        attributes/methods. Reads ``_accessor_map`` via ``__dict__`` to avoid recursion
+        before it is set. Unknown names raise ``AttributeError``; known ones delegate to
+        :meth:`get_collection_manager` (which raises ``RuntimeError`` before ``initialize()``).
+        """
+        if name.startswith("_"):
+            raise AttributeError(name)
+        accessor_map = self.__dict__.get("_accessor_map")
+        if accessor_map and name in accessor_map:
+            return self.get_collection_manager(accessor_map[name])
+        raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     @property
     def cache(self) -> CacheBackend:
@@ -329,6 +387,42 @@ class DatabaseManagerBase:
                     cleanup_results[collection_key] = f"Error: {e}"
 
         return cleanup_results
+
+    async def export_mappings(self, file_path: Optional[str] = None) -> str:
+        """Persist a JSON snapshot of discovered databases/collections and the configured
+        collection registry. Diagnostic only (nothing reads it back) — it exists so operators
+        can inspect what the manager mapped at startup. Defaults to
+        ``Mappings/database_mappings.json`` relative to CWD; pass ``file_path`` to override."""
+        self._ensure_initialized()
+        target = Path(file_path) if file_path else Path("Mappings") / "database_mappings.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        registry: Dict[str, Any] = {
+            "exported_at": datetime.now(tz=timezone.utc).isoformat(),
+            "connections": list(self.connection_pools.keys()),
+            "databases": {},
+            "collection_configs": {},
+        }
+
+        for db_name, database in self.databases.items():
+            try:
+                collection_names = await database.list_collection_names()
+            except Exception as e:
+                logger.warning(f"Could not list collections for {db_name}: {e}")
+                collection_names = []
+            registry["databases"][db_name] = sorted(collection_names)
+
+        for key, cfg in self._collection_configs.items():
+            registry["collection_configs"][key] = {
+                "name": cfg.name,
+                "database": cfg.database,
+                "connection": cfg.connection,
+                "index_count": len(cfg.indexes or []),
+            }
+
+        target.write_text(json.dumps(registry, indent=2, default=str), encoding="utf-8")
+        logger.info(f"Exported database mappings to {target}")
+        return str(target)
 
     async def health_check(self) -> Dict[str, Any]:
         """Perform comprehensive health check on all connections."""

@@ -4,17 +4,26 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ───────────────────────────────────────────────────────────────────────────
-"""Internal logger seam for engine modules.
+"""Datetime normalization used across the premium package.
 
-Engine modules import the logger as ``from ..logging_compat import get_logger`` (or ``.`` from the
-package root). The logger now ships inside the engine itself — ``storage_engine.log`` — so this
-is a one-line re-export: always present, no bot dependency, no stdlib fallback.
-
-Kept as a stable seam so the engine modules don't all have to import ``.log`` directly.
+Kept package-local (rather than importing a bot's ``utils``) so the promoted premium engine
+has no dependency back into any bot's seam - it is bot-agnostic engine code.
 """
 
 from __future__ import annotations
 
-from .log import get_logger
+from datetime import datetime, timezone
+from typing import Optional
 
-__all__ = ["get_logger"]
+
+def ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Return a tz-aware UTC datetime.
+
+    Naive datetimes are assumed to be UTC (Mongo strips tzinfo on read but stores in UTC).
+    ``None`` passes through unchanged.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)

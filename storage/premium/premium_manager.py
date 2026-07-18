@@ -6,12 +6,13 @@
 # ───────────────────────────────────────────────────────────────────────────
 """PremiumManager - entitlement persistence + derived premium state.
 
-Master-owned, bot-agnostic, and discord.py-free: it stores already-normalized entitlement
-dicts (the cog converts ``discord.Entitlement`` -> dict and resolves the SKU -> tier before
-calling in), so the same logic serves every bot. Reaches Mongo through the shared engine
-``db_manager`` (``get_collection`` / ``db_client``), exactly like ``GuildManager``.
+Master-owned engine module, bot-agnostic and discord.py-free: it stores already-normalized
+entitlement dicts (the cog converts ``discord.Entitlement`` -> dict and resolves the SKU -> tier
+before calling in), so the same logic serves every bot. Reaches Mongo through the shared engine
+``db_manager`` (``get_collection`` / ``db_client``); the application DB name is injected at
+construction (``db_name``), so the manager carries no per-bot coupling.
 
-Persists two collections in ``discord_forwarding_bot``:
+Persists two collections in the injected DB:
 
 - ``entitlements``   - one raw record per entitlement ``id`` (``_id == entitlement_id``), so
   every write is idempotent: event + reconcile + interaction for the same id converge.
@@ -19,6 +20,11 @@ Persists two collections in ``discord_forwarding_bot``:
   hot read paths (is_premium / limits / dashboard / admin) consume instead of the raw records.
 
 Reconcile health (last run, counts) is a subkey of the ``bot_settings`` global_config doc.
+
+The one-shot legacy-subscription migration is opt-in: a bot that retired an older
+code-redemption store passes ``legacy_subscriptions_collection`` and the manager folds those
+still-active subscriptions into manual entitlements on ``initialize``; bots without such a
+store leave it ``None`` and the step is skipped.
 """
 from __future__ import annotations
 
@@ -29,7 +35,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from pymongo import UpdateOne
 
-from ..utils import ensure_utc
+from ._time import ensure_utc
 from .constants import (
     DISCORD_SOURCES,
     ENTITLEMENTS_COLLECTION,
@@ -44,8 +50,6 @@ from .constants import (
 from .state import PremiumState, compute_state
 
 logger = logging.getLogger("PremiumManager")
-
-_DB = "discord_forwarding_bot"
 
 # Canonical entitlement fields the manager mirrors from Discord (or a manual grant). Bookkeeping
 # fields (first_seen_at / last_updated_at / fulfilled / consumed_at) are owned by the manager and
@@ -76,42 +80,50 @@ class PremiumManager:
         self,
         database_core,
         *,
+        db_name: str,
         on_state_change: Optional[Callable[[str, str], Any]] = None,
         tier_priority: Optional[List[str]] = None,
+        legacy_subscriptions_collection: Optional[str] = None,
     ):
         self.db = database_core
+        # Application DB the collections live in (injected so the manager is bot-agnostic).
+        self._db_name = db_name
         # Fired after a scope's premium_state is recomputed, so e.g. GuildManager can drop its
         # premium cache. May be sync or async; both are handled.
         self.on_state_change = on_state_change
         # Highest-tier-first ordering for PremiumState.tier. The cog sets it from its SKU map.
         self.tier_priority = tier_priority or []
+        # Opt-in: name of a retired code-redemption collection to fold into entitlements on
+        # initialize(). None (default) skips the legacy migration entirely.
+        self._legacy_subs_coll = legacy_subscriptions_collection
 
     # ── collection handles ────────────────────────────────────────────────────────
 
     def _entitlements(self):
-        return self.db.get_collection(_DB, ENTITLEMENTS_COLLECTION)
+        return self.db.get_collection(self._db_name, ENTITLEMENTS_COLLECTION)
 
     def _states(self):
-        return self.db.get_collection(_DB, PREMIUM_STATE_COLLECTION)
+        return self.db.get_collection(self._db_name, PREMIUM_STATE_COLLECTION)
 
     def _bot_settings(self):
-        return self.db.get_collection(_DB, "bot_settings")
+        return self.db.get_collection(self._db_name, "bot_settings")
 
     # ── lifecycle ─────────────────────────────────────────────────────────────────
 
     async def initialize(self) -> None:
-        """Ensure indexes and run the one-shot legacy-subscription migration. Idempotent."""
+        """Ensure indexes and (when configured) run the one-shot legacy migration. Idempotent."""
         await self._ensure_indexes()
-        try:
-            migrated = await self.migrate_legacy_subscriptions()
-            if migrated:
-                logger.info(f"Migrated {migrated} legacy premium subscription(s) into entitlements")
-        except Exception as e:
-            logger.warning(f"Legacy premium-subscription migration failed (non-fatal): {e}", exc_info=True)
+        if self._legacy_subs_coll:
+            try:
+                migrated = await self.migrate_legacy_subscriptions()
+                if migrated:
+                    logger.info(f"Migrated {migrated} legacy premium subscription(s) into entitlements")
+            except Exception as e:
+                logger.warning(f"Legacy premium-subscription migration failed (non-fatal): {e}", exc_info=True)
 
     async def _ensure_indexes(self) -> None:
         try:
-            db = self.db.db_client[_DB]
+            db = self.db.db_client[self._db_name]
             ent = db[ENTITLEMENTS_COLLECTION]
             # _id == entitlement_id already gives uniqueness; these back the read paths.
             await ent.create_index([("scope", 1), ("scope_id", 1), ("deleted", 1)])
@@ -481,14 +493,17 @@ class PremiumManager:
     # ── one-shot migration ────────────────────────────────────────────────────────
 
     async def migrate_legacy_subscriptions(self, *, default_tier: str = "premium") -> int:
-        """Convert still-active legacy premium_subscriptions into manual entitlements.
+        """Convert still-active legacy subscriptions into manual entitlements.
 
-        Retiring the code-redemption system must not drop premium a guild already paid for.
-        Deterministic id (``legacy:<sub _id>``) makes this idempotent; the source
-        premium_subscriptions docs are preserved, not deleted.
+        Opt-in: only runs against the collection named by ``legacy_subscriptions_collection`` at
+        construction (returns 0 when unset). Retiring an older code-redemption system must not
+        drop premium a guild already paid for. Deterministic id (``legacy:<sub _id>``) makes this
+        idempotent; the source subscription docs are preserved, not deleted.
         """
+        if not self._legacy_subs_coll:
+            return 0
         now = _now()
-        subs = self.db.get_collection(_DB, "premium_subscriptions")
+        subs = self.db.get_collection(self._db_name, self._legacy_subs_coll)
         ent = self._entitlements()
         migrated = 0
         async for sub in subs.find({"is_active": True}):

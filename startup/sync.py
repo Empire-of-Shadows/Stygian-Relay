@@ -20,7 +20,7 @@ from discord.ext import commands
 from tabulate import tabulate
 
 from startup.bot import bot, s
-from storage.logging import log_performance
+from storage.log import log_performance
 
 logger = logging.getLogger("Sync")
 
