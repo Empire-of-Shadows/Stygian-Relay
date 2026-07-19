@@ -10,5 +10,6 @@ Small set for now; grows as cross-bot patterns prove stable.
 """
 
 from .access_lists import access_list_pair
+from .panel_roles import panel_roles_pair
 
-__all__ = ["access_list_pair"]
+__all__ = ["access_list_pair", "panel_roles_pair"]
