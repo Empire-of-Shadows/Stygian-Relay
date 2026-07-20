@@ -230,3 +230,6 @@ logs/
 
 # Deploy artifacts - transferred to server manually, not tracked
 /docker/
+
+# Node / frontend build (dashboard SPA)
+node_modules/

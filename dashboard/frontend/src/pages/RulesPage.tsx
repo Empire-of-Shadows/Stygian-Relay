@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Rule } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 export function RulesPage() {
   const { guildId } = useParams<{ guildId: string }>();
@@ -14,7 +16,7 @@ export function RulesPage() {
     if (!guildId) return;
     api.rules(guildId)
       .then((r) => setRules(r.rules))
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(formatError(e)));
   }, [guildId]);
 
   async function handleToggle(rule: Rule) {
@@ -26,7 +28,7 @@ export function RulesPage() {
         prev?.map((r) => r.rule_id === rule.rule_id ? { ...r, is_active: res.is_active } : r) ?? null
       );
     } catch (e) {
-      setError(String(e));
+      setError(formatError(e));
     } finally {
       setToggling(null);
     }
@@ -40,7 +42,7 @@ export function RulesPage() {
       await api.deleteRule(guildId, rule.rule_id);
       setRules((prev) => prev?.filter((r) => r.rule_id !== rule.rule_id) ?? null);
     } catch (e) {
-      setError(String(e));
+      setError(formatError(e));
     } finally {
       setDeleting(null);
     }
@@ -60,7 +62,7 @@ export function RulesPage() {
         </Link>
       </div>
 
-      {error && <div className="alert danger">{error}</div>}
+      <Alert kind="danger">{error}</Alert>
 
       {rules === null && !error && (
         <div className="loading">Loading rules…</div>

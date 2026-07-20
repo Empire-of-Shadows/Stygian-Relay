@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, UnauthorizedError } from "../api/client";
 import type { Guild, Me } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 function GuildIcon({ guild }: { guild: Guild }) {
   if (guild.icon) {
@@ -28,7 +30,7 @@ export function DashboardPage({ me }: { me: Me | null }) {
     let alive = true;
     api.guilds()
       .then((g) => { if (alive) setGuilds(g); })
-      .catch((e) => { if (alive) setError(e instanceof UnauthorizedError ? "Session expired." : "Failed to load servers."); });
+      .catch((e) => { if (alive) setError(e instanceof UnauthorizedError ? "Your session has expired." : formatError(e, "Failed to load servers.")); });
     api.botInviteUrl()
       .then((r) => { if (alive) setInviteUrl(r.url); })
       .catch(() => {});
@@ -58,7 +60,7 @@ export function DashboardPage({ me }: { me: Me | null }) {
       </div>
 
       <div className="dash-page__body">
-        {error && <div className="alert danger">{error}</div>}
+        <Alert kind="danger">{error}</Alert>
 
         {guilds === null && !error && (
           <div className="page-skeleton">

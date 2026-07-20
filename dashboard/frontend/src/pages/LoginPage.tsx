@@ -14,7 +14,7 @@ export function LoginPage({ me }: { me: Me | null }) {
         <h1>Stygian Relay</h1>
         <p className="tagline">
           Sign in with Discord to manage your message forwarding rules, view stats, and configure
-          your relay settings. Your Empire of Shadows session is shared — one login covers every
+          your relay settings. Your Empire of Shadows session is shared - one login covers every
           bot dashboard.
         </p>
         <a href={discordLoginUrl(next)} className="cta">
@@ -26,7 +26,7 @@ export function LoginPage({ me }: { me: Me | null }) {
         <div className="login-tiles">
           <a className="tile-button" href="https://eosofficial.club" target="_blank" rel="noopener noreferrer">
             <span className="tile-title">Main Site</span>
-            <span className="tile-desc">Empire of Shadows hub — news, links, community.</span>
+            <span className="tile-desc">Empire of Shadows hub - news, links, community.</span>
           </a>
           <a className="tile-button" href="https://host.eosofficial.club" target="_blank" rel="noopener noreferrer">
             <span className="tile-title">TheHost</span>

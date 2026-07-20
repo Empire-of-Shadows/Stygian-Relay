@@ -13,6 +13,8 @@ import { StatsPage } from "./pages/StatsPage";
 import { PremiumPage } from "./pages/PremiumPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
 import { ConfigPage } from "./pages/ConfigPage";
+import { TermsPage } from "./pages/TermsPage";
+import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
 
 interface AuthState {
   loading: boolean;
@@ -84,6 +86,10 @@ export default function App() {
               path="/guilds/:guildId/config"
               element={<RequireAuth me={auth.me}><ConfigPage /></RequireAuth>}
             />
+
+            {/* Public legal pages */}
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
 
             {/* Legacy alias */}
             <Route path="/settings" element={<Navigate to="/me" replace />} />

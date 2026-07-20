@@ -1,7 +1,5 @@
+import { AppFooter } from "../_engine/components/AppFooter";
+
 export function Footer() {
-  return (
-    <footer>
-      <div className="footer-brand">Empire of Shadows &middot; Stygian Relay Dashboard</div>
-    </footer>
-  );
+  return <AppFooter brand="Empire of Shadows · Stygian Relay Dashboard" />;
 }

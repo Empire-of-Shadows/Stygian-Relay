@@ -1,6 +1,6 @@
 """Stygian-Relay dashboard configuration.
 
-Loaded at import time — missing required vars raise RuntimeError immediately
+Loaded at import time - missing required vars raise RuntimeError immediately
 so the process fails fast rather than blowing up mid-request.
 """
 
@@ -29,7 +29,7 @@ DASHBOARD_CLIENT_SECRET = GATEKEEPER_CLIENT_SECRET
 BOT_TOKEN = os.getenv("DISCORD_TOKEN", "") or os.getenv("BOT_TOKEN", "")
 DISCORD_API_BASE = "https://discord.com/api/v10"
 
-REDIRECT_URI = os.getenv(
+REDIRECT_URI = os.getenv("GATEKEEPER_REDIRECT_URI") or os.getenv(
     "REDIRECT_URI", "https://relay.eosofficial.club/auth/discord/callback"
 )
 
@@ -50,9 +50,15 @@ COOKIE_DOMAIN: str | None = os.getenv("COOKIE_DOMAIN") or None
 
 # ── Server ──────────────────────────────────────────────────────────────────
 
-IS_PRODUCTION = os.getenv("IS_PRODUCTION", "").lower() in ("1", "true", "yes")
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "54013"))
+# Production mode drives the Secure flag on the shared session cookie. Accept either
+# convention (ENVIRONMENT=production OR IS_PRODUCTION=1/true/yes) so codex and relay
+# behave identically regardless of which spelling a deployment sets.
+IS_PRODUCTION = (
+    os.getenv("ENVIRONMENT", "").lower() == "production"
+    or os.getenv("IS_PRODUCTION", "").lower() in ("1", "true", "yes")
+)
+HOST = os.getenv("DASHBOARD_HOST") or os.getenv("HOST", "0.0.0.0")
+PORT = int(os.getenv("DASHBOARD_PORT") or os.getenv("PORT", "54013"))
 
 CORS_ORIGINS: list[str] = [
     "http://localhost:5173",

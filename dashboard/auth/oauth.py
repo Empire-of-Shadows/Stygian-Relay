@@ -1,11 +1,12 @@
 """Discord OAuth2 routes with cross-subdomain SSO support."""
 
+import logging
 import re
 import secrets
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from dashboard.auth.session import (
@@ -26,14 +27,19 @@ from dashboard.config import (
     SESSION_MAX_AGE_DAYS,
 )
 
+logger = logging.getLogger("dashboard.auth.oauth")
+
 router = APIRouter(tags=["auth"])
 
 _SCOPES = "identify guilds"
 _AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
 _TOKEN_URL = f"{DISCORD_API_BASE}/oauth2/token"
 
+# Anchored at both ends (^...$) so only these exact hosts match. Without the trailing
+# anchor, re.match would accept any URL that merely *starts* with an allowed host,
+# e.g. "https://eosofficial.club.evil.com/phish" - an open-redirect / phishing hole.
 _ALLOWED_REDIRECT_PATTERN = re.compile(
-    r"^https?://(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|([a-z0-9-]+\.)?eosofficial\.club)(/.*)?"
+    r"^https?://(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|([a-z0-9-]+\.)?eosofficial\.club)(/.*)?$"
 )
 
 
@@ -65,30 +71,34 @@ async def discord_callback(code: str, state: str | None = None):
     if redirect_url is None:
         return RedirectResponse(url="/login", status_code=302)
 
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            _TOKEN_URL,
-            data={
-                "client_id": DASHBOARD_CLIENT_ID,
-                "client_secret": DASHBOARD_CLIENT_SECRET,
-                "grant_type": "authorization_code",
-                "code": code,
-                "redirect_uri": REDIRECT_URI,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        token_resp.raise_for_status()
-        tokens = token_resp.json()
-        access_token = tokens["access_token"]
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+            token_resp = await client.post(
+                _TOKEN_URL,
+                data={
+                    "client_id": DASHBOARD_CLIENT_ID,
+                    "client_secret": DASHBOARD_CLIENT_SECRET,
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": REDIRECT_URI,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            token_resp.raise_for_status()
+            tokens = token_resp.json()
+            access_token = tokens["access_token"]
 
-        headers = {"Authorization": f"Bearer {access_token}"}
-        user_resp = await client.get(f"{DISCORD_API_BASE}/users/@me", headers=headers)
-        user_resp.raise_for_status()
-        user_data = user_resp.json()
+            headers = {"Authorization": f"Bearer {access_token}"}
+            user_resp = await client.get(f"{DISCORD_API_BASE}/users/@me", headers=headers)
+            user_resp.raise_for_status()
+            user_data = user_resp.json()
 
-        guilds_resp = await client.get(f"{DISCORD_API_BASE}/users/@me/guilds", headers=headers)
-        guilds_resp.raise_for_status()
-        guilds = guilds_resp.json()
+            guilds_resp = await client.get(f"{DISCORD_API_BASE}/users/@me/guilds", headers=headers)
+            guilds_resp.raise_for_status()
+            guilds = guilds_resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("Discord OAuth exchange failed: %s", e)
+        raise HTTPException(status_code=502, detail="Discord OAuth exchange failed")
 
     session_token = await create_session(
         user_data,

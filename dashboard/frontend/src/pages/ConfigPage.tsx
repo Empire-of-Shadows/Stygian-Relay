@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { GuildConfig } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 export function ConfigPage() {
   const { guildId } = useParams<{ guildId: string }>();
@@ -25,7 +27,7 @@ export function ConfigPage() {
         setIsEnabled(c.is_enabled ?? true);
         setInboundGuilds(c.inbound_allowed_guilds.join(", "));
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(formatError(e)));
   }, [guildId]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -57,7 +59,7 @@ export function ConfigPage() {
       }
       setSuccess(true);
     } catch (e) {
-      setError(String(e).replace(/^Error: \d+: /, ""));
+      setError(formatError(e));
     } finally {
       setSaving(false);
     }
@@ -74,8 +76,8 @@ export function ConfigPage() {
         </div>
       </div>
 
-      {error && <div className="alert danger">{error}</div>}
-      {success && <div className="alert success">Settings saved.</div>}
+      <Alert kind="danger">{error}</Alert>
+      {success && <Alert kind="success">Settings saved.</Alert>}
 
       {config === null && !error && <div className="loading">Loading…</div>}
 

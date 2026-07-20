@@ -1,12 +1,17 @@
+/* VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+   Edit the master at EmpireSystems/dashboard_engine/ and run:
+     python EmpireSystems/tools/sync_dashboard_engine.py
+   Drift is enforced by:
+     python EmpireSystems/tools/sync_dashboard_engine.py --check */
 import { useEffect, useRef, useState } from "react";
 import "./styles/EcosystemNav.css";
 
 /**
- * Empire of Shadows — cross-app "Warp" dropdown.
+ * Empire of Shadows - cross-app "Warp" dropdown.
  *
- * One eye-catching switcher shared (copy-per-repo, byte-identical) across every
- * surface: the four React dashboards and the Jinja hub. The current app is
- * auto-detected from the hostname so this file needs zero per-repo config.
+ * One eye-catching switcher shared across every surface: the React bot dashboards
+ * and the Jinja hub. The current app is auto-detected from the hostname, so this
+ * file needs zero per-repo config.
  *
  * Keep this list and the markup in sync with the hub's Jinja partial:
  *   Website/EmpiresWeb/partials/buttons/html/ecosystem-nav.html

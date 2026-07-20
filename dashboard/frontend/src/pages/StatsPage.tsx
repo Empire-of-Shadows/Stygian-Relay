@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { Channel, StatsResponse, PerRuleStat, PerSourceStat, BlockedReason } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 const RANGES = [7, 30, 90] as const;
 
@@ -298,7 +300,7 @@ export function StatsPage() {
     setError(null);
     api.stats(guildId, days)
       .then((s) => { if (!cancelled) setStats(s); })
-      .catch((e) => { if (!cancelled) setError(String(e)); })
+      .catch((e) => { if (!cancelled) setError(formatError(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [guildId, days]);
@@ -357,7 +359,7 @@ export function StatsPage() {
         </div>
       </div>
 
-      {error && <div className="alert danger">{error}</div>}
+      <Alert kind="danger">{error}</Alert>
       {loading && !stats && <div className="loading">Loading analytics…</div>}
 
       {stats && t && (

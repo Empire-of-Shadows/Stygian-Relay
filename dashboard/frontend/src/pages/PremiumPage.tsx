@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { PremiumStatus } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 export function PremiumPage() {
   const { guildId } = useParams<{ guildId: string }>();
@@ -10,7 +12,7 @@ export function PremiumPage() {
 
   useEffect(() => {
     if (!guildId) return;
-    api.premium(guildId).then(setPremium).catch((e) => setError(String(e)));
+    api.premium(guildId).then(setPremium).catch((e) => setError(formatError(e)));
   }, [guildId]);
 
   if (!guildId) return null;
@@ -26,7 +28,7 @@ export function PremiumPage() {
         </div>
       </div>
 
-      {error && <div className="alert danger">{error}</div>}
+      <Alert kind="danger">{error}</Alert>
 
       {premium && (
         <div className="card" style={{ marginBottom: 24 }}>

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { AuthorFilters, Rule } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 const DEFAULT_FILTERS: AuthorFilters = {
   allow_user_ids: [],
@@ -46,7 +48,7 @@ export function RuleEditorPage() {
         setIsActive(rule.is_active);
         setFilters(rule.settings?.author_filters ?? DEFAULT_FILTERS);
       })
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(formatError(e)))
       .finally(() => setLoading(false));
   }, [guildId, ruleId, isNew]);
 
@@ -71,7 +73,7 @@ export function RuleEditorPage() {
       }
       navigate(`/guilds/${guildId}/rules`);
     } catch (e) {
-      setError(String(e));
+      setError(formatError(e));
     } finally {
       setSaving(false);
     }
@@ -89,7 +91,7 @@ export function RuleEditorPage() {
         </div>
       </div>
 
-      {error && <div className="alert danger">{error}</div>}
+      <Alert kind="danger">{error}</Alert>
 
       <form className="card" onSubmit={handleSubmit}>
         <div className="field">

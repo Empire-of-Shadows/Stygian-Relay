@@ -1,11 +1,8 @@
+import type { SessionUser } from "../_engine/api/types";
+
 export type PanelRole = "admin" | "none";
 
-export interface Me {
-  id: string;
-  username: string | null;
-  global_name: string | null;
-  avatar: string | null;
-  discriminator: string | null;
+export interface Me extends SessionUser {
   can_manage_any: boolean;
   can_access_admin_any: boolean;
   can_access_mod_any: false;

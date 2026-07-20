@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { AuditLogEntry } from "../api/types";
+import { formatError } from "../_engine/api/formatError";
+import { Alert } from "../_engine/components/Alert";
 
 const CATEGORIES = ["", "rules", "settings", "premium", "guild"];
 
@@ -23,7 +25,7 @@ export function AuditLogPage() {
       setCursor(res.next_cursor);
       setHasMore(res.next_cursor !== null);
     } catch (e) {
-      setError(String(e));
+      setError(formatError(e));
     } finally {
       setLoading(false);
     }
@@ -51,7 +53,7 @@ export function AuditLogPage() {
         </select>
       </div>
 
-      {error && <div className="alert danger">{error}</div>}
+      <Alert kind="danger">{error}</Alert>
 
       {entries.length === 0 && !loading && (
         <div className="empty-state" style={{ padding: "3rem", textAlign: "center" }}>
