@@ -10,7 +10,10 @@ This is the ONLY module in the engine that imports discord.py, and it is importe
 (never from the top-level package), so the engine core keeps its zero-discord invariant. Each
 function is pure: ``discord object -> dict`` (or ``-> list[dict]``), driven by a
 ``GuildSnapshotConfig``. The dict shapes reproduce TheCodex's legacy ``GuildCacheManager``
-field-for-field, so downstream consumers and indexes are unaffected by the move.
+field-for-field, except timestamps are stored as BSON datetimes (not ISO-8601 strings) per the
+ecosystem ID/timestamp ruling -- this is what the engine's own ``delete_before_date`` /
+``cleanup_old_data`` datetime cutoffs compare against. IDs remain raw ints pending the scheduled
+per-bot string-ID normalization migration.
 """
 
 from __future__ import annotations
@@ -59,7 +62,7 @@ def extract_guild(guild: "discord.Guild", config: GuildSnapshotConfig) -> Dict[s
         "premium_tier": guild.premium_tier,
         "premium_subscription_count": guild.premium_subscription_count,
         "features": features,
-        "created_at": guild.created_at.isoformat(),
+        "created_at": guild.created_at,
         "cache_version": config.cache_version,
         "total_channels": len(guild.channels),
         "text_channels": len(guild.text_channels),
@@ -109,7 +112,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                 "type": str(channel.type),
                 "position": channel.position,
                 "permissions": permissions,
-                "created_at": channel.created_at.isoformat(),
+                "created_at": channel.created_at,
             }
 
             if hasattr(channel, "category") and channel.category:
@@ -133,7 +136,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                                 "name": thread.name,
                                 "archived": thread.archived,
                                 "locked": thread.locked,
-                                "created_at": thread.created_at.isoformat(),
+                                "created_at": thread.created_at,
                             })
                         channel_data["archived_threads"] = threads
                         channel_data["thread_count"] = len(threads)
@@ -192,7 +195,7 @@ def extract_roles(guild: "discord.Guild", config: GuildSnapshotConfig) -> List[D
                 "has_dangerous_permissions": has_dangerous,
                 "has_moderation_permissions": has_moderation,
                 "member_count": len(role.members),
-                "created_at": role.created_at.isoformat(),
+                "created_at": role.created_at,
                 "display_icon": str(role.display_icon) if getattr(role, "display_icon", None) else None,
                 "unicode_emoji": role.unicode_emoji if hasattr(role, "unicode_emoji") else None,
             })
@@ -232,15 +235,15 @@ def extract_members(
                 "discriminator": member.discriminator,
                 "bot": member.bot,
                 "system": member.system,
-                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
-                "premium_since": member.premium_since.isoformat() if member.premium_since else None,
+                "joined_at": member.joined_at,
+                "premium_since": member.premium_since,
                 "roles": [role.id for role in member.roles if not role.is_default()],
                 "role_count": len([role for role in member.roles if not role.is_default()]),
                 "top_role_id": member.top_role.id if member.top_role else None,
                 "top_role_position": member.top_role.position if member.top_role else 0,
                 "permissions": member.guild_permissions.value,
                 "avatar_url": str(member.display_avatar.url),
-                "created_at": member.created_at.isoformat(),
+                "created_at": member.created_at,
                 "account_age_days": account_age,
                 "suspicious_indicators": suspicious_indicators,
                 "is_owner": member.id == guild.owner_id,
@@ -288,7 +291,7 @@ def extract_analytics(
     return {
         "guild_id": guild.id,
         "date": today,
-        "timestamp": now_local.isoformat(),
+        "timestamp": now_local,
         "member_stats": {
             "total": guild.member_count,
             "humans": human_count,
