@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from storage_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """ChangeStreamWatcher — keep the cache coherent with MongoDB in real time.
 
 The local cache is hit FIRST on reads. That is safe against this process's own writes
@@ -88,25 +88,51 @@ class ChangeStreamWatcher:
         except Exception as e:  # provider couldn't resolve the collection
             logger.warning(f"Cannot watch {name!r}: {e}")
             return
-        try:
-            async with collection.watch(full_document=self._full_document) as stream:
-                logger.debug(f"Watching change stream on {name!r}")
-                async for change in stream:
-                    if self._stopped.is_set():
-                        break
-                    self._invalidate_for(name, change)
-        except (OperationFailure, PyMongoError) as e:
-            # Most commonly: not running on a replica set -> change streams unsupported.
-            self._degraded = True
-            logger.warning(
-                f"Change streams unavailable for {name!r} ({e}); "
-                f"falling back to TTL-only coherency for this collection."
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # never let a watcher crash take down the bot
-            self._degraded = True
-            logger.error(f"Unexpected change-stream error on {name!r}: {e}", exc_info=True)
+
+        resume_token = None
+        backoff_s = 1.0
+        while not self._stopped.is_set():
+            try:
+                # pymongo's async watch() is a *coroutine*: it must be awaited before
+                # the returned change stream can be used as an async context manager.
+                stream = await collection.watch(
+                    full_document=self._full_document,
+                    resume_after=resume_token,
+                )
+                async with stream:
+                    logger.debug(f"Watching change stream on {name!r}")
+                    backoff_s = 1.0  # reset after a successful (re)subscribe
+                    async for change in stream:
+                        if self._stopped.is_set():
+                            break
+                        resume_token = stream.resume_token
+                        self._invalidate_for(name, change)
+            except asyncio.CancelledError:
+                raise
+            except OperationFailure as e:
+                # Most commonly: not running on a replica set -> change streams
+                # unsupported. No point retrying; degrade to TTL-only and stop.
+                self._degraded = True
+                logger.warning(
+                    f"Change streams unavailable for {name!r} ({e}); "
+                    f"falling back to TTL-only coherency for this collection."
+                )
+                return
+            except PyMongoError as e:
+                # Transient (primary stepdown, network blip): resume from the last
+                # token after a bounded backoff instead of giving up permanently.
+                logger.warning(
+                    f"Change-stream error on {name!r} ({e}); resuming in {backoff_s:.0f}s."
+                )
+                try:
+                    await asyncio.wait_for(self._stopped.wait(), timeout=backoff_s)
+                except asyncio.TimeoutError:
+                    pass
+                backoff_s = min(backoff_s * 2, 30.0)
+            except Exception as e:  # never let a watcher crash take down the bot
+                self._degraded = True
+                logger.error(f"Unexpected change-stream error on {name!r}: {e}", exc_info=True)
+                return
 
     def _invalidate_for(self, name: str, change: dict) -> None:
         """Drop cache entries for the changed collection. We invalidate the whole

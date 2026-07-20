@@ -48,13 +48,16 @@ async def get_guild_limits(guild_id: str) -> dict:
     settings_doc = await db.bot_settings().find_one({"_id": "global_config"})
     settings_doc = settings_doc or {}
     premium = await is_guild_premium(str(guild_id))
+    # Fallbacks MUST match the bot-side enforcement layer
+    # (storage_engine/bot_specific/relay/guild/guild_manager.py::get_guild_limits),
+    # or the dashboard would promise a cap the bot doesn't honour.
     return {
         "max_rules": settings_doc.get(
-            "max_rules_premium" if premium else "max_rules_per_guild", 40 if premium else 15
+            "max_rules_premium" if premium else "max_rules_per_guild", 20 if premium else 3
         ),
         "daily_limit": settings_doc.get(
             "premium_tier_daily_limit" if premium else "free_tier_daily_limit",
-            5000 if premium else 500,
+            5000 if premium else 100,
         ),
         "is_premium": premium,
     }

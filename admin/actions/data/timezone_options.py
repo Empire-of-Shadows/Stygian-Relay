@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from admin_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from admin_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/admin_engine/ and run:
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """Timezone option helpers for the admin panel's grouped timezone picker.
 
 Pure, guild-independent functions that generate the region → zone tree from

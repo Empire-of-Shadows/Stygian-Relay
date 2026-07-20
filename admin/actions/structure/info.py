@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from admin_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from admin_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/admin_engine/ and run:
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """Read-only information display action factory.
 
 Generalizes the bots' read-only "Info" views (Ecom settings/user/guild summaries and

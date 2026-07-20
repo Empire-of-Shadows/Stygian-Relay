@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from admin_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from admin_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/admin_engine/ and run:
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """Config-bound leaf factories — create PanelNode leaves wired to a config path.
 
 A bot calls these with a dotted config ``path`` (and a label) and gets a ready

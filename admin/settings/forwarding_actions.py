@@ -495,7 +495,15 @@ class AddRuleFlow:
             return
 
         await interaction.response.defer(ephemeral=True)
-        name = (raw_name or "").strip() or None
+        name = (raw_name or "").strip()
+        if not name:
+            # Blank submission -> use the friendly auto-name (channel names, same as the
+            # modal placeholder), not the raw-ID fallback baked into create_initial_rule.
+            src = self.guild.get_channel(self.source_id)
+            target = self.bot.get_guild(self.dest_guild_id) if self.dest_guild_id else self.guild
+            dst = target.get_channel(self.dest_channel_id) if target else None
+            cross = bool(self.dest_guild_id and self.dest_guild_id != self.guild.id)
+            name = self._auto_name(src, dst, cross, target)
         dest_guild_id = self.dest_guild_id or self.guild.id
         rule_data = await self._build_rule_data(name, dest_guild_id)
 

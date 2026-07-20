@@ -179,7 +179,7 @@ async def send_welcome_message(guild, settings):
         )
         embed.add_field(
             name="Getting Started",
-            value="Use `/setup` to configure your first forwarding rule or `/help` to see all commands.",
+            value="Use `/admin` to open the configuration panel and create your first forwarding rule. You can also manage everything from the web dashboard.",
             inline=False
         )
         embed.add_field(
@@ -187,7 +187,7 @@ async def send_welcome_message(guild, settings):
             value="• Cross-channel message forwarding\n• Advanced content filtering\n• Media and link support\n• Premium features available",
             inline=False
         )
-        embed.set_footer(text="Use /help for more information")
+        embed.set_footer(text="Use /admin to configure Stygian-Relay")
 
         await channel.send(embed=embed)
         logger.info(f"📝 Sent welcome message to guild: {guild.name}")

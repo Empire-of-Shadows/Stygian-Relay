@@ -230,11 +230,16 @@ class ErrorReporter:
         Enhanced error logging with rich context and automatic analysis
         """
         try:
-            # Analyze error if not overridden
-            if override_severity and override_category:
+            # Analyze error, then let EITHER override win independently (previously a
+            # lone override_severity was silently ignored unless a category was also given).
+            if override_severity is not None and override_category is not None:
                 severity, category = override_severity, override_category
             else:
                 severity, category = ErrorAnalyzer.analyze_error(error, stack_trace)
+                if override_severity is not None:
+                    severity = override_severity
+                if override_category is not None:
+                    category = override_category
 
             # Skip if below threshold
             if self._severity_order(severity) < self._severity_order(self.severity_threshold):
@@ -278,9 +283,16 @@ class ErrorReporter:
 
                 print(f"📝 Logged {severity.value} error: {category.value}")
 
-                # Immediate send for critical errors
+                # Immediate send for critical errors. log_error may be called from a
+                # non-async context/worker thread, where asyncio.create_task raises
+                # RuntimeError -- surface that instead of silently losing the alert.
                 if severity == Severity.CRITICAL:
-                    asyncio.create_task(self._send_immediate_alert(error_context))
+                    try:
+                        asyncio.get_running_loop().create_task(
+                            self._send_immediate_alert(error_context)
+                        )
+                    except RuntimeError:
+                        print("⚠️ Critical alert could not be scheduled (no running event loop)")
             else:
                 print(f"🚫 Suppressed repeated error pattern (count: {recent_count})")
 
@@ -502,10 +514,10 @@ class ErrorReporter:
                 except Exception as e:
                     print(f"❌ Failed to add attachment: {e}")
 
-            # Send email with enhanced SSL context
+            # Send email over a verified TLS connection. The certifi CA bundle is a
+            # complete trust store, so hostname/cert verification stays ON -- disabling
+            # it would let a MITM capture the SMTP app password and full error reports.
             context = ssl.create_default_context(cafile=certifi.where())
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
 
             with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
                 server.login(self.email, self.app_password)

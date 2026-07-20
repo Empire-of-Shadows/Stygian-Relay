@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from admin_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from admin_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/admin_engine/ and run:
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """
 Admin Commands Cog - Multi-Message Config Panel
 
@@ -18,6 +18,7 @@ Message pattern:
   Message 3 (Notices):   Ephemeral followup for errors, locks, permission failures.
 """
 
+import json
 import time
 import logging
 from collections.abc import Awaitable, Callable
@@ -1181,7 +1182,58 @@ class AdminCog(commands.Cog):
                 )
                 return
             await modal_interaction.response.defer(ephemeral=True)
-            success = await node.set_values(guild.id, [attachment])
+
+            # Upload contract: the engine reads the attachment and hands set_values the
+            # decoded UTF-8 text (str) -- never the raw discord.Attachment. When the node
+            # declares a schema_validator it runs against the PARSED JSON payload here,
+            # before anything is persisted (see PanelNode.schema_validator).
+            try:
+                raw_bytes = await attachment.read()
+                text = raw_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                await modal_interaction.followup.send(
+                    view=build_notice_layout("Invalid file", "The uploaded file is not valid UTF-8 text."),
+                    ephemeral=True,
+                )
+                return
+            except Exception as read_exc:
+                logger.exception("Failed to read upload for node=%s", node.key)
+                await modal_interaction.followup.send(
+                    view=build_notice_layout(
+                        "Upload failed", f"Could not read the file. {read_exc.__class__.__name__}",
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            if node.schema_validator:
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError as json_exc:
+                    await modal_interaction.followup.send(
+                        view=build_notice_layout("Invalid JSON", f"The file is not valid JSON: {json_exc}"),
+                        ephemeral=True,
+                    )
+                    return
+                ok, error = node.schema_validator(parsed)
+                if not ok:
+                    await modal_interaction.followup.send(
+                        view=build_notice_layout("Invalid file", error or "The file did not pass validation."),
+                        ephemeral=True,
+                    )
+                    return
+
+            try:
+                success = await node.set_values(guild.id, [text])
+            except Exception as save_exc:
+                logger.exception("Upload save failed for node=%s", node.key)
+                await modal_interaction.followup.send(
+                    view=build_notice_layout(
+                        "Failed to upload", f"Could not save **{node.label}**. {save_exc.__class__.__name__}",
+                    ),
+                    ephemeral=True,
+                )
+                return
             if success:
                 self._invalidate_guild_caches(guild.id)
                 logger.info(f"Admin {button_interaction.user} uploaded {node.key} in guild {guild.id}")
@@ -1781,18 +1833,13 @@ class AdminCog(commands.Cog):
                 if child.modal_validator:
                     ok, value, error = child.modal_validator(raw_value)
                     if not ok:
-                        retry_modal = PanelInputModal(
-                            title=error if len(error) <= 45 else error[:42] + "...",
-                            label=child.modal_label or child.label,
-                            placeholder=child.modal_placeholder or "",
-                            min_length=child.modal_min_length,
-                            max_length=child.modal_max_length,
-                            default=raw_value,
-                            on_submit_callback=on_modal_submit,
-                            paragraph=child.modal_paragraph,
-                            required=child.modal_required,
+                        # Discord forbids responding to a MODAL_SUBMIT interaction with
+                        # another modal, so surface the error as an ephemeral notice and
+                        # let the user re-open the field from the menu to try again.
+                        await modal_interaction.response.send_message(
+                            view=build_notice_layout("Invalid Input", error or "Please try again."),
+                            ephemeral=True,
                         )
-                        await modal_interaction.response.send_modal(retry_modal)
                         return
                 else:
                     value = raw_value

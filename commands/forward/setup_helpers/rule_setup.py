@@ -161,21 +161,5 @@ class RuleSetupHelper:
         )
         return embed
 
-    @staticmethod
-    async def get_rule_setup_buttons() -> discord.ui.View:
-        """
-        Creates a view with buttons for the rule setup step.
-        This view is shown to the user when they are creating a new rule.
-        """
-        from .button_manager import button_manager
-
-        buttons = [
-            {"label": "Create Rule", "style": button_manager.SUCCESS, "custom_id": "rule_create", "emoji": "✅"},
-            {"label": "Edit Settings", "style": button_manager.PRIMARY, "custom_id": "rule_edit", "emoji": "⚙️"},
-            {"label": "Back", "style": button_manager.SECONDARY, "custom_id": "rule_back", "emoji": "⬅️"},
-            {"label": "Cancel", "style": button_manager.DANGER, "custom_id": "rule_cancel", "emoji": "✖️"}
-        ]
-        return button_manager.create_button_row(buttons)
-
 # Make the helper class available for import.
 rule_setup_helper = RuleSetupHelper()

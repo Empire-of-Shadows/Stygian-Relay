@@ -14,10 +14,13 @@ from fastapi import APIRouter, Depends, Query
 
 from dashboard import db
 from dashboard.auth.dependencies import get_current_user, require_panel_access
+from dashboard.rate_limit import rate_limit_dependency
 from dashboard.services.premium import get_guild_limits
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["stats"])
+# Per-IP rate limit on stats (the standard calls for auth AND stats routes to be
+# limited); the prefix middleware can't target this route's dynamic {guild_id} path.
+router = APIRouter(tags=["stats"], dependencies=[Depends(rate_limit_dependency("guild_stats", 60, 60))])
 
 
 def _date_range(start: datetime, end: datetime) -> list[str]:

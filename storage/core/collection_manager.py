@@ -1,9 +1,10 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from storage_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+import copy
 import time
 from datetime import datetime, timezone
 from functools import wraps
@@ -21,8 +22,32 @@ from ..logging_compat import get_logger
 
 logger = get_logger("CollectionManager")
 
+
+def _is_retryable(exc: Exception) -> bool:
+    """Only genuinely transient failures should be retried.
+
+    ConnectionFailure (network / server unavailable) is always retryable. An
+    OperationFailure is retried ONLY when the server tagged it with a retryable
+    label -- deterministic failures like DuplicateKeyError, authentication errors
+    and malformed queries would otherwise be re-sent 2-3x (an ack-lost insert retry
+    re-sends the same _id and surfaces a spurious DuplicateKeyError; an $inc retry on
+    top of driver-level retryWrites risks a double-apply).
+    """
+    if isinstance(exc, ConnectionFailure):
+        return True
+    if isinstance(exc, OperationFailure):
+        return exc.has_error_label("RetryableWriteError") or exc.has_error_label(
+            "TransientTransactionError"
+        )
+    return False
+
+
 def with_retry(max_retries: int = 3, backoff_factor: float = 1.0):
-    """Decorator for database operations with exponential backoff retry."""
+    """Decorator for database operations with exponential backoff retry.
+
+    Retries only transient failures (see ``_is_retryable``); deterministic errors
+    surface immediately on the first attempt.
+    """
 
     def decorator(func):
         @wraps(func)
@@ -32,7 +57,8 @@ def with_retry(max_retries: int = 3, backoff_factor: float = 1.0):
                 (ConnectionFailure, OperationFailure),
                 max_tries=max_retries,
                 factor=backoff_factor,
-                jitter=backoff.random_jitter
+                jitter=backoff.random_jitter,
+                giveup=lambda e: not _is_retryable(e),
             )
             async def _execute():
                 return await func(*args, **kwargs)
@@ -65,6 +91,16 @@ class CollectionManager:
     def _ckey(self, cache_key: str) -> str:
         """Namespace a caller-supplied cache key under this collection."""
         return f"{self.name}:{cache_key}"
+
+    def _stamp_update(self, update_dict):
+        """Return an update with ``updated_at`` stamped, WITHOUT mutating the caller's
+        dict. Aggregation-pipeline updates (a list) are passed through untouched -- they
+        take no ``$set`` (the old code raised TypeError on them)."""
+        if isinstance(update_dict, list):
+            return update_dict
+        stamped = dict(update_dict)
+        stamped['$set'] = {**stamped.get('$set', {}), 'updated_at': datetime.now(tz=timezone.utc)}
+        return stamped
 
     def _invalidate_cache(self, pattern: str = None) -> None:
         """Invalidate this collection's cached entries (optionally a sub-pattern)."""
@@ -109,7 +145,11 @@ class CollectionManager:
             return result.inserted_ids
         except BulkWriteError as bwe:
             logger.error(f"Bulk write error in {self.name}: {bwe.details}")
-            return [oid for oid in bwe.details.get('insertedIds', {}).values()]
+            inserted = [oid for oid in bwe.details.get('insertedIds', {}).values()]
+            # Partial success still wrote documents -> the cache must be invalidated.
+            if inserted:
+                self._invalidate_cache()
+            return inserted
         except Exception as e:
             logger.error(f"Error creating documents in {self.name}: {e}")
             raise
@@ -127,7 +167,9 @@ class CollectionManager:
             cached = self._cache.get(self._ckey(cache_key))
             if cached is not None:
                 logger.debug(f"Cache hit for {cache_key} in {self.name}")
-                return cached
+                # Copy-on-read: callers must never receive a live reference to the
+                # cached document, or a caller's mutation would poison shared state.
+                return copy.deepcopy(cached)
 
         try:
             filter_dict = filter_dict or {}
@@ -136,6 +178,7 @@ class CollectionManager:
             if cache_key and result:
                 duration = cache_duration or self._default_cache_duration
                 self._cache.set(self._ckey(cache_key), result, ttl=duration)
+                return copy.deepcopy(result)
 
             return result
         except Exception as e:
@@ -157,7 +200,9 @@ class CollectionManager:
             cached = self._cache.get(self._ckey(cache_key))
             if cached is not None:
                 logger.debug(f"Cache hit for {cache_key} in {self.name}")
-                return cached
+                # Copy-on-read: hand back a private copy so a caller mutating a
+                # returned document cannot corrupt the cached list.
+                return copy.deepcopy(cached)
 
         try:
             filter_dict = filter_dict or {}
@@ -176,6 +221,7 @@ class CollectionManager:
             if cache_key:
                 duration = cache_duration or self._default_cache_duration
                 self._cache.set(self._ckey(cache_key), documents, ttl=duration)
+                return copy.deepcopy(documents)
 
             return documents
         except Exception as e:
@@ -214,9 +260,7 @@ class CollectionManager:
                          **kwargs) -> bool:
         """Update a single document. Returns True if modified."""
         try:
-            if '$set' not in update_dict:
-                update_dict['$set'] = {}
-            update_dict['$set']['updated_at'] = datetime.now(tz=timezone.utc)
+            update_dict = self._stamp_update(update_dict)
 
             result = await self.collection.update_one(filter_dict, update_dict,
                                                       upsert=upsert, **kwargs)
@@ -237,9 +281,7 @@ class CollectionManager:
                           **kwargs) -> int:
         """Update multiple documents. Returns count of modified documents."""
         try:
-            if '$set' not in update_dict:
-                update_dict['$set'] = {}
-            update_dict['$set']['updated_at'] = datetime.now(tz=timezone.utc)
+            update_dict = self._stamp_update(update_dict)
 
             result = await self.collection.update_many(filter_dict, update_dict, **kwargs)
 
@@ -321,13 +363,22 @@ class CollectionManager:
         try:
             now = datetime.now(tz=timezone.utc)
             for op in operations:
-                if isinstance(op, (UpdateOne, ReplaceOne)):
-                    if hasattr(op, '_update') and isinstance(op._update, dict):
-                        if '$set' not in op._update:
-                            op._update['$set'] = {}
-                        op._update['$set']['updated_at'] = now
+                # pymongo stores the payload of every write op in `_doc` (there is no
+                # `_update` attribute). For UpdateOne it is the update document
+                # (operator form); for ReplaceOne it is the full replacement document.
+                if isinstance(op, UpdateOne):
+                    update_doc = getattr(op, '_doc', None)
+                    # Skip aggregation-pipeline updates (a list) -- they take no $set.
+                    if isinstance(update_doc, dict):
+                        update_doc.setdefault('$set', {})['updated_at'] = now
+                elif isinstance(op, ReplaceOne):
+                    # Stamp the replacement as a plain field; injecting $set here would
+                    # corrupt it into an invalid mixed document.
+                    replacement = getattr(op, '_doc', None)
+                    if isinstance(replacement, dict):
+                        replacement['updated_at'] = now
                 elif isinstance(op, InsertOne):
-                    if hasattr(op, '_doc') and isinstance(op._doc, dict):
+                    if isinstance(getattr(op, '_doc', None), dict):
                         op._doc['created_at'] = now
                         op._doc['updated_at'] = now
 

@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from storage_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 import os
 import asyncio
 import time
@@ -343,9 +343,14 @@ class GuildManager:
                 merged["guild_id"] = gid_str
 
                 old_ids = [d.get("_id") for d in docs]
+                merged.pop("_id", None)  # ensure a fresh _id, distinct from old_ids
                 try:
-                    await collection.delete_many({"_id": {"$in": old_ids}})
+                    # Insert the merged doc BEFORE deleting the originals. A crash
+                    # between the two writes then leaves a recoverable duplicate (the
+                    # next startup re-merges) rather than permanently losing this
+                    # guild's settings, which the old delete-then-insert order risked.
                     await collection.insert_one(merged)
+                    await collection.delete_many({"_id": {"$in": old_ids}})
                     merged_count += 1
                 except Exception as e:
                     logger.error(f"Migration failed for guild {gid_str}: {e}", exc_info=True)

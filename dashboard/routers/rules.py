@@ -4,7 +4,15 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _validate_snowflake(v: str | None) -> str | None:
+    """Reject non-numeric channel/guild IDs at validation time so a bad value returns
+    422, not an uncaught int() ValueError -> 500 in the route handler."""
+    if v is not None and not str(v).isdigit():
+        raise ValueError("must be a numeric snowflake ID")
+    return v
 
 from dashboard.auth.dependencies import get_current_user, require_panel_access
 from dashboard.services import rule_service
@@ -28,6 +36,10 @@ class CreateRuleRequest(BaseModel):
     is_active: bool = True
     author_filters: AuthorFiltersModel = Field(default_factory=AuthorFiltersModel)
 
+    _check_ids = field_validator(
+        "source_channel_id", "destination_channel_id", "destination_guild_id"
+    )(_validate_snowflake)
+
 
 class UpdateRuleRequest(BaseModel):
     rule_name: str | None = Field(default=None, min_length=1, max_length=100)
@@ -36,6 +48,10 @@ class UpdateRuleRequest(BaseModel):
     destination_guild_id: str | None = None
     is_active: bool | None = None
     author_filters: AuthorFiltersModel | None = None
+
+    _check_ids = field_validator(
+        "source_channel_id", "destination_channel_id", "destination_guild_id"
+    )(_validate_snowflake)
 
 
 @router.get("/guilds/{guild_id}/rules")

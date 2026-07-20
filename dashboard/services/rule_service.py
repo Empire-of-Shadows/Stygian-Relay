@@ -22,13 +22,61 @@ _DEFAULT_AUTHOR_FILTERS = {
     "deny_role_ids": [],
 }
 
+# The runtime (commands/forward/forward.py::process_rule) reads the nested `settings`
+# dict; a rule whose settings lack `message_types` forwards NOTHING (every type defaults
+# off). These mirror RuleSetupHelper.create_initial_rule so a dashboard-created rule
+# behaves identically to a panel/wizard-created one. Kept inline because the dashboard is
+# deliberately standalone (it must not import the bot's command/storage packages).
+_DEFAULT_MESSAGE_TYPES = {
+    "text": True,
+    "media": True,
+    "links": True,
+    "embeds": True,
+    "files": True,
+    "stickers": False,
+}
+_DEFAULT_FILTERS = {
+    "require_keywords": [],
+    "block_keywords": [],
+    "min_length": 0,
+    "max_length": 2000,
+}
+_DEFAULT_FORMATTING = {
+    "include_author": True,
+    "add_prefix": "",
+    "add_suffix": "",
+    "forward_attachments": True,
+    "forward_embeds": True,
+    "forward_style": "native",
+}
+_DEFAULT_ADVANCED_OPTIONS = {
+    "case_sensitive": False,
+    "whole_word_only": False,
+}
+
+
+def _default_rule_settings(author_filters: dict) -> dict:
+    """The complete default `settings` block the runtime needs to actually forward."""
+    return {
+        "message_types": dict(_DEFAULT_MESSAGE_TYPES),
+        "filters": dict(_DEFAULT_FILTERS),
+        "formatting": dict(_DEFAULT_FORMATTING),
+        "advanced_options": dict(_DEFAULT_ADVANCED_OPTIONS),
+        "author_filters": author_filters,
+    }
+
 
 def _migrate_rule(rule: dict) -> dict:
-    if rule.get("schema_version") == RULE_SCHEMA_VERSION:
-        return rule
+    # Backfill any missing default settings keys regardless of schema_version: early
+    # dashboard-created rules were stamped at the current version but with only
+    # `author_filters`, so they lacked `message_types` and forwarded nothing. Filling
+    # in missing keys here (idempotently) repairs them and never overwrites real values.
     settings = rule.setdefault("settings", {})
-    if "author_filters" not in settings:
-        settings["author_filters"] = dict(_DEFAULT_AUTHOR_FILTERS)
+    settings.setdefault("author_filters", dict(_DEFAULT_AUTHOR_FILTERS))
+    settings.setdefault("message_types", dict(_DEFAULT_MESSAGE_TYPES))
+    settings.setdefault("filters", dict(_DEFAULT_FILTERS))
+    settings.setdefault("formatting", dict(_DEFAULT_FORMATTING))
+    settings.setdefault("advanced_options", dict(_DEFAULT_ADVANCED_OPTIONS))
     rule["schema_version"] = RULE_SCHEMA_VERSION
     return rule
 
@@ -97,7 +145,7 @@ async def create_rule(
         "destination_channel_id": destination_channel_id,
         "destination_guild_id": dest_guild,
         "is_active": is_active,
-        "settings": {"author_filters": filters},
+        "settings": _default_rule_settings(filters),
         "schema_version": RULE_SCHEMA_VERSION,
         "created_at": now,
         "updated_at": now,
@@ -141,15 +189,37 @@ async def create_rule(
 
 
 async def update_rule(guild_id: str, rule_id: str, updates: dict) -> bool:
-    """Update fields of a specific rule. Returns True if modified."""
+    """Update fields of a specific rule. Returns True if modified.
+
+    Re-activating a rule (is_active -> True) is gated by the same active-rule cap that
+    create enforces, so a user can't bypass the limit by creating up to the cap,
+    deactivating one, creating another, then re-enabling the deactivated rule.
+    """
     now = datetime.now(timezone.utc)
+    gid = str(guild_id)
     set_fields = {f"rules.$.{k}": v for k, v in updates.items()}
     set_fields["rules.$.updated_at"] = now
 
-    result = await db.guild_settings().update_one(
-        {"guild_id": str(guild_id), "rules.rule_id": rule_id},
-        {"$set": set_fields},
-    )
+    query: dict = {"guild_id": gid, "rules.rule_id": rule_id}
+    if updates.get("is_active") is True:
+        limits = await get_guild_limits(gid)
+        max_rules = int(limits["max_rules"])
+        # Only match (and thus activate) when the OTHER active rules are under the cap.
+        query["$expr"] = {
+            "$lt": [
+                {"$size": {"$filter": {
+                    "input": {"$ifNull": ["$rules", []]},
+                    "as": "r",
+                    "cond": {"$and": [
+                        {"$eq": ["$$r.is_active", True]},
+                        {"$ne": ["$$r.rule_id", rule_id]},
+                    ]},
+                }}},
+                max_rules,
+            ]
+        }
+
+    result = await db.guild_settings().update_one(query, {"$set": set_fields})
     return result.modified_count > 0
 
 

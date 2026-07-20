@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from admin_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from admin_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/admin_engine/ and run:
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """
 Admin Panel Engine -Generic config-driven panel builder.
 
@@ -151,8 +151,12 @@ class PanelNode:
     # premium_label is set, renderers display it instead of `label`.
     premium_label: Optional[str] = None
 
-    # file_upload only — optional sync (parsed) -> (ok, error_msg) validator run
-    # against an uploaded payload before it is persisted.
+    # file_upload only — optional sync (parsed) -> (ok, error_msg) validator. The
+    # engine reads the attachment, decodes it as UTF-8 text, and (when this is set)
+    # parses it as JSON and runs the validator against the PARSED payload before
+    # persisting. set_values receives the decoded text (str), never the raw
+    # discord.Attachment. Uploads are text/JSON only; binary payloads are out of
+    # contract.
     schema_validator: Optional[Callable] = None
 
     # paginated_list only — a generic, scrollable list of items with an optional

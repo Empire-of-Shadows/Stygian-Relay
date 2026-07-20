@@ -72,21 +72,36 @@ async def update_config(
     gid = str(guild_id)
 
     set_fields: dict = {}
+    # An explicit null in the request body means "clear this field"; an omitted field
+    # means "leave it alone". model_fields_set distinguishes the two so a stale value
+    # (e.g. a manager role) can actually be revoked from the dashboard (BUG-R7b).
+    provided = body.model_fields_set
 
-    if body.master_log_channel_id is not None:
-        try:
-            set_fields["master_log_channel_id"] = int(body.master_log_channel_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="master_log_channel_id must be a valid integer snowflake.")
+    if "master_log_channel_id" in provided:
+        if body.master_log_channel_id is None:
+            set_fields["master_log_channel_id"] = None
+        else:
+            try:
+                set_fields["master_log_channel_id"] = int(body.master_log_channel_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="master_log_channel_id must be a valid integer snowflake.")
 
-    if body.manager_role_id is not None:
-        try:
-            set_fields["manager_role_id"] = int(body.manager_role_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="manager_role_id must be a valid integer snowflake.")
+    if "manager_role_id" in provided:
+        if body.manager_role_id is None:
+            set_fields["manager_role_id"] = None
+        else:
+            try:
+                set_fields["manager_role_id"] = int(body.manager_role_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="manager_role_id must be a valid integer snowflake.")
 
     if body.is_enabled is not None:
+        # The runtime gates forwarding on features.forwarding_enabled; the top-level
+        # is_enabled flag is only used for this dashboard's own display. Keep both in
+        # sync so the toggle actually switches forwarding on/off (BUG-R7a).
         set_fields["is_enabled"] = body.is_enabled
+        if not (body.features and "forwarding_enabled" in body.features):
+            set_fields["features.forwarding_enabled"] = body.is_enabled
 
     if body.features is not None:
         for k, v in body.features.items():

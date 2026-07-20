@@ -1,18 +1,11 @@
+"""Setup helpers for the forward extension.
+
+The interactive /setup /forward wizard was removed (it registered no commands and
+was unreachable); only the shared rule-defaults factory remains, still used by the
+admin panel's Forwarding Rules section.
 """
-Setup helpers for the forward extension.
-"""
-from .button_manager import button_manager
-from .state_manager import state_manager
-from .permission_check import permission_checker
-from .channel_select import channel_selector
 from .rule_setup import rule_setup_helper
-from .rule_creation_flow import RuleCreationFlow
 
 __all__ = [
-    'button_manager',
-    'state_manager',
-    'permission_checker',
-    'channel_selector',
     'rule_setup_helper',
-    'RuleCreationFlow'
 ]

@@ -358,9 +358,13 @@ class Forwarding(commands.Cog):
         # destination_guild_id. Backfill it now that we've resolved the
         # destination channel — fire-and-forget so the hot path stays clean.
         if not rule.get("destination_guild_id"):
-            asyncio.create_task(
+            # Track the task (like the dispatch tasks) so it isn't GC'd mid-flight and
+            # is cancelled on cog unload, rather than a truly untracked create_task.
+            stamp_task = asyncio.create_task(
                 self._stamp_destination_guild(rule_id, target_guild.id)
             )
+            self._dispatch_tasks.add(stamp_task)
+            stamp_task.add_done_callback(self._dispatch_tasks.discard)
         return True
 
     async def _stamp_destination_guild(self, rule_id: str, dest_guild_id: int) -> None:
@@ -454,9 +458,6 @@ class Forwarding(commands.Cog):
             return True
 
         if message.content and "http" in message.content and message_types.get("links", False):
-            return True
-
-        if not message.content:
             return True
 
         return False
@@ -686,7 +687,11 @@ class Forwarding(commands.Cog):
                     logger.error(f"Failed to send forwarded message {message.id} after attachment removal: {e2}")
                     await self._send_minimal_version(destination, message, formatting)
 
-            elif "message content too long" in str(e).lower():
+            elif e.code == 50035:
+                # 50035 = Invalid Form Body; Discord's over-length content lands here
+                # ("In content: Must be 2000 or fewer in length"), NOT as a "message
+                # content too long" string. The oversized handler re-checks lengths and
+                # degrades gracefully if the cause was something else.
                 self._bump_metric(source_gid, METRIC_OVERSIZED_FALLBACK)
                 logger.error(f"Failed to send forwarded message: {e}")
                 await self._handle_oversized_message(destination, message, send_kwargs, formatting)

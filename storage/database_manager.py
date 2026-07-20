@@ -1,9 +1,9 @@
-# ───────────────────────────────────────────────────────────────────────────
-# VENDORED from storage_engine/ — DO NOT EDIT HERE.
+# ---------------------------------------------------------------------------
+# VENDORED from storage_engine/ - DO NOT EDIT HERE.
 # Edit the master at <repo-root>/EmpireSystems/storage_engine/ and run:
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
-# ───────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 """DatabaseManagerBase — the generic, bot-agnostic Mongo manager.
 
 This is the engine half of the database manager. It owns connection pooling, database
@@ -441,7 +441,11 @@ class DatabaseManagerBase:
                     await client.admin.command('ping')
                     health_status['connections'][name] = 'healthy'
                 except Exception as e:
-                    health_status['connections'][name] = f'error: {e}'
+                    # Expose only the error TYPE, never the raw message: it can carry
+                    # host:port / connection-string detail that must not leak if a
+                    # caller ever surfaces this on a public /health endpoint.
+                    logger.warning(f"Health check failed for connection {name}: {e}")
+                    health_status['connections'][name] = f'error: {type(e).__name__}'
                     health_status['status'] = 'degraded'
 
             for collection_key, manager in self.collections.items():
@@ -449,12 +453,14 @@ class DatabaseManagerBase:
                     await manager.count_documents({})
                     health_status['collections'][collection_key] = 'healthy'
                 except Exception as e:
-                    health_status['collections'][collection_key] = f'error: {e}'
+                    logger.warning(f"Health check failed for collection {collection_key}: {e}")
+                    health_status['collections'][collection_key] = f'error: {type(e).__name__}'
                     health_status['status'] = 'degraded'
 
         except Exception as e:
+            logger.error(f"Health check aborted: {e}", exc_info=True)
             health_status['status'] = 'unhealthy'
-            health_status['error'] = str(e)
+            health_status['error'] = type(e).__name__
 
         return health_status
 
