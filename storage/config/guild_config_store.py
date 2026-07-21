@@ -151,6 +151,35 @@ class GuildConfigStore:
             logger.error(f"unset failed for guild {gid}: {e}", exc_info=True)
             return False
 
+    async def apply(
+        self,
+        guild_id: Any,
+        sets: Optional[Dict[str, Any]] = None,
+        unsets: Optional[List[str]] = None,
+        upsert: bool = False,
+    ) -> bool:
+        """Apply a surgical ``$set`` plus ``$unset`` in ONE atomic ``update_one``.
+
+        Built for typed config layers that diff a load-time snapshot against the edited
+        state (the BUG-C1 pattern): the changed leaves land as dotted ``$set`` and the
+        removed leaves as ``$unset`` in a single operation, so no concurrent write can
+        slip between the two halves and the save stays surgical. ``updated_at`` is
+        stamped by the ``CollectionManager``. Returns True when there is nothing to
+        write (an empty diff is a successful no-op, not an error)."""
+        gid = self._gid(guild_id)
+        update: Dict[str, Any] = {}
+        if sets:
+            update["$set"] = dict(sets)
+        if unsets:
+            update["$unset"] = {k: "" for k in unsets}
+        if not update:
+            return True
+        try:
+            return await self._mgr.update_one({self._id_field: gid}, update, upsert=upsert)
+        except Exception as e:
+            logger.error(f"apply failed for guild {gid}: {e}", exc_info=True)
+            return False
+
     async def save_doc(self, guild_id: Any, doc: Dict[str, Any]) -> bool:
         """Full-document upsert. The ``id_field`` and managed timestamps are handled for
         you (``created_at`` / ``updated_at`` are dropped so the manager owns them)."""

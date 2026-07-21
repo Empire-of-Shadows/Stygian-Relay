@@ -17,6 +17,7 @@ from ..exceptions import DatabaseOperationError
 from ..utils import ensure_utc
 from .constants import DEFAULT_BOT_SETTINGS, DEFAULT_GUILD_SETTINGS_TEMPLATE
 from ..forwarding.rule_schema import CURRENT_RULE_SCHEMA_VERSION, migrate_rule, migrate_rules
+from ....config.guild_config_store import GuildConfigStore
 
 logger = logging.getLogger("GuildManager")
 
@@ -61,9 +62,12 @@ class GuildManager:
         self._guild_join_listeners: List[Callable] = []
         self._guild_leave_listeners: List[Callable] = []
 
-        # Settings cache (5-min TTL) to dedupe redundant fetches in hot paths.
-        self.settings_cache = GuildSettingsCache(ttl_seconds=300)
-        # Premium and limits caches: hot-path reads on every forward.
+        # Guild-settings CRUD + cache go through the shared engine GuildConfigStore over the
+        # guild_settings collection (hit-first manager cache + copy-on-read), replacing the old
+        # hand-rolled settings cache. Built lazily via the _settings_store property because the
+        # db_manager is initialized after this manager is constructed at import time.
+        self._settings_store_obj: Optional[GuildConfigStore] = None
+        # Premium and limits caches: hot-path reads on every forward (separate collections).
         self.premium_cache = GuildSettingsCache(ttl_seconds=300)
         self.limits_cache = GuildSettingsCache(ttl_seconds=300)
 
@@ -411,6 +415,15 @@ class GuildManager:
             logger.error(f"❌ Failed to set up guild {guild_name}: {e}")
             raise DatabaseOperationError(f"Failed to set up guild: {e}") from e
 
+    @property
+    def _settings_store(self) -> GuildConfigStore:
+        """Lazily build the shared engine GuildConfigStore over guild_settings (the db_manager is
+        initialized after this manager is constructed at import time)."""
+        if self._settings_store_obj is None:
+            cm = self.db.get_collection_manager("guild_settings")
+            self._settings_store_obj = GuildConfigStore(cm, id_field="guild_id", cache_ttl=60)
+        return self._settings_store_obj
+
     async def remove_guild_data(self, guild_id: str, guild_name: str) -> bool:
         """
         Removes all data associated with a guild from the database.
@@ -419,8 +432,8 @@ class GuildManager:
         gid = str(guild_id)
         logger.info(f"🗑️ Removing data for guild: {guild_name} ({gid})")
         try:
+            await self._settings_store.delete(gid)
             db = self.db.db_client["discord_forwarding_bot"]
-            await db["guild_settings"].delete_one({"guild_id": gid})
             await db["user_permissions"].delete_many({"guild_id": gid})
             await self._notify_guild_leave(gid, guild_name)
             self.metrics["guilds_removed"] += 1
@@ -438,21 +451,14 @@ class GuildManager:
         current schema without each call site duplicating the migration.
         """
         gid = str(guild_id)
-        if use_cache:
-            cached = self.settings_cache.get(gid)
-            if cached is not None:
-                return cached
-
-        collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-        settings = await collection.find_one({"guild_id": gid})
+        settings = await self._settings_store.get_doc(gid, use_cache=use_cache)
         if not settings:
             logger.info(f"Guild {gid} not found, creating default settings...")
             settings = await self.setup_new_guild(gid, "Unknown Guild")
 
-        if settings is not None:
-            if isinstance(settings.get("rules"), list):
-                settings["rules"] = migrate_rules(settings["rules"])
-            self.settings_cache.set(gid, settings)
+        # Read-time rule-schema normalization wraps the store (the store returns raw docs).
+        if settings is not None and isinstance(settings.get("rules"), list):
+            settings["rules"] = migrate_rules(settings["rules"])
         return settings
 
     async def update_guild_settings(self, guild_id: str, updates: Dict[str, Any]) -> bool:
@@ -461,14 +467,9 @@ class GuildManager:
         Invalidates the settings cache for this guild.
         """
         gid = str(guild_id)
-        collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
-        updates["updated_at"] = datetime.now(timezone.utc)
-        result = await collection.update_one(
-            {"guild_id": gid},
-            {"$set": updates}
-        )
-        self.settings_cache.invalidate(gid)
-        return result.modified_count > 0
+        # Surgical $set through the engine store: it stamps updated_at and invalidates the cache.
+        # upsert=False preserves the historical "update existing only" behavior.
+        return await self._settings_store.update(gid, updates, upsert=False)
 
     async def get_all_guilds(self, batch_size: int = 500) -> List[Dict[str, Any]]:
         """
@@ -598,7 +599,7 @@ class GuildManager:
 
         result = await collection.update_one(query, {"$set": update_fields})
         if owner and owner.get("guild_id"):
-            self.settings_cache.invalidate(owner["guild_id"])
+            self._settings_store.invalidate(owner["guild_id"])
         return result.modified_count > 0
 
     async def delete_rule(self, rule_id: str) -> bool:
@@ -614,7 +615,7 @@ class GuildManager:
                 {"guild_id": gid},
                 {"$pull": {"rules": {"rule_id": rule_id}}}
             )
-            self.settings_cache.invalidate(gid)
+            self._settings_store.invalidate(gid)
             return result.modified_count > 0
         except Exception as e:
             logger.error(f"Error permanently deleting rule {rule_id} from guild {guild_id}: {e}", exc_info=True)
@@ -966,7 +967,7 @@ class GuildManager:
             )
 
             if result.modified_count > 0:
-                self.settings_cache.invalidate(gid)
+                self._settings_store.invalidate(gid)
                 logger.info(f"✅ Added rule '{rule_name}' for guild {gid}")
                 return True, "ok"
 
@@ -982,7 +983,7 @@ class GuildManager:
                      "$set": {"updated_at": datetime.now(timezone.utc)}}
                 )
                 if retry.modified_count > 0:
-                    self.settings_cache.invalidate(gid)
+                    self._settings_store.invalidate(gid)
                     return True, "ok"
                 # Still failed - must be cap.
                 return False, "limit_reached"
