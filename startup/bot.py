@@ -3,7 +3,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from storage.settings.manager import db_manager
+from storage.settings.collections import db_manager
 from storage.bot_specific.relay import guild_manager, audit_log
 
 logger = logging.getLogger("startup.bot")

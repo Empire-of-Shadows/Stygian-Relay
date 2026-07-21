@@ -19,7 +19,7 @@ Exposes the module-level singletons the rest of the bot imports (same names the 
 
 from typing import Any, Dict
 
-from ...settings.manager import db_manager
+from ...settings.collections import db_manager
 from ...premium import PremiumManager, PremiumState, SCOPE_GUILD
 from .guild.guild_manager import GuildManager
 from .audit import AuditLog

@@ -2,7 +2,7 @@
 
 The single integration point between the vendored storage engine and relay's environment.
 The engine imports these names by name; everything else under ``storage/`` (except the
-bot-owned ``define_collections.py`` / ``database_properties.py`` / ``manager.py`` and
+bot-owned ``collections.py`` — the consolidated registry + ``db_manager`` — and
 ``storage/bot_specific/relay/``) is vendored engine code — do not edit it here.
 
 Template: ``EmpireSystems/storage_engine/bindings_reference.py``.

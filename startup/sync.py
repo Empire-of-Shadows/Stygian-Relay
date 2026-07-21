@@ -172,7 +172,7 @@ async def attach_databases():
 
     try:
         # Shared engine DatabaseManager (pooled pymongo connections).
-        from storage.settings.manager import db_manager
+        from storage.settings.collections import db_manager
         try:
             await db_manager.initialize()
             result, is_success = await attach_attribute("db_manager", db_manager)

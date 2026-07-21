@@ -36,10 +36,14 @@ fresh rules never need migrating.
 - v2 — adds `settings.author_filters` with empty allow/deny lists for users
   + roles. Consumers can read the dict directly without `dict.get(..., {})`
   hedging.
-- v3 — current. Reserves `destination_guild_id` (int) on the rule. Migration
-  is a no-op stamp; the runtime path lazily backfills the field the first
-  time it resolves the destination channel via `bot.get_channel`. Wizard-
-  created rules at v3 stamp it directly at creation time.
+- v3 — reserves `destination_guild_id` (int) on the rule. Migration is a
+  no-op stamp; the runtime path lazily backfills the field the first time it
+  resolves the destination channel via `bot.get_channel`. Wizard-created
+  rules at v3 stamp it directly at creation time.
+- v4 — current. Ensures the full `settings` block (`message_types`, `filters`,
+  `formatting`, `advanced_options`, `author_filters`) exists. Repairs early
+  dashboard-created rules that were stamped v3 with only `author_filters` and
+  so forwarded nothing (BUG-R1). Backfill is non-clobbering.
 """
 
 from __future__ import annotations
@@ -49,7 +53,7 @@ from typing import Callable, Dict
 
 logger = logging.getLogger(__name__)
 
-CURRENT_RULE_SCHEMA_VERSION = 3
+CURRENT_RULE_SCHEMA_VERSION = 4
 
 # Default author-filter shape stamped onto every rule at v2. Empty lists mean
 # "no filter" — the runtime check in Forwarding.check_author_filters short-
@@ -60,6 +64,24 @@ DEFAULT_AUTHOR_FILTERS = {
     "deny_user_ids": [],
     "allow_role_ids": [],
     "deny_role_ids": [],
+}
+
+# Default settings sections stamped by the wizard/admin path. A rule whose settings
+# lack `message_types` forwards NOTHING (every type reads back False), which is exactly
+# what early dashboard-created rules were missing -- v4 backfills them (see below).
+DEFAULT_MESSAGE_TYPES = {
+    "text": True, "media": True, "links": True,
+    "embeds": True, "files": True, "stickers": False,
+}
+DEFAULT_FILTERS = {
+    "require_keywords": [], "block_keywords": [], "min_length": 0, "max_length": 2000,
+}
+DEFAULT_FORMATTING = {
+    "include_author": True, "add_prefix": "", "add_suffix": "",
+    "forward_attachments": True, "forward_embeds": True, "forward_style": "native",
+}
+DEFAULT_ADVANCED_OPTIONS = {
+    "case_sensitive": False, "whole_word_only": False,
 }
 
 
@@ -96,12 +118,31 @@ def _migrate_to_3(rule: dict) -> dict:
     return rule
 
 
-# Migrations keyed by the *target* version. To go from v0 to v3, the loop in
-# `migrate_rule` walks 1, 2, 3 in order.
+def _migrate_to_4(rule: dict) -> dict:
+    """
+    v3 → v4: ensure the full ``settings`` block exists. Rules created through the web
+    dashboard before BUG-R1 was fixed were stamped at v3 with only
+    ``settings.author_filters`` and no ``message_types``, so the runtime forwarded
+    nothing. Backfill any missing section (without clobbering admin-set values) so those
+    rules forward like wizard/admin-created ones.
+    """
+    settings = rule.setdefault("settings", {})
+    settings.setdefault("message_types", dict(DEFAULT_MESSAGE_TYPES))
+    settings.setdefault("filters", dict(DEFAULT_FILTERS))
+    settings.setdefault("formatting", dict(DEFAULT_FORMATTING))
+    settings.setdefault("advanced_options", dict(DEFAULT_ADVANCED_OPTIONS))
+    settings.setdefault("author_filters", {k: list(v) for k, v in DEFAULT_AUTHOR_FILTERS.items()})
+    rule["schema_version"] = 4
+    return rule
+
+
+# Migrations keyed by the *target* version. To go from v0 to v4, the loop in
+# `migrate_rule` walks 1, 2, 3, 4 in order.
 _MIGRATIONS: Dict[int, Callable[[dict], dict]] = {
     1: _migrate_to_1,
     2: _migrate_to_2,
     3: _migrate_to_3,
+    4: _migrate_to_4,
 }
 
 

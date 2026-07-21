@@ -13,7 +13,7 @@ from typing import Any
 from dashboard import db
 from dashboard.services.premium import get_guild_limits
 
-RULE_SCHEMA_VERSION = 3
+RULE_SCHEMA_VERSION = 4  # keep in sync with the bot-side rule_schema CURRENT_RULE_SCHEMA_VERSION
 
 _DEFAULT_AUTHOR_FILTERS = {
     "allow_user_ids": [],
