@@ -86,6 +86,11 @@ class BatchWriter:
         }
         self._flushing = False
         self._flush_task: Optional[asyncio.Task] = None
+        # Serialize flush() so a threshold-triggered flush and the auto-loop can't
+        # both clear pending_writes at once.
+        self._flush_lock = asyncio.Lock()
+        # Strong refs to threshold-triggered flush tasks so they aren't GC'd mid-flight.
+        self._inflight: set = set()
 
     # ── enqueue ──────────────────────────────────────────────────────────────
 
@@ -114,13 +119,28 @@ class BatchWriter:
         self.stats["currently_pending"] = len(self.pending_writes)
 
         if len(self.pending_writes) >= self.max_batch_size:
-            asyncio.create_task(self.flush())
+            # Keep a strong reference so the task isn't garbage-collected mid-flush;
+            # flush() itself is serialized by _flush_lock against the auto-loop.
+            task = asyncio.create_task(self.flush())
+            self._inflight.add(task)
+            task.add_done_callback(self._inflight.discard)
         return True
 
     @staticmethod
-    def _merge_updates(existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
+    def _push_elements(value: Any) -> list:
+        """Normalize a ``$push`` field value to the list of elements it pushes.
+
+        MongoDB semantics: ``{"$push": {f: X}}`` pushes X as ONE element, while
+        ``{"$push": {f: {"$each": [...]}}}`` pushes each element of the list. A bare
+        list is a single element, NOT spread."""
+        if isinstance(value, dict) and "$each" in value:
+            return list(value["$each"])
+        return [value]
+
+    @classmethod
+    def _merge_updates(cls, existing: Dict[str, Any], new: Dict[str, Any]) -> Dict[str, Any]:
         """Combine two update documents operator-by-operator (``$inc`` sums, ``$set``
-        last-wins, ``$push`` concatenates)."""
+        last-wins, ``$push`` concatenates via ``$each``)."""
         merged = {op: dict(fields) for op, fields in existing.items()}
         for operator, fields in new.items():
             bucket = merged.setdefault(operator, {})
@@ -128,13 +148,13 @@ class BatchWriter:
                 for f, v in fields.items():
                     bucket[f] = bucket.get(f, 0) + v
             elif operator == "$push":
+                # Normalize both sides to $each element lists and concatenate, so
+                # two buffered pushes to the same field don't overwrite each other
+                # (the old code dropped the earlier $each) and a bare list isn't
+                # wrongly spread.
                 for f, v in fields.items():
-                    if f not in bucket:
-                        bucket[f] = v
-                    elif isinstance(v, list) and isinstance(bucket[f], list):
-                        bucket[f].extend(v)
-                    else:
-                        bucket[f] = v
+                    prev = cls._push_elements(bucket[f]) if f in bucket else []
+                    bucket[f] = {"$each": prev + cls._push_elements(v)}
             else:  # $set and any other operator: later value wins
                 bucket.update(fields)
         return merged
@@ -143,6 +163,12 @@ class BatchWriter:
 
     async def flush(self) -> int:
         """Write all pending operations, grouped into one ``bulk_write`` per collection."""
+        # Serialize concurrent flushes (auto-loop vs threshold-triggered task) so
+        # they can't both snapshot-and-clear pending_writes and double-write.
+        async with self._flush_lock:
+            return await self._flush_locked()
+
+    async def _flush_locked(self) -> int:
         if not self.pending_writes:
             return 0
 
@@ -181,9 +207,12 @@ class BatchWriter:
         """Start the background auto-flush loop (idempotent)."""
         if self._flushing:
             return
+        # Set the flag synchronously (not inside the task): two start() calls in
+        # quick succession would otherwise both see False before _loop scheduled
+        # and spawn two loops, orphaning the first task.
+        self._flushing = True
 
         async def _loop():
-            self._flushing = True
             logger.info(f"BatchWriter auto-flush started (interval={self.flush_interval}s, max_batch={self.max_batch_size})")
             while self._flushing:
                 try:
@@ -203,6 +232,9 @@ class BatchWriter:
         if self._flush_task:
             self._flush_task.cancel()
             self._flush_task = None
+        for task in list(self._inflight):
+            task.cancel()
+        self._inflight.clear()
 
     async def shutdown(self) -> None:
         """Stop the loop and flush everything still pending. Call before closing the DB."""

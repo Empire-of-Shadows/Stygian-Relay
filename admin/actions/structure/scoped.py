@@ -51,7 +51,7 @@ def _make_runner(cog, guild, ctx, *, key, label, specs, scope, require, stringif
                  before, after, success_text, member=None):
     """Return an async ``run(interaction)`` performing the full scoped pipeline."""
     async def _run(ci: discord.Interaction):
-        if not cog._check_cooldown(ci.user.id, key):
+        if not cog._check_cooldown(ci.user.id, key, guild.id):
             await ci.response.send_message(
                 view=build_notice_layout("Slow Down", "Please wait a moment before trying again."),
                 ephemeral=True,

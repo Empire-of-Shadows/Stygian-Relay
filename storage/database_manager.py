@@ -307,16 +307,17 @@ class DatabaseManagerBase:
     def get_database(self, name: str) -> AsyncDatabase:
         """Get a database by name."""
         self._ensure_initialized()
-        if name not in self.databases:
-            for connection_name, pool in self.connection_pools.items():
-                try:
-                    client = pool.client
-                    if client is not None:
-                        self.databases[name] = client[name]
-                        return self.databases[name]
-                except Exception:
-                    continue
-            raise ValueError(f"Database '{name}' not found in any connection")
+        if name in self.databases:
+            return self.databases[name]
+        # Unknown name: resolve deterministically against the PRIMARY connection.
+        # The old fallback returned ``client[name]`` from the first reachable pool,
+        # which could silently hand back a same-named database on an unrelated
+        # connection (e.g. when primary was momentarily down). Never cross pools.
+        primary = self.connection_pools.get("primary")
+        client = primary.client if primary is not None else None
+        if client is None:
+            raise ValueError(f"Database '{name}' not found and primary connection unavailable")
+        self.databases[name] = client[name]
         return self.databases[name]
 
     def get_collection_manager(self, collection_key: str) -> CollectionManager:

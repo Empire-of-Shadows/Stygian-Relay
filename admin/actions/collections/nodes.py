@@ -19,15 +19,20 @@ def paginated_list_node(
     description="", action_label="Delete", id_field="_id", page_size=10,
     query: Optional[Callable] = None, delete_query: Optional[Callable] = None,
     confirm_line: Optional[Callable] = None, mod_allowed=False, premium_label=None,
+    stringify_ids=False,
 ) -> PanelNode:
     """A paginated_list node browsing ``collection`` with a per-item action (default delete).
 
     ``query(guild_id) -> dict`` selects the documents (default ``{"guild_id": guild_id}``).
     ``delete_query(guild_id, value) -> dict`` selects the doc to delete (default
     ``{**query, id_field: value}``). ``value_getter(item) -> str`` is the stable id.
+    ``stringify_ids=True`` casts ``guild_id`` to ``str`` in the DEFAULT query (some bots
+    store guild ids as strings; without it the list renders empty against them).
     """
     def _q(guild_id):
-        return query(guild_id) if query is not None else {"guild_id": guild_id}
+        if query is not None:
+            return query(guild_id)
+        return {"guild_id": str(guild_id) if stringify_ids else guild_id}
 
     async def _items(guild_id):
         return await list_documents(collection, _q(guild_id))

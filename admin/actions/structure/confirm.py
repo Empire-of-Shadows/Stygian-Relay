@@ -36,7 +36,7 @@ def confirm_action(
                 await ci.response.edit_message(view=create_empty_layout("Cancelled."))
 
         async def _confirm(ci):
-            if not cog._check_cooldown(ci.user.id, key):
+            if not cog._check_cooldown(ci.user.id, key, guild.id):
                 await ci.response.send_message(
                     view=build_notice_layout("Slow Down", "Please wait a moment before trying again."),
                     ephemeral=True,
@@ -74,11 +74,16 @@ def confirm_action(
 
 
 def purge_action(key, *, collection, label, confirm_text, query: Optional[Callable] = None,
-                 description="", mod_allowed=False, premium_label=None) -> PanelNode:
+                 description="", mod_allowed=False, premium_label=None, stringify_ids=False) -> PanelNode:
     """A confirm-gated ``action`` that purges all documents in ``collection`` matching
-    ``query(guild_id)`` (default ``{"guild_id": guild_id}``)."""
+    ``query(guild_id)`` (default ``{"guild_id": guild_id}``). ``stringify_ids=True`` casts
+    ``guild_id`` to ``str`` in the default query (else it deletes nothing against
+    string-id collections)."""
     async def _run(guild_id):
-        q = query(guild_id) if query is not None else {"guild_id": guild_id}
+        if query is not None:
+            q = query(guild_id)
+        else:
+            q = {"guild_id": str(guild_id) if stringify_ids else guild_id}
         removed = await purge_collection(collection, q)
         safe_invalidate(guild_id)
         return removed

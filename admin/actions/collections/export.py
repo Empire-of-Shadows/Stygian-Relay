@@ -40,10 +40,16 @@ async def export_documents(
 
 def export_action(key, *, collection, label, fmt="json", filename="export",
                   query: Optional[Callable] = None, fields=None, description="",
-                  mod_allowed=False, premium_label=None) -> PanelNode:
-    """An ``action`` node that exports ``collection`` (matching ``query``) ephemerally."""
+                  mod_allowed=False, premium_label=None, stringify_ids=False) -> PanelNode:
+    """An ``action`` node that exports ``collection`` (matching ``query``) ephemerally.
+
+    ``stringify_ids=True`` casts ``guild_id`` to ``str`` in the default query (else it
+    exports nothing against string-id collections)."""
     async def _on_run(cog, interaction, guild, ctx: ActionContext):
-        q = query(guild.id) if query is not None else {"guild_id": guild.id}
+        if query is not None:
+            q = query(guild.id)
+        else:
+            q = {"guild_id": str(guild.id) if stringify_ids else guild.id}
         if not interaction.response.is_done():
             await interaction.response.defer(ephemeral=True)
         try:

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Iterable, Sequence
 
-from .documents import purge_collection, upsert_document
+from .documents import purge_collection, update_many_documents
 
 
 def _build_query(scope: dict, *, stringify_ids: bool) -> dict:
@@ -82,20 +82,22 @@ async def mutate_scoped(
             fields = spec.get("fields") or []
             if not fields:
                 continue
-            ok = await upsert_document(
-                collection, query, {"$unset": {f: "" for f in fields}}, upsert=False,
+            # Affect ALL matching docs, not just the first: a guild-wide field
+            # reset must clear every doc for the guild, not one of them.
+            changed = await update_many_documents(
+                collection, query, {"$unset": {f: "" for f in fields}},
             )
-            if ok:
-                total += 1
+            if changed:
+                total += changed
                 affected.append(collection)
 
         elif mode == "set":
             defaults = spec.get("defaults") or {}
             if not defaults:
                 continue
-            ok = await upsert_document(collection, query, {"$set": defaults}, upsert=False)
-            if ok:
-                total += 1
+            changed = await update_many_documents(collection, query, {"$set": defaults})
+            if changed:
+                total += changed
                 affected.append(collection)
 
         else:

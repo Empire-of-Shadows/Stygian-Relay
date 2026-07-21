@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional, Union
 
 import backoff
 from pymongo.asynchronous.collection import AsyncCollection
-from pymongo import UpdateOne, InsertOne, DeleteOne, ReplaceOne
+from pymongo import UpdateOne, InsertOne, DeleteOne, ReplaceOne, ReturnDocument
 from pymongo.errors import BulkWriteError, ConnectionFailure, OperationFailure
 
 from .collection_config import CollectionConfig
@@ -464,14 +464,25 @@ class CollectionManager:
         """Capability: add/flip/remove a per-user vote. Idempotent toggle over the doc matched
         by ``filter_dict`` (typically ``{entity_id, user_id}``): absent → add; same value →
         remove; different value → change. Returns ``{"action": added|removed|changed,
-        "new_value": value|None}``."""
-        existing = await self.find_one(filter_dict)
-        if existing is None:
-            doc = dict(filter_dict)
-            doc[vote_field] = vote_value
-            await self.create_one(doc)
+        "new_value": value|None}``.
+
+        The absent→add branch is an atomic ``$setOnInsert`` upsert (returning the
+        pre-image), so two concurrent first-time toggles for the same
+        ``filter_dict`` can no longer both read ``None`` and both insert a
+        duplicate. The remove/change branches still read-then-write, but they only
+        run when a document already exists, so they cannot create duplicates."""
+        now = datetime.now(tz=timezone.utc)
+        before = await self.collection.find_one_and_update(
+            filter_dict,
+            {"$setOnInsert": {**filter_dict, vote_field: vote_value,
+                              "created_at": now, "updated_at": now}},
+            upsert=True,
+            return_document=ReturnDocument.BEFORE,
+        )
+        self._invalidate_cache()
+        if before is None:
             return {"action": "added", "new_value": vote_value}
-        if existing.get(vote_field) == vote_value:
+        if before.get(vote_field) == vote_value:
             await self.delete_one(filter_dict)
             return {"action": "removed", "new_value": None}
         await self.update_one(filter_dict, {"$set": {vote_field: vote_value}})

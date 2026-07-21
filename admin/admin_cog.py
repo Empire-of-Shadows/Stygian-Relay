@@ -32,7 +32,6 @@ from discord.ext import commands
 # this engine file stays byte-identical across every bot. Each bot ships its own
 # admin/settings/bindings.py wiring these to its real backend.
 from .settings.bindings import (
-    MOD_ALLOWED_CATEGORIES,
     OVERVIEW_FOOTER,
     SETUP_GUIDE_TEXT,
     audit_log_entry,
@@ -42,6 +41,10 @@ from .settings.bindings import (
     is_premium,
     resolve_panel_role,
 )
+# NOTE: MOD_ALLOWED_CATEGORIES is intentionally NOT imported here. It is a legacy,
+# optional binding; auth.effective_mod_allowed imports it with a fallback so a bot
+# that omits it still loads. Hard-importing it here would break the whole cog for
+# any such bot.
 from .permission_checks import check_channel_permissions, check_role_permissions
 from .auth import effective_mod_allowed
 from .settings.panel_configs import MAIN_PANEL
@@ -217,7 +220,7 @@ class AdminCog(commands.Cog):
         session.panel_role = panel_role  # let nav/save handlers gate by tier
 
         async def on_toggle_guide(toggle_interaction: discord.Interaction):
-            if not self._check_cooldown(admin_id, "setup_guide_toggle"):
+            if not self._check_cooldown(admin_id, "setup_guide_toggle", guild.id):
                 await toggle_interaction.response.send_message(
                     "Please wait a moment before toggling again.",
                     ephemeral=True,
@@ -230,10 +233,10 @@ class AdminCog(commands.Cog):
             await set_setting("hide_setup_guide", new_hidden, guild.id)
 
             layout = await _build_overview()
-            await toggle_interaction.response.edit_message(view=layout)
+            await toggle_interaction.response.edit_message(view=self._rebind_session_view(session, layout))
 
         async def on_toggle_details(toggle_interaction: discord.Interaction):
-            if not self._check_cooldown(admin_id, "details_toggle"):
+            if not self._check_cooldown(admin_id, "details_toggle", guild.id):
                 await toggle_interaction.response.send_message(
                     "Please wait a moment before toggling again.",
                     ephemeral=True,
@@ -242,7 +245,7 @@ class AdminCog(commands.Cog):
 
             details_state["expanded"] = not details_state["expanded"]
             layout = await _build_overview()
-            await toggle_interaction.response.edit_message(view=layout)
+            await toggle_interaction.response.edit_message(view=self._rebind_session_view(session, layout))
 
         async def on_main_select(sel_interaction: discord.Interaction, child_key: str):
             child = MAIN_PANEL.children.get(child_key)
@@ -257,7 +260,7 @@ class AdminCog(commands.Cog):
                     "Mods can only adjust per-game settings.",
                 )
                 refreshed = await _build_overview()
-                await sel_interaction.response.edit_message(view=refreshed)
+                await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                 await sel_interaction.followup.send(view=notice, ephemeral=True)
                 return
 
@@ -272,7 +275,7 @@ class AdminCog(commands.Cog):
                     )
                     notice = build_notice_layout("Setting Locked", reason)
                     refreshed = await _build_overview()
-                    await sel_interaction.response.edit_message(view=refreshed)
+                    await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     await sel_interaction.followup.send(view=notice, ephemeral=True)
                     return
 
@@ -291,7 +294,7 @@ class AdminCog(commands.Cog):
             # and re-picking the same category won't re-fire the interaction.
             try:
                 refreshed = await _build_overview()
-                await interaction.edit_original_response(view=refreshed)
+                await interaction.edit_original_response(view=self._rebind_session_view(session, refreshed))
             except Exception as e:
                 logger.debug(f"Could not refresh overview select state: {e}")
 
@@ -375,7 +378,7 @@ class AdminCog(commands.Cog):
         async def refresh_nav():
             try:
                 new_view = await build_overview()
-                await original_interaction.edit_original_response(view=new_view)
+                await original_interaction.edit_original_response(view=self._rebind_session_view(session, new_view))
             except Exception as e:
                 logger.debug(f"Could not refresh overview after save: {e}")
 
@@ -405,7 +408,7 @@ class AdminCog(commands.Cog):
                     "Admin Only", "This setting is restricted to server admins."
                 )
                 refreshed = await _build_category_view()
-                await child_interaction.response.edit_message(view=refreshed)
+                await child_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                 await child_interaction.followup.send(view=notice, ephemeral=True)
                 return
 
@@ -419,13 +422,13 @@ class AdminCog(commands.Cog):
                     )
                     notice = build_notice_layout("Setting Locked", reason)
                     refreshed = await _build_category_view()
-                    await child_interaction.response.edit_message(view=refreshed)
+                    await child_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     await child_interaction.followup.send(view=notice, ephemeral=True)
                     return
                 else:
                     _current_locked[0] = new_locked
                     refreshed = await _build_category_view()
-                    await child_interaction.response.edit_message(view=refreshed)
+                    await child_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     return
 
             # Pre-check gate
@@ -433,7 +436,7 @@ class AdminCog(commands.Cog):
                 denied_view = await child.pre_check(child_interaction, guild.id)
                 if denied_view is not None:
                     refreshed = await _build_category_view()
-                    await child_interaction.response.edit_message(view=refreshed)
+                    await child_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     await child_interaction.followup.send(view=denied_view, ephemeral=True)
                     return
 
@@ -464,6 +467,11 @@ class AdminCog(commands.Cog):
             )
 
         async def on_toggle(toggle_interaction: discord.Interaction):
+            if not self._check_cooldown(toggle_interaction.user.id, category_node.key, guild.id):
+                await toggle_interaction.response.send_message(
+                    "Please wait a moment before toggling again.", ephemeral=True,
+                )
+                return
             current = await category_node.toggle_get(guild.id)
             success = await category_node.toggle_set(guild.id, not current)
             if success:
@@ -478,7 +486,7 @@ class AdminCog(commands.Cog):
                     action="toggle", section=category_node.key,
                 )
                 refreshed = await _build_category_view()
-                await toggle_interaction.response.edit_message(view=refreshed)
+                await toggle_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                 await refresh_nav()
             else:
                 await toggle_interaction.response.send_message(
@@ -579,7 +587,9 @@ class AdminCog(commands.Cog):
             logger.warning(f"action node {node.key!r} has no on_run handler")
             return
         # Defense in depth: mods cannot run an action whose effective mod_allowed is False.
-        if getattr(session, "panel_role", "admin") == "mod" and not effective_mod_allowed(MAIN_PANEL, node):
+        # A missing session defaults to the restrictive "mod" tier (deny admin-only), never
+        # the permissive "admin".
+        if getattr(session, "panel_role", "mod") == "mod" and not effective_mod_allowed(MAIN_PANEL, node):
             await interaction.response.send_message(
                 view=build_notice_layout("Admin Only", "This action is restricted to server admins."),
                 ephemeral=True,
@@ -669,12 +679,13 @@ class AdminCog(commands.Cog):
                 return
 
             # Mod gate (inherited): block a mod from a child that opts out of mod access.
-            if getattr(session, "panel_role", "admin") == "mod" and not effective_mod_allowed(MAIN_PANEL, child):
+            # A missing session defaults to the restrictive "mod" tier, never "admin".
+            if getattr(session, "panel_role", "mod") == "mod" and not effective_mod_allowed(MAIN_PANEL, child):
                 notice = build_notice_layout(
                     "Admin Only", "This setting is restricted to server admins."
                 )
                 refreshed = await _build_current_view()
-                await sel_interaction.response.edit_message(view=refreshed)
+                await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                 await sel_interaction.followup.send(view=notice, ephemeral=True)
                 return
 
@@ -688,13 +699,13 @@ class AdminCog(commands.Cog):
                     )
                     notice = build_notice_layout("Setting Locked", reason)
                     refreshed = await _build_current_view()
-                    await sel_interaction.response.edit_message(view=refreshed)
+                    await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     await sel_interaction.followup.send(view=notice, ephemeral=True)
                     return
                 else:
                     _current_locked[0] = new_locked
                     refreshed = await _build_current_view()
-                    await sel_interaction.response.edit_message(view=refreshed)
+                    await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     return
 
             # Pre-check gate
@@ -702,7 +713,7 @@ class AdminCog(commands.Cog):
                 denied_view = await child.pre_check(sel_interaction, guild.id)
                 if denied_view is not None:
                     refreshed = await _build_current_view()
-                    await sel_interaction.response.edit_message(view=refreshed)
+                    await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                     await sel_interaction.followup.send(view=denied_view, ephemeral=True)
                     return
 
@@ -741,6 +752,11 @@ class AdminCog(commands.Cog):
                 )
 
         async def on_toggle(toggle_interaction: discord.Interaction):
+            if not self._check_cooldown(toggle_interaction.user.id, node.key, guild.id):
+                await toggle_interaction.response.send_message(
+                    "Please wait a moment before toggling again.", ephemeral=True,
+                )
+                return
             current = await node.toggle_get(guild.id)
             success = await node.toggle_set(guild.id, not current)
             if success:
@@ -755,7 +771,7 @@ class AdminCog(commands.Cog):
                     action="toggle", parent_node=parent_node,
                 )
                 refreshed = await _build_current_view()
-                await toggle_interaction.response.edit_message(view=refreshed)
+                await toggle_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
                 if refresh_parent:
                     await refresh_parent()
             else:
@@ -799,7 +815,7 @@ class AdminCog(commands.Cog):
         premium = await self._is_premium(guild.id)
 
         async def on_save(save_interaction: discord.Interaction, values: list):
-            if not self._check_cooldown(save_interaction.user.id, node.key):
+            if not self._check_cooldown(save_interaction.user.id, node.key, guild.id):
                 await save_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
@@ -885,7 +901,7 @@ class AdminCog(commands.Cog):
                 )
                 new_layout = build_select_view(node, values, guild, on_save, on_back, on_clear_fn, back_label, is_premium=premium)
                 try:
-                    await save_interaction.edit_original_response(view=new_layout)
+                    await save_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh select view: %s", http_exc)
                 if node.post_save_hook:
@@ -916,7 +932,7 @@ class AdminCog(commands.Cog):
         on_clear_fn = None
         if node.clear_values:
             async def on_clear(clear_interaction: discord.Interaction):
-                if not self._check_cooldown(clear_interaction.user.id, node.key):
+                if not self._check_cooldown(clear_interaction.user.id, node.key, guild.id):
                     await clear_interaction.response.send_message(
                         view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                         ephemeral=True,
@@ -935,7 +951,7 @@ class AdminCog(commands.Cog):
                         action="clear", parent_node=parent_node,
                     )
                     new_layout = build_select_view(node, [], guild, on_save, on_back, on_clear_fn, back_label, is_premium=premium)
-                    await clear_interaction.edit_original_response(view=new_layout)
+                    await clear_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                     if refresh_parent:
                         await refresh_parent()
                 else:
@@ -982,14 +998,14 @@ class AdminCog(commands.Cog):
                             attempted=raw_value,
                             is_premium=await self._is_premium(guild.id),
                         )
-                        await button_interaction.edit_original_response(view=retry_layout)
+                        await button_interaction.edit_original_response(view=self._rebind_session_view(session, retry_layout))
                     except discord.HTTPException as http_exc:
                         logger.warning("Could not rebuild modal trigger after validation fail: %s", http_exc)
                     return
             else:
                 value = raw_value
 
-            if not self._check_cooldown(button_interaction.user.id, node.key):
+            if not self._check_cooldown(button_interaction.user.id, node.key, guild.id):
                 await modal_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
@@ -1029,7 +1045,7 @@ class AdminCog(commands.Cog):
                 )
                 new_layout = build_modal_trigger_view(node, new_vals, guild, on_save, on_back, on_clear_fn, back_label, is_premium=await self._is_premium(guild.id))
                 try:
-                    await button_interaction.edit_original_response(view=new_layout)
+                    await button_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh modal trigger view: %s", http_exc)
                 if node.post_save_hook:
@@ -1062,7 +1078,7 @@ class AdminCog(commands.Cog):
         on_clear_fn = None
         if node.clear_values:
             async def on_clear(clear_interaction):
-                if not self._check_cooldown(clear_interaction.user.id, node.key):
+                if not self._check_cooldown(clear_interaction.user.id, node.key, guild.id):
                     await clear_interaction.response.send_message(
                         view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                         ephemeral=True,
@@ -1080,7 +1096,7 @@ class AdminCog(commands.Cog):
                         action="clear", parent_node=parent_node,
                     )
                     new_layout = build_modal_trigger_view(node, [], guild, on_save, on_back, on_clear_fn, back_label, is_premium=await self._is_premium(guild.id))
-                    await clear_interaction.edit_original_response(view=new_layout)
+                    await clear_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                     if refresh_parent:
                         await refresh_parent()
                 else:
@@ -1110,7 +1126,7 @@ class AdminCog(commands.Cog):
         current_values = list(await node.get_values(guild.id)) if node.get_values else []
 
         async def on_save(button_interaction, modal_interaction, val1, val2):
-            if not self._check_cooldown(button_interaction.user.id, node.key):
+            if not self._check_cooldown(button_interaction.user.id, node.key, guild.id):
                 await modal_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
@@ -1131,7 +1147,7 @@ class AdminCog(commands.Cog):
                 )
                 new_layout = build_dual_modal_trigger_view(node, new_vals, guild, on_save, on_back, back_label, is_premium=await self._is_premium(guild.id))
                 try:
-                    await button_interaction.edit_original_response(view=new_layout)
+                    await button_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh dual modal view: %s", http_exc)
                 if refresh_parent:
@@ -1175,7 +1191,7 @@ class AdminCog(commands.Cog):
         current_values = list(await node.get_values(guild.id)) if node.get_values else []
 
         async def on_upload(button_interaction, modal_interaction, attachment):
-            if not self._check_cooldown(button_interaction.user.id, node.key):
+            if not self._check_cooldown(button_interaction.user.id, node.key, guild.id):
                 await modal_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
@@ -1249,7 +1265,7 @@ class AdminCog(commands.Cog):
                     is_premium=await self._is_premium(guild.id),
                 )
                 try:
-                    await button_interaction.edit_original_response(view=new_layout)
+                    await button_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh file upload view: %s", http_exc)
                 if node.post_save_hook:
@@ -1279,7 +1295,7 @@ class AdminCog(commands.Cog):
         on_clear_fn = None
         if node.clear_values:
             async def on_clear(clear_interaction):
-                if not self._check_cooldown(clear_interaction.user.id, node.key):
+                if not self._check_cooldown(clear_interaction.user.id, node.key, guild.id):
                     await clear_interaction.response.send_message(
                         view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                         ephemeral=True,
@@ -1300,7 +1316,7 @@ class AdminCog(commands.Cog):
                         is_premium=await self._is_premium(guild.id),
                     )
                     try:
-                        await clear_interaction.edit_original_response(view=new_layout)
+                        await clear_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                     except discord.HTTPException as http_exc:
                         logger.warning("Could not refresh file upload view after clear: %s", http_exc)
                     if refresh_parent:
@@ -1373,7 +1389,7 @@ class AdminCog(commands.Cog):
             else:
                 value = raw_value
 
-            if not self._check_cooldown(button_interaction.user.id, node.key):
+            if not self._check_cooldown(button_interaction.user.id, node.key, guild.id):
                 await modal_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
@@ -1397,10 +1413,11 @@ class AdminCog(commands.Cog):
                 )
                 return
 
-            if original_key is not None and original_key != key and node.dict_remove_value:
-                await node.dict_remove_value(guild.id, original_key)
-
             success = await node.dict_set_value(guild.id, key, value) if node.dict_set_value else False
+            # Rename: remove the OLD key only after the new value is safely written,
+            # so a failed write can't leave the entry deleted with no replacement.
+            if success and original_key is not None and original_key != key and node.dict_remove_value:
+                await node.dict_remove_value(guild.id, original_key)
             if success:
                 self._invalidate_guild_caches(guild.id)
                 logger.info(f"Admin {button_interaction.user} updated {node.key}[{key}] in guild {guild.id}")
@@ -1413,7 +1430,7 @@ class AdminCog(commands.Cog):
                 )
                 new_layout = await _build_view()
                 try:
-                    await button_interaction.edit_original_response(view=new_layout)
+                    await button_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh dict editor: %s", http_exc)
                 if refresh_parent:
@@ -1471,7 +1488,7 @@ class AdminCog(commands.Cog):
             await bi.response.send_modal(modal)
 
         async def on_remove(remove_interaction: discord.Interaction, target_key: str):
-            if not self._check_cooldown(remove_interaction.user.id, node.key):
+            if not self._check_cooldown(remove_interaction.user.id, node.key, guild.id):
                 await remove_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
@@ -1492,7 +1509,7 @@ class AdminCog(commands.Cog):
                 )
                 new_layout = await _build_view()
                 try:
-                    await remove_interaction.edit_original_response(view=new_layout)
+                    await remove_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh dict editor after remove: %s", http_exc)
                 if refresh_parent:
@@ -1565,11 +1582,11 @@ class AdminCog(commands.Cog):
 
         async def on_list_prev(prev_interaction: discord.Interaction):
             page_state["page"] = max(0, page_state["page"] - 1)
-            await prev_interaction.response.edit_message(view=await _build_list_layout())
+            await prev_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_list_layout()))
 
         async def on_list_next(next_interaction: discord.Interaction):
             page_state["page"] += 1
-            await next_interaction.response.edit_message(view=await _build_list_layout())
+            await next_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_list_layout()))
 
         async def on_list_back(back_interaction: discord.Interaction):
             if parent_node:
@@ -1595,7 +1612,7 @@ class AdminCog(commands.Cog):
             )
             if chosen is None:
                 # Item already gone (deleted elsewhere / list refreshed) — re-render.
-                await pick_interaction.response.edit_message(view=await _build_list_layout())
+                await pick_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_list_layout()))
                 return
 
             confirm_text = (
@@ -1606,7 +1623,7 @@ class AdminCog(commands.Cog):
             action_label = node.list_action_label or "Confirm"
 
             async def on_list_confirm(confirm_interaction: discord.Interaction):
-                if not self._check_cooldown(confirm_interaction.user.id, node.key):
+                if not self._check_cooldown(confirm_interaction.user.id, node.key, guild.id):
                     await confirm_interaction.response.send_message(
                         view=build_notice_layout("Slow Down", "Please wait a moment before trying again."),
                         ephemeral=True,
@@ -1631,7 +1648,7 @@ class AdminCog(commands.Cog):
                         action="delete", parent_node=parent_node,
                     )
                     try:
-                        await confirm_interaction.edit_original_response(view=await _build_list_layout())
+                        await confirm_interaction.edit_original_response(view=self._rebind_session_view(session, await _build_list_layout()))
                     except discord.HTTPException as http_exc:
                         logger.warning("Could not refresh paginated list: %s", http_exc)
                     if refresh_parent:
@@ -1646,7 +1663,7 @@ class AdminCog(commands.Cog):
                     )
 
             async def on_list_cancel(cancel_interaction: discord.Interaction):
-                await cancel_interaction.response.edit_message(view=await _build_list_layout())
+                await cancel_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_list_layout()))
 
             confirm_layout = build_confirm_view(
                 f"{action_label}?",
@@ -1656,7 +1673,7 @@ class AdminCog(commands.Cog):
                 confirm_label=action_label,
                 key=node.key,
             )
-            await pick_interaction.response.edit_message(view=confirm_layout)
+            await pick_interaction.response.edit_message(view=self._rebind_session_view(session, confirm_layout))
 
         layout = await _build_list_layout()
         if session:
@@ -1713,7 +1730,7 @@ class AdminCog(commands.Cog):
         async def on_region_pick(pick_interaction: discord.Interaction, region: str):
             state["region"] = region
             state["page"] = 0
-            await pick_interaction.response.edit_message(view=await _build_items_layout())
+            await pick_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_items_layout()))
 
         async def on_region_back(back_interaction: discord.Interaction):
             if parent_node:
@@ -1729,20 +1746,20 @@ class AdminCog(commands.Cog):
 
         async def on_item_prev(prev_interaction: discord.Interaction):
             state["page"] = max(0, state["page"] - 1)
-            await prev_interaction.response.edit_message(view=await _build_items_layout())
+            await prev_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_items_layout()))
 
         async def on_item_next(next_interaction: discord.Interaction):
             state["page"] += 1
-            await next_interaction.response.edit_message(view=await _build_items_layout())
+            await next_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_items_layout()))
 
         async def on_item_back(back_interaction: discord.Interaction):
             # Back from the item step returns to the group-picker step.
             state["region"] = None
             state["page"] = 0
-            await back_interaction.response.edit_message(view=await _build_region_layout())
+            await back_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_region_layout()))
 
         async def on_item_pick(pick_interaction: discord.Interaction, value: str):
-            if not self._check_cooldown(pick_interaction.user.id, node.key):
+            if not self._check_cooldown(pick_interaction.user.id, node.key, guild.id):
                 await pick_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly — please wait a moment."),
                     ephemeral=True,
@@ -1773,7 +1790,7 @@ class AdminCog(commands.Cog):
                     )
                 else:
                     try:
-                        await pick_interaction.edit_original_response(view=await _build_region_layout())
+                        await pick_interaction.edit_original_response(view=self._rebind_session_view(session, await _build_region_layout()))
                     except discord.HTTPException as e:
                         # Best-effort UI refresh: the original response may be gone/expired.
                         logger.debug(
@@ -1813,7 +1830,7 @@ class AdminCog(commands.Cog):
         async def on_modal_submit(modal_interaction: discord.Interaction, raw_value: str):
             # Empty → clear
             if not raw_value and child.clear_values:
-                if not self._check_cooldown(sel_interaction.user.id, child.key):
+                if not self._check_cooldown(sel_interaction.user.id, child.key, guild.id):
                     await modal_interaction.response.send_message(
                         view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                         ephemeral=True,
@@ -1844,7 +1861,7 @@ class AdminCog(commands.Cog):
                 else:
                     value = raw_value
 
-                if not self._check_cooldown(sel_interaction.user.id, child.key):
+                if not self._check_cooldown(sel_interaction.user.id, child.key, guild.id):
                     await modal_interaction.response.send_message(
                         view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                         ephemeral=True,
@@ -1879,7 +1896,7 @@ class AdminCog(commands.Cog):
                 locked = await self._compute_locked_keys(parent_menu, guild.id)
                 new_layout = build_menu_view(parent_menu, new_summary, on_select, on_cancel, locked, guild_id=guild.id, guild=guild, is_premium=await self._is_premium(guild.id))
                 try:
-                    await sel_interaction.edit_original_response(view=new_layout)
+                    await sel_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh inline-modal parent menu: %s", http_exc)
                 # Refresh message 1 navigation if needed
@@ -2094,9 +2111,24 @@ class AdminCog(commands.Cog):
 
     # -- Helpers ---------------------------------------------------------------
 
-    def _check_cooldown(self, user_id: int, node_key: str) -> bool:
-        """Check and set autosave cooldown. Returns True if allowed."""
-        rl_key = (user_id, node_key)
+    def _rebind_session_view(self, session, view):
+        """Re-bind a freshly rebuilt panel view to the PanelSession, and reset the
+        shared idle timer. A newly built LayoutView otherwise keeps discord's default
+        300s timeout and an unwrapped interaction_check, so after any in-place rebuild
+        the author lock is lost and the view expires on its own 300s clock instead of
+        the session's. Returns the (now registered) view so it can be wrapped inline
+        around an ``edit(view=...)`` call. No-op when there is no active session."""
+        if session is not None:
+            session.register_view(view)
+            session.touch()
+        return view
+
+    def _check_cooldown(self, user_id: int, node_key: str, guild_id: int = None) -> bool:
+        """Check and set autosave cooldown. Returns True if allowed.
+
+        Scoped by ``(guild_id, user_id, node_key)`` so the same user acting on the
+        same node in two different guilds does not share one cooldown window."""
+        rl_key = (guild_id, user_id, node_key)
         now = time.monotonic()
         if now - self._autosave_cooldowns.get(rl_key, 0.0) < self.AUTOSAVE_COOLDOWN:
             return False

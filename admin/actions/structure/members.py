@@ -49,7 +49,7 @@ def member_action(
         )
 
         async def _run_for(ci: discord.Interaction, member):
-            if not cog._check_cooldown(ci.user.id, key):
+            if not cog._check_cooldown(ci.user.id, key, guild.id):
                 await ci.response.send_message(
                     view=build_notice_layout("Slow Down", "Please wait a moment before trying again."),
                     ephemeral=True,

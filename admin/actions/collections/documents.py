@@ -45,6 +45,26 @@ async def upsert_document(collection: str, query: dict, update: dict, *, upsert:
     return bool(await db_update_one(collection, query, update, upsert=upsert))
 
 
+async def update_many_documents(collection: str, query: dict, update: dict) -> int:
+    """Apply ``update`` to EVERY document matching ``query``. Returns the number modified.
+
+    Implemented as find + per-document ``db_update_one`` so it needs no
+    ``db_update_many`` binding (the seam deliberately does not expose one). Not
+    atomic across documents, which is fine for the low-volume, admin-triggered
+    resets it backs: a guild-wide field reset now touches all matching docs rather
+    than only the first.
+    """
+    docs = await db_find(collection, query)
+    modified = 0
+    for doc in docs:
+        _id = doc.get("_id")
+        if _id is None:
+            continue
+        if await db_update_one(collection, {"_id": _id}, update, upsert=False):
+            modified += 1
+    return modified
+
+
 async def insert_document(collection: str, doc: dict):
     """Insert ``doc``; returns the inserted id (or None)."""
     return await db_insert_one(collection, doc)

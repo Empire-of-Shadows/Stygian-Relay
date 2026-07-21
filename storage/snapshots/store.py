@@ -211,7 +211,11 @@ class SnapshotStore:
                     counts[object_type] = 0
                 else:
                     counts[object_type] = result
-            self._locks.pop(partition_id, None)
+            # Do NOT pop the lock here: it is still held inside this ``async with``,
+            # and another coroutine may already hold a reference to the same lock
+            # object. Removing it now would let a later caller create a fresh lock
+            # for the same partition and run concurrently (mutual exclusion lost).
+            # The lock stays registered for reuse; call ``forget`` for teardown.
             return counts
 
     def forget(self, partition_id: Any) -> None:

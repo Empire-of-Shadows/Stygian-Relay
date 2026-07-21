@@ -58,7 +58,7 @@ def modal_action(
 
         async def _open(bi: discord.Interaction):
             async def _submit(mi: discord.Interaction, raw: str):
-                if not cog._check_cooldown(mi.user.id, key):
+                if not cog._check_cooldown(mi.user.id, key, guild.id):
                     await mi.response.send_message(
                         view=build_notice_layout("Slow Down", "Please wait a moment before trying again."),
                         ephemeral=True,

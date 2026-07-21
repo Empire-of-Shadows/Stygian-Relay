@@ -221,7 +221,10 @@ def extract_members(
             suspicious_indicators = []
             if account_age < config.suspicious_new_account_days:
                 suspicious_indicators.append("very_new_account")
-            if not member.display_avatar or str(member.display_avatar.url).endswith("avatars/0.png"):
+            # A default (never-set) avatar is served from the CDN's embed path
+            # (/embed/avatars/{0..5}.png); a custom avatar is under /avatars/{id}/.
+            # The old check only matched index 0, missing ~5 of 6 default users.
+            if not member.display_avatar or "/embed/avatars/" in str(member.display_avatar.url):
                 suspicious_indicators.append("default_avatar")
             if len(member.roles) <= 1:  # only @everyone
                 suspicious_indicators.append("no_roles")

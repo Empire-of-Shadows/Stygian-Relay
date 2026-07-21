@@ -194,23 +194,35 @@ class GuildConfigStore:
         return self._normalize_roles(await self.get_settings(guild_id), _MOD_ROLES_PATH, "mod_role_id")
 
     async def add_role(self, guild_id: Any, kind: str, role_id: int) -> bool:
-        """Add a role id to the ``admin`` or ``mod`` canonical list (idempotent)."""
+        """Add a role id to the ``admin`` or ``mod`` canonical list (idempotent).
+
+        Atomic ``$addToSet`` instead of read-modify-write, so two concurrent adds
+        can't read the same list and clobber each other (lost update)."""
         path = _ADMIN_ROLES_PATH if kind == "admin" else _MOD_ROLES_PATH
-        current = await (self.get_admin_role_ids(guild_id) if kind == "admin"
-                         else self.get_mod_role_ids(guild_id))
-        if int(role_id) in current:
+        gid = self._gid(guild_id)
+        try:
+            await self._mgr.update_one(
+                {self._id_field: gid}, {"$addToSet": {path: int(role_id)}}, upsert=True
+            )
             return True
-        return await self.update(guild_id, {path: current + [int(role_id)]})
+        except Exception as e:
+            logger.error(f"add_role failed for guild {gid}: {e}", exc_info=True)
+            return False
 
     async def remove_role(self, guild_id: Any, kind: str, role_id: int) -> bool:
-        """Remove a role id from the ``admin`` or ``mod`` canonical list."""
+        """Remove a role id from the ``admin`` or ``mod`` canonical list.
+
+        Atomic ``$pull`` instead of read-modify-write."""
         path = _ADMIN_ROLES_PATH if kind == "admin" else _MOD_ROLES_PATH
-        current = await (self.get_admin_role_ids(guild_id) if kind == "admin"
-                         else self.get_mod_role_ids(guild_id))
-        new = [r for r in current if r != int(role_id)]
-        if new == current:
+        gid = self._gid(guild_id)
+        try:
+            await self._mgr.update_one(
+                {self._id_field: gid}, {"$pull": {path: int(role_id)}}, upsert=False
+            )
             return True
-        return await self.update(guild_id, {path: new})
+        except Exception as e:
+            logger.error(f"remove_role failed for guild {gid}: {e}", exc_info=True)
+            return False
 
     # ── cache control ────────────────────────────────────────────────────────
 

@@ -58,6 +58,15 @@ class SingletonLock:
         self._instance_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self._task: Optional[asyncio.Task] = None
         self._held = False
+        # True when acquire() gave up on the lock subsystem (DB error) and
+        # proceeded anyway. Distinct from ``_held``: we do NOT own a lock document,
+        # so the heartbeat deliberately does not run and release() is a no-op.
+        self._fail_open = False
+
+    @property
+    def fail_open(self) -> bool:
+        """Whether this instance is running without a real lock (subsystem errored)."""
+        return self._fail_open
 
     @property
     def _col(self):
@@ -82,12 +91,17 @@ class SingletonLock:
             try:
                 await self._col.insert_one(doc)
                 self._held = True
+                self._fail_open = False
                 logger.info(f"Singleton lock '{self._lock_id}' acquired by {self._instance_id}")
                 return True
             except DuplicateKeyError:
                 pass
             except Exception as e:
-                logger.error(f"Singleton lock acquire errored; proceeding without it: {e}", exc_info=True)
+                logger.error(
+                    f"Singleton lock acquire errored; proceeding WITHOUT the lock "
+                    f"(no heartbeat, no mutual-exclusion guarantee): {e}", exc_info=True
+                )
+                self._fail_open = True
                 return True
 
             # 2. Steal only if expired (crashed holder) or already ours.
@@ -100,11 +114,16 @@ class SingletonLock:
                     {"$set": {"owner": self._instance_id, "acquired_at": now, "expires_at": expires}},
                 )
             except Exception as e:
-                logger.error(f"Singleton lock steal errored; proceeding without it: {e}", exc_info=True)
+                logger.error(
+                    f"Singleton lock steal errored; proceeding WITHOUT the lock "
+                    f"(no heartbeat, no mutual-exclusion guarantee): {e}", exc_info=True
+                )
+                self._fail_open = True
                 return True
 
             if stolen is not None:
                 self._held = True
+                self._fail_open = False
                 logger.info(f"Singleton lock '{self._lock_id}' acquired (took over stale/own lock) by {self._instance_id}")
                 return True
 

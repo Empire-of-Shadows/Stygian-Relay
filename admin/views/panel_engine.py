@@ -182,7 +182,6 @@ class PanelNode:
 
     # action only — a leaf that runs an arbitrary handler (no value contract).
     on_run: Optional[Callable] = None                  # async (interaction, ctx) -> None
-    summary_builder: Optional[Callable] = None         # sync (node, ...) -> str; overview summary
     # Tri-state mod access: True/False are explicit; None inherits from the nearest
     # ancestor (root default: admin-only). A menu's True cascades to its children; a
     # child's False overrides. Resolved by auth.effective_mod_allowed.
@@ -192,9 +191,6 @@ class PanelNode:
     view_only: bool = False
     default_summary: str = ""
     is_customized: Optional[Callable] = None
-
-    # Per-node view timeout override (seconds).
-    timeout_override: Optional[float] = None
 
     # Async description override: async (guild) -> str, resolved at render time.
     async_description: Optional[Callable] = None
@@ -1120,6 +1116,13 @@ def build_dict_editor_view(
         lines = [f"• **{k}**: {v}" for k, v in current_values.items()]
         if node.dict_max_entries is not None:
             lines.append(f"\n*{len(current_values)} of {node.dict_max_entries} entries*")
+        # The edit/remove selects below are capped at Discord's 25-option limit. Surface
+        # that so entries past 25 aren't a silent trap (proper fix: paginate the selects).
+        if len(current_values) > 25:
+            lines.append(
+                "\n*Only the first 25 entries can be edited or removed here (Discord limit); "
+                "remove an earlier entry to reach the rest.*"
+            )
         current_text = "\n".join(lines)
     else:
         current_text = "*No entries configured.*"

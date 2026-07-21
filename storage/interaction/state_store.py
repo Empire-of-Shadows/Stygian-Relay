@@ -77,7 +77,9 @@ class InteractionStateStore:
         mid = self._mid(message_id)
         effective_ttl = self._default_ttl if ttl is ... else ttl
         now = datetime.now(tz=timezone.utc)
-        expires_at = now + timedelta(seconds=effective_ttl) if effective_ttl else None
+        # Only ``None`` means never-expire; ``ttl=0`` must expire immediately
+        # (``if effective_ttl`` would have treated 0 as falsy -> never-expire).
+        expires_at = now + timedelta(seconds=effective_ttl) if effective_ttl is not None else None
 
         update = {
             "$set": {
