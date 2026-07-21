@@ -223,12 +223,13 @@ class GuildConfigStore:
         """Add a role id to the ``admin`` or ``mod`` canonical list (idempotent).
 
         Atomic ``$addToSet`` instead of read-modify-write, so two concurrent adds
-        can't read the same list and clobber each other (lost update)."""
+        can't read the same list and clobber each other (lost update). Role ids are
+        stored in the canonical STRING form (readers coerce as needed)."""
         path = _ADMIN_ROLES_PATH if kind == "admin" else _MOD_ROLES_PATH
         gid = self._gid(guild_id)
         try:
             await self._mgr.update_one(
-                {self._id_field: gid}, {"$addToSet": {path: int(role_id)}}, upsert=True
+                {self._id_field: gid}, {"$addToSet": {path: str(role_id)}}, upsert=True
             )
             return True
         except Exception as e:
@@ -238,12 +239,15 @@ class GuildConfigStore:
     async def remove_role(self, guild_id: Any, kind: str, role_id: int) -> bool:
         """Remove a role id from the ``admin`` or ``mod`` canonical list.
 
-        Atomic ``$pull`` instead of read-modify-write."""
+        Atomic ``$pull`` instead of read-modify-write. Pulls BOTH the string and int
+        forms so a not-yet-normalized legacy element is still removable."""
         path = _ADMIN_ROLES_PATH if kind == "admin" else _MOD_ROLES_PATH
         gid = self._gid(guild_id)
         try:
             await self._mgr.update_one(
-                {self._id_field: gid}, {"$pull": {path: int(role_id)}}, upsert=False
+                {self._id_field: gid},
+                {"$pull": {path: {"$in": [str(role_id), int(role_id)]}}},
+                upsert=False,
             )
             return True
         except Exception as e:

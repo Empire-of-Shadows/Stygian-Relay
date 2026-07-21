@@ -10,10 +10,10 @@ This is the ONLY module in the engine that imports discord.py, and it is importe
 (never from the top-level package), so the engine core keeps its zero-discord invariant. Each
 function is pure: ``discord object -> dict`` (or ``-> list[dict]``), driven by a
 ``GuildSnapshotConfig``. The dict shapes reproduce TheCodex's legacy ``GuildCacheManager``
-field-for-field, except timestamps are stored as BSON datetimes (not ISO-8601 strings) per the
-ecosystem ID/timestamp ruling -- this is what the engine's own ``delete_before_date`` /
-``cleanup_old_data`` datetime cutoffs compare against. IDs remain raw ints pending the scheduled
-per-bot string-ID normalization migration.
+field-for-field, except timestamps are stored as BSON datetimes (not ISO-8601 strings) and all
+Discord snowflake IDs are stored as STRINGS, per the ecosystem ID/timestamp ruling (the
+per-bot int->str normalization migrations convert pre-existing docs). The datetimes are what
+the engine's own ``delete_before_date`` / ``cleanup_old_data`` cutoffs compare against.
 """
 
 from __future__ import annotations
@@ -35,6 +35,11 @@ def _account_age_days(created_at: datetime, now_utc: datetime) -> int:
     return (now_utc - created_at).days
 
 
+def _sid(value: Any) -> Optional[str]:
+    """Snowflake -> canonical string form; ``None`` passes through."""
+    return str(value) if value is not None else None
+
+
 def extract_guild(guild: "discord.Guild", config: GuildSnapshotConfig) -> Dict[str, Any]:
     """Snapshot guild-level metadata + derived counts (root doc, keyed by ``id``)."""
     features = list(guild.features) if guild.features else []
@@ -43,12 +48,12 @@ def extract_guild(guild: "discord.Guild", config: GuildSnapshotConfig) -> Dict[s
     premium_members = sum(1 for member in guild.members if member.premium_since)
 
     return {
-        "id": guild.id,
+        "id": str(guild.id),
         "name": guild.name,
         "icon_url": str(guild.icon.url) if guild.icon else None,
         "banner_url": str(guild.banner.url) if guild.banner else None,
         "description": guild.description,
-        "owner_id": guild.owner_id,
+        "owner_id": _sid(guild.owner_id),
         "member_count": guild.member_count,
         "bot_count": bot_count,
         "human_count": guild.member_count - bot_count,
@@ -69,9 +74,9 @@ def extract_guild(guild: "discord.Guild", config: GuildSnapshotConfig) -> Dict[s
         "voice_channels": len(guild.voice_channels),
         "categories": len(guild.categories),
         "total_roles": len(guild.roles),
-        "system_channel_id": guild.system_channel.id if guild.system_channel else None,
-        "rules_channel_id": guild.rules_channel.id if guild.rules_channel else None,
-        "public_updates_channel_id": guild.public_updates_channel.id if guild.public_updates_channel else None,
+        "system_channel_id": str(guild.system_channel.id) if guild.system_channel else None,
+        "rules_channel_id": str(guild.rules_channel.id) if guild.rules_channel else None,
+        "public_updates_channel_id": str(guild.public_updates_channel.id) if guild.public_updates_channel else None,
         "vanity_url": guild.vanity_url,
         "preferred_locale": str(guild.preferred_locale) if guild.preferred_locale else None,
     }
@@ -94,7 +99,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                             elif value is False:
                                 setattr(deny, name, True)
                         permissions.append({
-                            "id": target.id,
+                            "id": str(target.id),
                             "name": getattr(target, "name", None),
                             "type": "role" if isinstance(target, discord.Role) else "user",
                             "allow": allow.value,
@@ -106,8 +111,8 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                 logger.warning(f"Error processing permissions for channel {channel.name}: {perm_error}")
 
             channel_data: Dict[str, Any] = {
-                "guild_id": guild.id,
-                "id": channel.id,
+                "guild_id": str(guild.id),
+                "id": str(channel.id),
                 "name": channel.name,
                 "type": str(channel.type),
                 "position": channel.position,
@@ -116,7 +121,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
             }
 
             if hasattr(channel, "category") and channel.category:
-                channel_data["category_id"] = channel.category.id
+                channel_data["category_id"] = str(channel.category.id)
                 channel_data["category_name"] = channel.category.name
 
             if isinstance(channel, discord.TextChannel):
@@ -124,7 +129,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                     "topic": channel.topic,
                     "slowmode_delay": channel.slowmode_delay,
                     "nsfw": channel.nsfw,
-                    "last_message_id": channel.last_message_id,
+                    "last_message_id": _sid(channel.last_message_id),
                     "message_history_enabled": True,
                 })
                 if hasattr(channel, "threads"):
@@ -132,7 +137,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                     try:
                         async for thread in channel.archived_threads(limit=50):
                             threads.append({
-                                "id": thread.id,
+                                "id": str(thread.id),
                                 "name": thread.name,
                                 "archived": thread.archived,
                                 "locked": thread.locked,
@@ -150,7 +155,7 @@ async def extract_channels(guild: "discord.Guild", config: GuildSnapshotConfig) 
                     "user_limit": channel.user_limit,
                     "rtc_region": str(channel.rtc_region) if channel.rtc_region else None,
                     "current_users": len(channel.members),
-                    "user_list": [member.id for member in channel.members],
+                    "user_list": [str(member.id) for member in channel.members],
                 })
 
             elif hasattr(discord, "ForumChannel") and isinstance(channel, discord.ForumChannel):
@@ -180,8 +185,8 @@ def extract_roles(guild: "discord.Guild", config: GuildSnapshotConfig) -> List[D
                 getattr(role.permissions, perm, False) for perm in config.moderation_permissions
             )
             roles.append({
-                "guild_id": guild.id,
-                "id": role.id,
+                "guild_id": str(guild.id),
+                "id": str(role.id),
                 "name": role.name,
                 "color": str(role.color),
                 "color_value": role.color.value,
@@ -230,8 +235,8 @@ def extract_members(
                 suspicious_indicators.append("no_roles")
 
             members.append({
-                "guild_id": guild.id,
-                "id": member.id,
+                "guild_id": str(guild.id),
+                "id": str(member.id),
                 "username": member.name,
                 "global_name": member.global_name,
                 "display_name": member.display_name or member.name,
@@ -240,9 +245,9 @@ def extract_members(
                 "system": member.system,
                 "joined_at": member.joined_at,
                 "premium_since": member.premium_since,
-                "roles": [role.id for role in member.roles if not role.is_default()],
+                "roles": [str(role.id) for role in member.roles if not role.is_default()],
                 "role_count": len([role for role in member.roles if not role.is_default()]),
-                "top_role_id": member.top_role.id if member.top_role else None,
+                "top_role_id": str(member.top_role.id) if member.top_role else None,
                 "top_role_position": member.top_role.position if member.top_role else 0,
                 "permissions": member.guild_permissions.value,
                 "avatar_url": str(member.display_avatar.url),
@@ -251,7 +256,7 @@ def extract_members(
                 "suspicious_indicators": suspicious_indicators,
                 "is_owner": member.id == guild.owner_id,
                 "guild_permissions_value": member.guild_permissions.value,
-                "voice_channel_id": member.voice.channel.id if member.voice else None,
+                "voice_channel_id": str(member.voice.channel.id) if member.voice and member.voice.channel else None,
             })
         except Exception as member_error:
             logger.error(f"Error processing member {getattr(member, 'name', '?')}: {member_error}")
@@ -292,7 +297,7 @@ def extract_analytics(
                 break
 
     return {
-        "guild_id": guild.id,
+        "guild_id": str(guild.id),
         "date": today,
         "timestamp": now_local,
         "member_stats": {

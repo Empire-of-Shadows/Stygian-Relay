@@ -80,7 +80,7 @@ class AuditLog:
         bot's admin panel: who/what/when/where + before→after). Extra kwargs are merged in."""
         return await self.log(
             guild_id=str(guild_id),
-            actor_id=int(actor_id) if actor_id is not None else None,
+            actor_id=str(actor_id) if actor_id is not None else None,
             actor_name=str(actor_name)[:128],
             source=source,
             section=section,

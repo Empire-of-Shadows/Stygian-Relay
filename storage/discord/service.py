@@ -75,6 +75,12 @@ class GuildSnapshotService:
             result = await result
         return result
 
+    @staticmethod
+    def _sid(value: Any) -> str:
+        """Snowflake -> canonical string form (the extractors store string IDs, so every
+        query/partition boundary coerces here; int callers keep working)."""
+        return str(value)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     async def cache_all(self, guild, force_refresh: bool = False) -> bool:
@@ -85,7 +91,7 @@ class GuildSnapshotService:
                 payloads[object_type] = await self._extract(object_type, guild)
             return payloads
 
-        return await self._store.snapshot(guild.id, builder=builder, force=force_refresh)
+        return await self._store.snapshot(self._sid(guild.id), builder=builder, force=force_refresh)
 
     async def cache_guild_info(self, guild) -> bool:
         return await self._store.upsert_one("guild", await self._extract("guild", guild))
@@ -110,39 +116,42 @@ class GuildSnapshotService:
     # ── reads ────────────────────────────────────────────────────────────────
 
     async def get_cached_guild_info(self, guild_id: int) -> Optional[Dict[str, Any]]:
-        return await self._store.get_one("guild", {"id": guild_id})
+        return await self._store.get_one("guild", {"id": self._sid(guild_id)})
 
     async def get_cached_channels(self, guild_id: int, channel_type: str = None) -> List[Dict[str, Any]]:
-        query: Dict[str, Any] = {"guild_id": guild_id}
+        query: Dict[str, Any] = {"guild_id": self._sid(guild_id)}
         if channel_type:
             query["type"] = channel_type
         return await self._store.get_many("channels", query, sort=[("position", 1)])
 
     async def get_cached_member(self, guild_id: int, user_id: int) -> Optional[Dict[str, Any]]:
-        return await self._store.get_one("members", {"guild_id": guild_id, "id": user_id})
+        return await self._store.get_one(
+            "members", {"guild_id": self._sid(guild_id), "id": self._sid(user_id)}
+        )
 
     async def get_guild_statistics(self, guild_id: int) -> Dict[str, Any]:
         """Counts + channel-type breakdown + the latest analytics doc (sorted by date desc)."""
         try:
+            gid = self._sid(guild_id)
             stats: Dict[str, Any] = {
-                "total_channels": await self._store.count("channels", {"guild_id": guild_id}),
-                "total_roles": await self._store.count("roles", {"guild_id": guild_id}),
-                "total_members": await self._store.count("members", {"guild_id": guild_id}),
-                "bot_members": await self._store.count("members", {"guild_id": guild_id, "bot": True}),
-                "human_members": await self._store.count("members", {"guild_id": guild_id, "bot": False}),
+                "total_channels": await self._store.count("channels", {"guild_id": gid}),
+                "total_roles": await self._store.count("roles", {"guild_id": gid}),
+                "total_members": await self._store.count("members", {"guild_id": gid}),
+                "bot_members": await self._store.count("members", {"guild_id": gid, "bot": True}),
+                "human_members": await self._store.count("members", {"guild_id": gid, "bot": False}),
                 "suspicious_members": await self._store.count("members", {
-                    "guild_id": guild_id,
+                    "guild_id": gid,
                     "suspicious_indicators": {"$exists": True, "$not": {"$size": 0}},
                 }),
             }
             channel_types = await self._store.aggregate("channels", [
-                {"$match": {"guild_id": guild_id}},
+                {"$match": {"guild_id": gid}},
                 {"$group": {"_id": "$type", "count": {"$sum": 1}}},
             ])
             stats["channel_types"] = {ct["_id"]: ct["count"] for ct in channel_types}
 
             latest = await self._store.get_many(
-                "analytics", {"guild_id": guild_id}, sort=[("date", -1)], limit=1
+                "analytics", {"guild_id": gid}, sort=[("date", -1)], limit=1
             )
             if latest:
                 stats["latest_analytics"] = latest[0]
@@ -155,7 +164,7 @@ class GuildSnapshotService:
     async def get_member_insights(self, guild_id: int) -> Dict[str, Any]:
         try:
             pipeline = [
-                {"$match": {"guild_id": guild_id}},
+                {"$match": {"guild_id": self._sid(guild_id)}},
                 {"$group": {
                     "_id": None,
                     "total_members": {"$sum": 1},
@@ -179,14 +188,14 @@ class GuildSnapshotService:
     # ── events ───────────────────────────────────────────────────────────────
 
     async def log_guild_event(self, guild_id: int, event_type: str, event_data: Dict[str, Any]) -> bool:
-        return await self._events.log(guild_id, event_type, event_data)
+        return await self._events.log(self._sid(guild_id), event_type, event_data)
 
     async def get_guild_activity_summary(self, guild_id: int, days: int = 7) -> Dict[str, Any]:
-        summary = await self._events.activity_summary(guild_id, timedelta(days=days))
+        summary = await self._events.activity_summary(self._sid(guild_id), timedelta(days=days))
         if not summary:
             return {}
         return {
-            "guild_id": guild_id,
+            "guild_id": self._sid(guild_id),
             "period_days": days,
             "total_events": summary.get("total_events", 0),
             "event_breakdown": summary.get("event_breakdown", {}),
@@ -197,15 +206,16 @@ class GuildSnapshotService:
 
     async def delete_guild(self, guild_id: int) -> Dict[str, int]:
         """Cascade-delete all cached data for a guild and drop its in-memory state."""
-        counts = await self._store.delete_partition(guild_id)
-        self._events.forget(guild_id)
-        logger.info(f"Deleted cached data for guild {guild_id}: {counts}")
+        gid = self._sid(guild_id)
+        counts = await self._store.delete_partition(gid)
+        self._events.forget(gid)
+        logger.info(f"Deleted cached data for guild {gid}: {counts}")
         return counts
 
     def forget(self, guild_id: int) -> None:
         """Drop in-memory state for a departed guild WITHOUT deleting its stored snapshots."""
-        self._store.forget(guild_id)
-        self._events.forget(guild_id)
+        self._store.forget(self._sid(guild_id))
+        self._events.forget(self._sid(guild_id))
 
     async def cleanup_stale_data(self, max_age_hours: int = 168) -> int:
         """Cascade-delete guilds whose snapshot is older than ``max_age_hours`` (default 1 week).
