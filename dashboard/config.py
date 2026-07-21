@@ -70,6 +70,22 @@ CORS_ORIGINS: list[str] = [
 MANAGE_GUILD_PERMISSION = 0x20
 ADMINISTRATOR_PERMISSION = 0x8
 
+# ── Shared dashboard-engine seam values (read by dashboard/_engine/) ──────────
+# OAuth redirect allowlist (regex, anchored ^...$) + fallback, used by _engine/auth/oauth.py.
+# Relay admits loopback (127.0.0.1) for local dev in addition to localhost.
+OAUTH_REDIRECT_ALLOWLIST = (
+    r"^https?://(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|([a-z0-9-]+\.)?eosofficial\.club)(/.*)?$"
+)
+OAUTH_DEFAULT_REDIRECT = "/me"
+
+# Rate-limit route table for _engine/rate_limit.py: (path-prefix, bucket, max, window_s).
+# First match wins. The per-guild stats route is limited via rate_limit_dependency instead.
+RATE_LIMITS: list[tuple[str, str, int, int]] = [
+    ("/auth/discord/callback", "oauth_callback", 10, 60),
+    ("/auth/discord", "oauth_start", 20, 60),
+    ("/api/me", "me", 100, 60),
+]
+
 
 # ── Validation ───────────────────────────────────────────────────────────────
 

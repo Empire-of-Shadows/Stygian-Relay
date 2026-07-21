@@ -1,4 +1,14 @@
-"""Discord OAuth2 routes with cross-subdomain SSO support."""
+# VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+# Edit the master at EmpireSystems/dashboard_engine/ and run:
+#     python EmpireSystems/tools/sync_dashboard_engine.py
+# Drift is enforced by:
+#     python EmpireSystems/tools/sync_dashboard_engine.py --check
+"""Discord OAuth2 routes with cross-subdomain SSO support.
+
+The redirect allowlist and the default fallback redirect are seam-configured
+(``config.OAUTH_REDIRECT_ALLOWLIST`` regex + ``config.OAUTH_DEFAULT_REDIRECT``),
+so each bot keeps its own policy without diverging this engine file.
+"""
 
 import logging
 import re
@@ -9,19 +19,21 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from dashboard.auth.session import (
+from dashboard._engine.auth.session import (
     consume_oauth_state,
     create_session,
     delete_session,
     store_oauth_state,
 )
-from dashboard.auth.signing import sign_token, unsign_token
+from dashboard._engine.auth.signing import sign_token, unsign_token
 from dashboard.config import (
     COOKIE_DOMAIN,
     DASHBOARD_CLIENT_ID,
     DASHBOARD_CLIENT_SECRET,
     DISCORD_API_BASE,
     IS_PRODUCTION,
+    OAUTH_DEFAULT_REDIRECT,
+    OAUTH_REDIRECT_ALLOWLIST,
     REDIRECT_URI,
     SESSION_COOKIE_NAME,
     SESSION_MAX_AGE_DAYS,
@@ -35,18 +47,18 @@ _SCOPES = "identify guilds"
 _AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
 _TOKEN_URL = f"{DISCORD_API_BASE}/oauth2/token"
 
-# Anchored at both ends (^...$) so only these exact hosts match. Without the trailing
-# anchor, re.match would accept any URL that merely *starts* with an allowed host,
-# e.g. "https://eosofficial.club.evil.com/phish" - an open-redirect / phishing hole.
-_ALLOWED_REDIRECT_PATTERN = re.compile(
-    r"^https?://(localhost(:\d+)?|127\.0\.0\.1(:\d+)?|([a-z0-9-]+\.)?eosofficial\.club)(/.*)?$"
-)
+# Seam-configured allowlist. MUST be anchored at both ends (^...$) so only exact
+# hosts match; without the trailing anchor, re.match would accept any URL that
+# merely *starts* with an allowed host (e.g. "https://eosofficial.club.evil.com/phish")
+# - an open-redirect / phishing hole.
+_ALLOWED_REDIRECT_PATTERN = re.compile(OAUTH_REDIRECT_ALLOWLIST)
 
 
 def _validate_redirect(url: str | None) -> str:
+    """Validate redirect_to is on an allowed host; else the seam default."""
     if url and _ALLOWED_REDIRECT_PATTERN.match(url):
         return url
-    return "/me"
+    return OAUTH_DEFAULT_REDIRECT
 
 
 @router.get("/discord")
@@ -69,6 +81,7 @@ async def discord_callback(code: str, state: str | None = None):
         return RedirectResponse(url="/login", status_code=302)
     redirect_url = await consume_oauth_state(state)
     if redirect_url is None:
+        # Invalid, expired, or already-used state - reject (CSRF protection).
         return RedirectResponse(url="/login", status_code=302)
 
     try:

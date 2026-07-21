@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { ErrorBoundary } from "./_engine/components/ErrorBoundary";
-import "./styles/eos-tokens.css";
+import "./_engine/styles/eos-tokens.css";
 import "./styles/site-theme.css";
 
 const container = document.getElementById("root");

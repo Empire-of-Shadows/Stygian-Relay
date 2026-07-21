@@ -1,3 +1,8 @@
+# VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+# Edit the master at EmpireSystems/dashboard_engine/ and run:
+#     python EmpireSystems/tools/sync_dashboard_engine.py
+# Drift is enforced by:
+#     python EmpireSystems/tools/sync_dashboard_engine.py --check
 """Lightweight in-process per-IP rate limiting for public/auth endpoints.
 
 Fixed-window counter, no external dependency. Sufficient for a single-worker
@@ -7,6 +12,10 @@ hosts, swap the in-memory store for a shared one (Redis/Mongo).
 Only a small set of unauthenticated, internet-facing routes are limited; the
 authenticated API is already gated by session auth and the bot-token Discord
 calls are token-bucketed elsewhere.
+
+The route table is seam-configured: ``config.RATE_LIMITS`` is an ordered list of
+``(path-prefix, bucket, max_requests, window_seconds)`` tuples (first match wins,
+so more specific prefixes must come before their parents).
 """
 
 import time
@@ -14,13 +23,7 @@ import time
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-# Ordered (path-prefix, bucket, max_requests, window_seconds). First match wins,
-# so more specific prefixes must come before their parents.
-_LIMITS: list[tuple[str, str, int, int]] = [
-    ("/auth/discord/callback", "oauth_callback", 10, 60),
-    ("/auth/discord", "oauth_start", 20, 60),
-    ("/api/me", "me", 100, 60),
-]
+from dashboard.config import RATE_LIMITS as _LIMITS
 
 # key -> (window_start_epoch, count)
 _buckets: dict[str, tuple[float, int]] = {}

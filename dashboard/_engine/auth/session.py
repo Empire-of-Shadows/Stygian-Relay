@@ -1,6 +1,11 @@
+# VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+# Edit the master at EmpireSystems/dashboard_engine/ and run:
+#     python EmpireSystems/tools/sync_dashboard_engine.py
+# Drift is enforced by:
+#     python EmpireSystems/tools/sync_dashboard_engine.py --check
 """Session CRUD for the shared SharedSessions collection (cross-bot SSO).
 
-Schema (shared across Host/Codex/Ecom/ImperialReminder/TheDecree + main site):
+Schema (shared across every EoS dashboard + main site):
     token            opaque random Mongo lookup id (token_urlsafe(48))
     user_id          Discord user id (string)
     user_data        Discord /users/@me payload
@@ -235,6 +240,16 @@ async def ensure_oauth_state_ttl_index() -> None:
         "created_at",
         expireAfterSeconds=OAUTH_STATE_TTL_SECONDS,
         name="oauth_state_ttl",
+    )
+
+
+async def ensure_session_ttl_index() -> None:
+    """Create TTL index on WebSessions.SharedSessions.expires_at so expired
+    sessions are reaped from the shared store even if no bot deletes them."""
+    await db.shared_sessions().create_index(
+        "expires_at",
+        expireAfterSeconds=0,
+        name="session_expires_ttl",
     )
 
 

@@ -2,9 +2,10 @@
 
 from fastapi import Cookie, HTTPException
 
-from dashboard.auth.session import get_session, refresh_guilds_if_stale
-from dashboard.auth.signing import unsign_token
-from dashboard.auth.panel_role import PanelRole, has_manage_guild, resolve_panel_role
+from dashboard._engine.auth.panel_access import PanelRole, has_manage_guild
+from dashboard._engine.auth.session import get_session, refresh_guilds_if_stale
+from dashboard._engine.auth.signing import unsign_token
+from dashboard.auth.panel_role import resolve_panel_role
 from dashboard.config import MANAGE_GUILD_PERMISSION, SESSION_COOKIE_NAME
 
 

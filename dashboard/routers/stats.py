@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Query
 
 from dashboard import db
 from dashboard.auth.dependencies import get_current_user, require_panel_access
-from dashboard.rate_limit import rate_limit_dependency
+from dashboard._engine.rate_limit import rate_limit_dependency
 from dashboard.services.premium import get_guild_limits
 
 logger = logging.getLogger(__name__)

@@ -1,3 +1,8 @@
+# VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+# Edit the master at EmpireSystems/dashboard_engine/ and run:
+#     python EmpireSystems/tools/sync_dashboard_engine.py
+# Drift is enforced by:
+#     python EmpireSystems/tools/sync_dashboard_engine.py --check
 """Signed cookie helpers using itsdangerous.
 
 The session cookie value is the opaque Mongo lookup token wrapped in an
@@ -5,8 +10,8 @@ itsdangerous URLSafeTimedSerializer signature. The server verifies the
 signature and TTL before touching Mongo - tampered or expired cookies are
 rejected cheaply.
 
-DASHBOARD_SECRET_KEY must be identical across TheHost, TheCodex, and
-EcomBackend so cookies set by one service validate on the others.
+DASHBOARD_SECRET_KEY must be identical across every EoS dashboard so a cookie
+set by one service validates on all the others.
 """
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer

@@ -1,3 +1,8 @@
+# VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+# Edit the master at EmpireSystems/dashboard_engine/ and run:
+#     python EmpireSystems/tools/sync_dashboard_engine.py
+# Drift is enforced by:
+#     python EmpireSystems/tools/sync_dashboard_engine.py --check
 """CSRF token management bound to the session document.
 
 A per-session CSRF token is lazily created and stored on the SharedSessions
@@ -9,13 +14,16 @@ request forgery even if an attacker can trick the browser into sending the
 session cookie.
 """
 
+import logging
 import secrets
 
 from fastapi import HTTPException, Request
 
 from dashboard import db
-from dashboard.auth.signing import unsign_token
+from dashboard._engine.auth.signing import unsign_token
 from dashboard.config import SESSION_COOKIE_NAME
+
+logger = logging.getLogger(__name__)
 
 
 def _raw_token(request: Request) -> str | None:
@@ -58,7 +66,8 @@ async def verify_csrf(request: Request) -> None:
         try:
             form = await request.form()
             csrf = form.get("csrf_token")
-        except Exception:
+        except Exception as e:  # malformed multipart / oversized body
+            logger.debug("CSRF form-parse failed: %s", e)
             csrf = None
 
     if not csrf:
@@ -79,11 +88,7 @@ async def csrf_endpoint(request: Request) -> dict:
     return {"csrf_token": token}
 
 
-# Methods that mutate state and therefore require CSRF protection.
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-
-# Paths exempt from CSRF (the OAuth callback completes the login flow before
-# a session - and therefore CSRF token - exists).
 _EXEMPT_PATH_PREFIXES = ("/auth/discord", "/auth/logout")
 
 
@@ -104,7 +109,8 @@ async def csrf_middleware(request: Request, call_next):
         try:
             form = await request.form()
             csrf = form.get("csrf_token")
-        except Exception:
+        except Exception as e:  # malformed multipart / oversized body
+            logger.debug("CSRF form-parse failed: %s", e)
             csrf = None
 
     if not csrf or not await _validate(raw, csrf):
