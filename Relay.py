@@ -275,7 +275,10 @@ async def _async_main(shutdown_event: asyncio.Event):
         logger.info("✅ Error notification loop started")
 
     try:
-        initialize_health_server(port=HEALTH_PORT, bot=bot, db_manager=db_manager)
+        initialize_health_server(
+            port=HEALTH_PORT, bot=bot, db_manager=db_manager,
+            bot_name="Stygian-Relay", service="Discord Message Forwarding Bot",
+        )
         logger.info("✅ Health check endpoint initialized")
     except Exception as e:
         logger.error(f"❌ Failed to start health endpoint: {e}")
