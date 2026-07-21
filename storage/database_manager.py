@@ -4,17 +4,17 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""DatabaseManagerBase — the generic, bot-agnostic Mongo manager.
+"""DatabaseManagerBase - the generic, bot-agnostic Mongo manager.
 
 This is the engine half of the database manager. It owns connection pooling, database
 discovery, collection-manager construction, index creation, transactions, the shared
 cache + change-stream coherency, health checks, and graceful shutdown.
 
 It is ABSTRACT in practice: it does not know any bot's collections. Each bot supplies that
-collection registry — a ``dict[str, CollectionConfig]`` — directly at construction (see
+collection registry - a ``dict[str, CollectionConfig]`` - directly at construction (see
 ``Settings/storage/collections_reference.py``):
 
-    # bot-owned — see Settings/storage/collections_reference.py
+    # bot-owned - see Settings/storage/collections_reference.py
     db_manager = DatabaseManagerBase(
         primary_uri=bindings.MONGO_URIS["primary"],
         cache=bindings.build_cache(),
@@ -24,13 +24,8 @@ collection registry — a ``dict[str, CollectionConfig]`` — directly at constr
 
 Attribute-style accessors are auto-derived from the registry: every collection is reachable
 as ``db_manager.<registry_key>``, and additionally as ``db_manager.<accessor>`` when a
-``CollectionConfig.accessor`` alias is set — so there is no separate "database properties"
+``CollectionConfig.accessor`` alias is set - so there is no separate "database properties"
 file. Both resolve through :meth:`get_collection_manager`.
-
-LEGACY: a bot may instead compose a ``DefineCollections`` mixin that implements
-``_define_collection_configs(self)`` (populating ``self._collection_configs``); when
-``collection_configs`` is not passed, the base resolves that mixin method via MRO. New bots
-should prefer the ``collection_configs=`` keyword.
 """
 
 import os
@@ -62,8 +57,8 @@ class DatabaseManagerBase:
     """MongoDB manager with pooling, CRUD, shared cache, coherency, and health checks.
 
     Construct with the bot's collection registry via ``collection_configs=`` (see
-    ``Settings/storage/collections_reference.py``); a legacy ``DefineCollections`` mixin is
-    also accepted. Collections are exposed as ``db_manager.<key>`` / ``db_manager.<accessor>``.
+    ``Settings/storage/collections_reference.py``). Collections are exposed as
+    ``db_manager.<key>`` / ``db_manager.<accessor>``.
     """
 
     def __init__(self, primary_uri: str = None, secondary_uri: str = None, *,
@@ -105,19 +100,13 @@ class DatabaseManagerBase:
         self._initialized = False
         self._lock = asyncio.Lock()
 
-        # Collection registry: prefer the configs passed directly; otherwise fall back to a
-        # DefineCollections mixin's _define_collection_configs (legacy, resolved via MRO).
-        if collection_configs is not None:
-            self._collection_configs = dict(collection_configs)
-        else:
-            define = getattr(self, "_define_collection_configs", None)
-            if define is None:
-                raise NotImplementedError(
-                    "Pass collection_configs=... or compose a DefineCollections mixin that "
-                    "implements _define_collection_configs(). "
-                    "See Settings/storage/collections_reference.py."
-                )
-            define()
+        # Collection registry must be supplied directly at construction.
+        if collection_configs is None:
+            raise NotImplementedError(
+                "DatabaseManagerBase requires collection_configs=... "
+                "See Settings/storage/collections_reference.py."
+            )
+        self._collection_configs = dict(collection_configs)
 
         # Auto-derive attribute accessors (db_manager.<key> / db_manager.<accessor>).
         self._build_accessor_map()
@@ -391,7 +380,7 @@ class DatabaseManagerBase:
 
     async def export_mappings(self, file_path: Optional[str] = None) -> str:
         """Persist a JSON snapshot of discovered databases/collections and the configured
-        collection registry. Diagnostic only (nothing reads it back) — it exists so operators
+        collection registry. Diagnostic only (nothing reads it back) - it exists so operators
         can inspect what the manager mapped at startup. Defaults to
         ``Mappings/database_mappings.json`` relative to CWD; pass ``file_path`` to override."""
         self._ensure_initialized()

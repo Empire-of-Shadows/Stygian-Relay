@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""LRU Cache primitives — preventing memory leaks in large deployments.
+"""LRU Cache primitives - preventing memory leaks in large deployments.
 
 Lifted into the storage engine from EcomRebuild (where it backs the high-throughput
 voice-session cache) so it is a single shared primitive across the ecosystem. These are

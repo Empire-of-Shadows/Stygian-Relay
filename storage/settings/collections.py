@@ -1,4 +1,4 @@
-"""storage_engine — collection registry + manager for Stygian-Relay (bot-owned, NOT vendored).
+"""storage_engine - collection registry + manager for Stygian-Relay (bot-owned, NOT vendored).
 
 This one file declares relay's collections AND constructs the shared ``db_manager`` the rest of
 the bot imports (``from storage.settings.collections import db_manager``). It replaces the old
@@ -7,7 +7,7 @@ map (``db_manager.<registry_key>``) from the registry at construction, so no ``D
 mixin (or ``database_properties.py``) is needed.
 
 All collections live in the single ``discord_forwarding_bot`` database (name preserved so
-existing data is reused — no migration). Indexes are intentionally omitted: relay's index shapes
+existing data is reused - no migration). Indexes are intentionally omitted: relay's index shapes
 are created by ``GuildManager.initialize_default_settings()`` / ``_ensure_indexes()`` (the
 historical source of truth, including the TTL indexes); re-declaring them here would risk
 duplicate-name conflicts. Registering the collections still gives the engine awareness + access.
@@ -34,7 +34,7 @@ from storage.core.collection_config import CollectionConfig
 from storage.database_manager import DatabaseManagerBase
 from . import bindings
 
-# Relay's single application database (preserved name — data reused, no migration).
+# Relay's single application database (preserved name - data reused, no migration).
 RELAY_DB = "discord_forwarding_bot"
 
 # Collections owned by relay's domain layer (storage/bot_specific/relay/guild/guild_manager.py).

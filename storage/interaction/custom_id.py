@@ -8,7 +8,7 @@
 
 Standardizes the prefix-routing convention already used ad-hoc across the bots (TheCodex
 guide ``g:nav:<page>`` / ``g:back``, ``wyr:option1``). ``pack`` builds a custom id;
-``parse`` splits one back into its parts. Discord caps a ``custom_id`` at 100 chars — keep
+``parse`` splits one back into its parts. Discord caps a ``custom_id`` at 100 chars - keep
 ``target`` short (an id, not a payload); store anything larger in ``InteractionStateStore``.
 """
 

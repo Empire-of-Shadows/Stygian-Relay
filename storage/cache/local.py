@@ -4,10 +4,10 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""LocalCache — the default in-process CacheBackend (TTL + bounded LRU).
+"""LocalCache - the default in-process CacheBackend (TTL + bounded LRU).
 
 This is the fast path for single-process bots: a plain in-memory store with per-key TTL,
-LRU eviction (so it can never grow unbounded — fixing the unbounded dict the old
+LRU eviction (so it can never grow unbounded - fixing the unbounded dict the old
 CollectionManager used), substring pattern invalidation, and hit/miss stats.
 
 For the lower-level reusable primitive see ``storage_engine.helpers.lru_cache``.

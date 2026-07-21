@@ -83,8 +83,8 @@ _STATE: dict = {}
 class InterceptHandler(logging.Handler):
     """Forward stdlib logging records into loguru (the single rendering sink).
 
-    The standard loguru bridge: every record emitted through the stdlib — our ``get_logger``
-    loggers as well as third-party libraries — is re-emitted through loguru so it inherits the
+    The standard loguru bridge: every record emitted through the stdlib - our ``get_logger``
+    loggers as well as third-party libraries - is re-emitted through loguru so it inherits the
     shared format, colours, rotation and retention.
     """
 
@@ -210,29 +210,12 @@ def set_global_level(level: Any) -> int:
     return _GLOBAL_LOG_LEVEL
 
 
-def get_logger(
-    module_name: str,
-    log_dir: str = "logs",
-    level: Optional[int] = None,
-    console_output: bool = True,
-    file_output: bool = True,
-    json_format: bool = False,
-    colored_console: bool = True,
-    max_file_size: int = 5 * 1024 * 1024,
-    backup_count: int = 3,
-    rotation_type: str = "size",
-    time_rotation: str = "midnight",
-    custom_format: Optional[str] = None,
-    filters: Optional[Any] = None,
-    extra_handlers: Optional[List[logging.Handler]] = None,
-) -> logging.Logger:
+def get_logger(module_name: str, level: Optional[int] = None) -> logging.Logger:
     """Return a stdlib :class:`logging.Logger` for ``module_name``.
 
-    The returned logger is a thin handle: it carries no handlers of its own and funnels into
-    loguru through the root :class:`InterceptHandler`. All output configuration (console/file/JSON,
-    rotation, retention, colours) now lives centrally in :func:`setup_application_logging`, so the
-    extra parameters below are accepted for backwards source-compatibility but are otherwise
-    ignored. Prefer ``get_logger(__name__)``.
+    A thin handle: it carries no handlers of its own and funnels into loguru through the root
+    :class:`InterceptHandler`. All output configuration (console/file/JSON, rotation, retention,
+    colours) lives centrally in :func:`setup_application_logging`. Prefer ``get_logger(__name__)``.
     """
     _ensure_intercept()
     log = logging.getLogger(module_name)

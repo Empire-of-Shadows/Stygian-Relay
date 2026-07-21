@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""storage_engine.helpers — small, dependency-light reusable primitives."""
+"""storage_engine.helpers - small, dependency-light reusable primitives."""
 
 from .lru_cache import LRUCache, TimedLRUCache
 

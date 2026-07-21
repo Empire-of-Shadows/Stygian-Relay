@@ -180,7 +180,7 @@ function ShareBars({ items }: { items: ShareItem[] }) {
   );
 }
 
-// ── Route cards — the "top rules" display ──────────────────────────────────
+// ── Route cards - the "top rules" display ──────────────────────────────────
 function RouteCards({
   rules,
   total,

@@ -1,9 +1,9 @@
-"""storage_engine bindings — Stygian-Relay (bot-owned, NOT vendored).
+"""storage_engine bindings - Stygian-Relay (bot-owned, NOT vendored).
 
 The single integration point between the vendored storage engine and relay's environment.
 The engine imports these names by name; everything else under ``storage/`` (except the
-bot-owned ``collections.py`` — the consolidated registry + ``db_manager`` — and
-``storage/bot_specific/relay/``) is vendored engine code — do not edit it here.
+bot-owned ``collections.py`` - the consolidated registry + ``db_manager`` - and
+``storage/bot_specific/relay/``) is vendored engine code - do not edit it here.
 
 Template: ``EmpireSystems/storage_engine/bindings_reference.py``.
 """
@@ -22,7 +22,7 @@ from ..cache.backend import CacheBackend
 from ..cache.local import LocalCache
 
 # Relay's entrypoint (Relay.py) loads docker/.env (+ .env.local override) before use, but
-# bindings is imported as soon as ``storage.manager`` is first touched — which can precede the
+# bindings is imported as soon as ``storage.manager`` is first touched - which can precede the
 # entrypoint's own load (e.g. when a cog module is imported first). Load here too so the URI is
 # always present. (Idempotent: load_dotenv() only fills unset keys unless override=True.)
 # Three levels up: storage/settings/bindings.py -> settings -> storage -> the bot root.
@@ -61,7 +61,7 @@ def build_cache() -> CacheBackend:
 WATCHED_COLLECTIONS: List[str] = []
 
 
-# ── Audit hook (ENGINE CONTRACT: audit_storage_event) — OPTIONAL ────────────────
+# ── Audit hook (ENGINE CONTRACT: audit_storage_event) - OPTIONAL ────────────────
 async def audit_storage_event(
     *,
     collection: str,

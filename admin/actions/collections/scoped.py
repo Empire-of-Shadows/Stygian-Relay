@@ -8,12 +8,12 @@
 
 One reusable operation behind the bots' bespoke reset/delete handlers: mutate a *list of
 collections* scoped by ids (guild and optionally user). Each spec says how to mutate one
-collection — delete the matching docs, or field-reset them (``$unset`` / ``$set``). The
+collection - delete the matching docs, or field-reset them (``$unset`` / ``$set``). The
 data layer is reached through the bindings seam, so this stays bot-agnostic; the bot only
 declares which collections + which mode (and supplies any side effects as sub-action hooks
 on the factories in ``actions/structure/scoped.py``).
 
-Safety: refuses to run without at least a ``guild_id`` in scope and one collection spec —
+Safety: refuses to run without at least a ``guild_id`` in scope and one collection spec -
 so a misconfigured panel can never wipe a whole collection unscoped.
 """
 
@@ -43,15 +43,15 @@ async def mutate_scoped(
 ) -> dict:
     """Delete or field-reset documents across ``specs`` collections, scoped by ``scope``.
 
-    ``specs`` — non-empty list; each entry is a dict:
+    ``specs`` - non-empty list; each entry is a dict:
         {"collection": str,
          "mode": "delete" | "unset" | "set",
          "fields": [...],        # for mode="unset": field names to remove
          "defaults": {...}}      # for mode="set": field -> default value
-    ``scope`` — e.g. ``{"guild_id": gid, "user_id": uid}``; the query is built from the
+    ``scope`` - e.g. ``{"guild_id": gid, "user_id": uid}``; the query is built from the
         non-None entries. ``stringify_ids=True`` casts id values to ``str`` (some bots store
         guild/user ids as strings).
-    ``require`` — keys that MUST be present and non-None in ``scope`` (default: guild_id).
+    ``require`` - keys that MUST be present and non-None in ``scope`` (default: guild_id).
 
     Returns ``{"affected_collections": [...], "documents_affected": N}``.
     Raises ``ValueError`` if the safety guard fails (missing required scope or empty specs).

@@ -9,7 +9,7 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 
-Automatically mirrors messages between channels — within a server or across servers — based on configurable per-guild rules with filtering, transforms, and comprehensive audit logging.
+Automatically mirrors messages between channels - within a server or across servers - based on configurable per-guild rules with filtering, transforms, and comprehensive audit logging.
 
 </div>
 
@@ -24,7 +24,7 @@ Automatically mirrors messages between channels — within a server or across se
 ### 📨 Forwarding Engine
 - Channel-to-channel message mirroring
 - Cross-server forwarding support
-- Rule-based dispatch — multiple rules per guild, each with its own source and destination
+- Rule-based dispatch - multiple rules per guild, each with its own source and destination
 - Setup wizard via `/forward setup` guides the initial configuration
 
 </td>
@@ -59,7 +59,7 @@ Automatically mirrors messages between channels — within a server or across se
 </table>
 
 ### ⚙️ Admin Panel
-> `/admin panel` — unified configuration panel (Discord Components v2) for per-guild forwarding settings, rule management, and bot configuration.
+> `/admin panel` - unified configuration panel (Discord Components v2) for per-guild forwarding settings, rule management, and bot configuration.
 
 ---
 

@@ -1,4 +1,4 @@
-"""Guild configuration GET/PUT — top-level settings only (no rules here)."""
+"""Guild configuration GET/PUT - top-level settings only (no rules here)."""
 
 import logging
 

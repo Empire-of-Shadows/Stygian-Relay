@@ -4,11 +4,11 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""ChangeStreamWatcher — keep the cache coherent with MongoDB in real time.
+"""ChangeStreamWatcher - keep the cache coherent with MongoDB in real time.
 
 The local cache is hit FIRST on reads. That is safe against this process's own writes
-(they call ``cache.invalidate``), but another writer — a second bot instance, the web
-hub, a manual DB edit — would otherwise leave us serving stale data until the TTL lapses.
+(they call ``cache.invalidate``), but another writer - a second bot instance, the web
+hub, a manual DB edit - would otherwise leave us serving stale data until the TTL lapses.
 MongoDB change streams close that gap: we subscribe to ``collection.watch()`` and drop
 the affected collection's cache entries the instant a change lands, from the
 authoritative source (the database itself).
@@ -16,9 +16,9 @@ authoritative source (the database itself).
 Generalizes EcomRebuild's per-config watcher (``storage/config_manager.py`` ``_watch_loop``)
 to any set of collections.
 
-IMPORTANT — replica-set requirement: change streams only exist on a replica set (or
+IMPORTANT - replica-set requirement: change streams only exist on a replica set (or
 sharded cluster). A standalone ``mongod`` raises on ``watch()``. This watcher detects that,
-logs ONCE, and stops cleanly — the cache then relies on TTL expiry alone (still correct,
+logs ONCE, and stops cleanly - the cache then relies on TTL expiry alone (still correct,
 just not instantaneous). So enabling/ disabling coherency is a deployment property, not a
 code change.
 """

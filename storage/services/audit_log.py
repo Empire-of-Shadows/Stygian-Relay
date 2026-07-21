@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""AuditLog — generic admin/action audit writer.
+"""AuditLog - generic admin/action audit writer.
 
 Capability: append-only audit trail. Promoted from the near-identical ``AuditLogger`` in
 TheHost / TheCodex / EcomRebuild (each persisted "who changed what, when, from where" for
@@ -51,7 +51,7 @@ class AuditLog:
 
     async def log(self, **fields: Any) -> bool:
         """Capability: write one audit entry. Persists the given fields plus a UTC
-        ``created_at`` timestamp; all values are coerced Mongo/JSON-safe. Best-effort — returns
+        ``created_at`` timestamp; all values are coerced Mongo/JSON-safe. Best-effort - returns
         ``False`` (and logs) on error rather than raising into the caller's request."""
         try:
             doc = {k: _to_safe(v) for k, v in fields.items()}

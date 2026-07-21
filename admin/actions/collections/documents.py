@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Collection doers — generic Mongo operations through the bindings seam.
+"""Collection doers - generic Mongo operations through the bindings seam.
 
 Generic over which collection (a name) and which query. Each bot's ``bindings``
 adapts ``db_find``/``db_count``/``db_delete_one``/``db_delete_many``/

@@ -30,7 +30,7 @@ async def normalize_guild_id_to_str(
     """Rewrite int ``id_field`` values to ``str`` across one collection.
 
     Returns a summary ``{"scanned", "converted", "conflicts"}``. A "conflict" is a doc
-    whose stringified id already exists as a separate ``str`` document — those are left
+    whose stringified id already exists as a separate ``str`` document - those are left
     untouched and reported so an operator can merge them deliberately rather than the
     migration silently clobbering data.
     """

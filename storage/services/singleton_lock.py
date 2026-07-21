@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""SingletonLock — single live process per database (advisory lock).
+"""SingletonLock - single live process per database (advisory lock).
 
 Capability: single-instance advisory lock. Promoted from TheHost's ``InstanceLock``: enforce
 that exactly one bot process owns the data, so in-process write-back caches and per-channel
@@ -12,7 +12,7 @@ serialization stay correct (a second instance would double-process and corrupt s
 
 Design (unchanged): one document keyed ``_id=<lock_id>``; acquire inserts if absent, else
 steals only when the existing lock is expired (crashed holder) or already ours; a heartbeat
-refreshes ``expires_at``; release deletes it. **Fail-open** — a lock subsystem error lets
+refreshes ``expires_at``; release deletes it. **Fail-open** - a lock subsystem error lets
 startup proceed rather than bricking the bot; only a clearly-live competitor blocks.
 
 Genericized: takes the lock ``CollectionManager`` plus configurable ``lock_id`` / TTL /
@@ -79,7 +79,7 @@ class SingletonLock:
 
     async def acquire(self, wait_timeout: float = 90.0) -> bool:
         """Capability: become the single live instance. Returns ``True`` if acquired (or if the
-        lock subsystem errored — fail-open), ``False`` only when a live competitor holds it."""
+        lock subsystem errored - fail-open), ``False`` only when a live competitor holds it."""
         deadline = monotonic() + wait_timeout
         while True:
             now = datetime.now(timezone.utc)

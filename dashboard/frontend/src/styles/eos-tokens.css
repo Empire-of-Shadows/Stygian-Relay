@@ -1,12 +1,12 @@
 /* ══════════════════════════════════════════════════════════════════════
-   Empire of Shadows — Design Tokens
+   Empire of Shadows - Design Tokens
    Source of truth for color, type, spacing, shape, motion.
    Derived from TheCodex/dashboard/frontend/src/styles/discord-theme.css
    ══════════════════════════════════════════════════════════════════════ */
 
 :root {
   /* ── Brand ───────────────────────────────────────────────────────── */
-  --eos-brand:           #4d0eb3;   /* "Imperial Violet" — the community theme color */
+  --eos-brand:           #4d0eb3;   /* "Imperial Violet" - the community theme color */
   --eos-brand-light:     #7a3df0;   /* Hover / lift / gradient end */
   --eos-brand-deep:      #2c0769;   /* Pressed / ambient glow shadow */
   --eos-brand-gradient:  linear-gradient(135deg, #4d0eb3 0%, #7a3df0 100%);
@@ -18,7 +18,7 @@
   --eos-bg-0:            #0a0a0d;   /* Floating / deepest (modals, dropdowns) */
   --eos-bg-1:            #0f0f12;   /* Page background */
   --eos-bg-2:            #1a1a1f;   /* Panels, sidebars, raised surfaces */
-  --eos-bg-input:        #140f26;   /* Inputs — slight violet undertone */
+  --eos-bg-input:        #140f26;   /* Inputs - slight violet undertone */
   --eos-bg-card:         rgba(255, 255, 255, 0.08);   /* Glass card fill */
 
   /* ── Glass / borders ─────────────────────────────────────────────── */
@@ -38,7 +38,7 @@
   --eos-danger:          #ff6b6b;
   --eos-warning:         #ffb86b;
 
-  /* ── Discord-message palette (preview chrome — do NOT skin) ──────── */
+  /* ── Discord-message palette (preview chrome - do NOT skin) ──────── */
   --dc-bg-primary:       #313338;
   --dc-bg-secondary:     #2b2d31;
   --dc-bg-tertiary:      #1e1f22;
@@ -63,14 +63,14 @@
   --dc-radius:           8px;
   --dc-radius-sm:        4px;
 
-  /* ── Type — families ─────────────────────────────────────────────── */
+  /* ── Type - families ─────────────────────────────────────────────── */
   /* The Codex ships system-Segoe (Discord's stack). We add Cinzel as a
-     mystical display face for slides / hero / titling — used SPARINGLY. */
+     mystical display face for slides / hero / titling - used SPARINGLY. */
   --eos-font-ui:         'Segoe UI', Tahoma, Geneva, Verdana, system-ui, sans-serif;
   --eos-font-display:    'Cinzel', 'Trajan Pro', 'Times New Roman', serif;
   --eos-font-mono:       ui-monospace, 'SF Mono', 'Cascadia Code', Consolas, 'Roboto Mono', monospace;
 
-  /* ── Type — sizes ────────────────────────────────────────────────── */
+  /* ── Type - sizes ────────────────────────────────────────────────── */
   --eos-fs-display:      36px;   /* Login / hero titles */
   --eos-fs-h1:           24px;   /* Discord h1 inside messages */
   --eos-fs-h2:           20px;   /* Discord h2 inside messages */
@@ -83,19 +83,19 @@
   --eos-fs-eyebrow:      12px;   /* Uppercase section labels */
   --eos-fs-tiny:         11px;   /* Stat labels, micro */
 
-  /* ── Type — weights ──────────────────────────────────────────────── */
+  /* ── Type - weights ──────────────────────────────────────────────── */
   --eos-fw-regular:      400;
   --eos-fw-medium:       500;
   --eos-fw-semibold:     600;
   --eos-fw-bold:         700;
 
-  /* ── Type — line-heights ─────────────────────────────────────────── */
+  /* ── Type - line-heights ─────────────────────────────────────────── */
   --eos-lh-tight:        1.0;
   --eos-lh-snug:         1.3;
   --eos-lh-body:         1.375;  /* Used across UI + Discord text */
   --eos-lh-loose:        1.6;    /* Long-form docs panels */
 
-  /* ── Shape — radii ───────────────────────────────────────────────── */
+  /* ── Shape - radii ───────────────────────────────────────────────── */
   --eos-radius:          14px;   /* Cards, large surfaces */
   --eos-radius-sm:       10px;   /* Buttons, inputs, pills */
   --eos-radius-pill:     999px;  /* Tags, badges, primary CTAs on hero */
@@ -202,7 +202,7 @@
   color: var(--eos-fg-muted);
 }
 
-/* The "eyebrow" — uppercase tiny section labels used heavily in the
+/* The "eyebrow" - uppercase tiny section labels used heavily in the
    builder sidebar, property panel, page tree, validation, etc. */
 .eos-eyebrow {
   font-family: var(--eos-font-ui);

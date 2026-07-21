@@ -4,15 +4,15 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""SnapshotStore — generic, discord-free engine for object snapshots.
+"""SnapshotStore - generic, discord-free engine for object snapshots.
 
 Promoted from TheCodex's bot-local ``GuildCacheManager`` (``storage/cache.py``), with all
 discord.py coupling stripped out: this layer only ever sees plain dicts. It owns the parts
-that are the same for any "snapshot a graph of related objects into Mongo" job —
+that are the same for any "snapshot a graph of related objects into Mongo" job -
 
 * per-partition ``asyncio.Lock`` so concurrent refreshes of the same partition serialize,
 * a freshness gate driven by the root doc's ``updated_at`` (a real ``datetime`` stamped by
-  ``CollectionManager`` — this is the structural fix for the legacy freshness bug, which
+  ``CollectionManager`` - this is the structural fix for the legacy freshness bug, which
   read an ``updated_at`` string the old writer never wrote),
 * bulk upserts routed through ``CollectionManager.bulk_write`` (inheriting retry,
   ``updated_at`` stamping and cache invalidation), with optional chunking,
@@ -134,7 +134,7 @@ class SnapshotStore:
         """True if the root doc for ``partition_id`` was written within ``freshness_ttl``.
 
         Missing root spec, missing doc, or a non-datetime ``updated_at`` (e.g. legacy string
-        data) all return ``False`` so the caller refreshes — never a stale True.
+        data) all return ``False`` so the caller refreshes - never a stale True.
         """
         if self._root is None:
             return False

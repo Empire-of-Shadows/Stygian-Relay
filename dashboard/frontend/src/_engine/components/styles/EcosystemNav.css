@@ -4,7 +4,7 @@
    Drift is enforced by:
      python EmpireSystems/tools/sync_dashboard_engine.py --check */
 /* =============================================================
-   Empire of Shadows — cross-app "Warp" dropdown
+   Empire of Shadows - cross-app "Warp" dropdown
    Copy-per-repo (byte-identical) across the four dashboards.
    Mirrors the hub's /partials/css/ecosystem-nav.css.
    Tokens come from eos-tokens.css with hardcoded fallbacks so the

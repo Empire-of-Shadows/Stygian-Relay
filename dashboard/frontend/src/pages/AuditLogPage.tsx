@@ -77,7 +77,7 @@ export function AuditLogPage() {
               {entries.map((e) => (
                 <tr key={e.id}>
                   <td className="muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-                    {e.created_at ? new Date(e.created_at).toLocaleString() : "—"}
+                    {e.created_at ? new Date(e.created_at).toLocaleString() : "-"}
                   </td>
                   <td>
                     <span className="badge">{e.category}</span>
@@ -85,7 +85,7 @@ export function AuditLogPage() {
                   <td className="muted" style={{ fontFamily: "monospace", fontSize: 12 }}>{e.actor_id}</td>
                   <td style={{ fontWeight: 600 }}>{e.action}</td>
                   <td className="muted" style={{ fontSize: 12, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {Object.keys(e.payload).length > 0 ? JSON.stringify(e.payload).slice(0, 120) : "—"}
+                    {Object.keys(e.payload).length > 0 ? JSON.stringify(e.payload).slice(0, 120) : "-"}
                   </td>
                 </tr>
               ))}

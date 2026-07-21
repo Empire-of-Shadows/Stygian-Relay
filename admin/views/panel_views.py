@@ -24,7 +24,7 @@ def _build_expired_layout() -> discord.ui.LayoutView:
     expired = discord.ui.LayoutView()
     expired.add_item(notice_container(
         discord.ui.TextDisplay(
-            "## Admin Panel — Session Expired\n"
+            "## Admin Panel - Session Expired\n"
             "This panel timed out after 5 minutes of inactivity.\n"
             "Use `/admin panel` to open a new session."
         ),

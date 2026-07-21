@@ -1,4 +1,4 @@
-"""Dashboard API routes — user info, guilds, channels, roles, bot invite."""
+"""Dashboard API routes - user info, guilds, channels, roles, bot invite."""
 
 import asyncio
 import logging

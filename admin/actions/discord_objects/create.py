@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Create Discord entities (role / channel) — thin, reusable wrappers."""
+"""Create Discord entities (role / channel) - thin, reusable wrappers."""
 
 from __future__ import annotations
 

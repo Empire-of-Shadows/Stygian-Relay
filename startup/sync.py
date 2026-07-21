@@ -43,7 +43,7 @@ async def load_cogs_command(ctx):
 def discover_cog_modules(directories: list[str]) -> list[tuple[str, str]]:
     """
     Walk directories and return a list of (module_name, file_path) tuples.
-    Does not load anything — just discovers (skips already-loaded modules).
+    Does not load anything - just discovers (skips already-loaded modules).
     """
     cogs = []
     for base_dir in directories:
@@ -79,7 +79,7 @@ async def load_cogs():
 
     logger.debug(f"Discovered {len(priority_cogs)} priority cogs, {len(regular_cogs)} regular cogs")
 
-    # Phase 2: load priority cogs first (sequential — ordering matters)
+    # Phase 2: load priority cogs first (sequential - ordering matters)
     if priority_cogs:
         success_logs.append(f"{s}Loading priority cogs (sequential)...\n")
         for module_name, file_path in priority_cogs:
@@ -183,7 +183,7 @@ async def attach_databases():
 
         from storage.bot_specific.relay import guild_manager, audit_log, premium_manager
 
-        # GuildManager — ensure global bot settings + indexes + one-shot migrations (idempotent).
+        # GuildManager - ensure global bot settings + indexes + one-shot migrations (idempotent).
         try:
             await guild_manager.initialize_default_settings()
             result, is_success = await attach_attribute("guild_manager", guild_manager)
@@ -192,7 +192,7 @@ async def attach_databases():
             failed_logs.append(f"{s}❌ guild_manager → Error: {gm_error}\n")
             raise  # Cogs depend on guild_manager
 
-        # PremiumManager — entitlement indexes + one-shot legacy-subscription migration
+        # PremiumManager - entitlement indexes + one-shot legacy-subscription migration
         # (idempotent). The premium cog attaches later and drives events/reconcile.
         try:
             await premium_manager.initialize()
@@ -201,7 +201,7 @@ async def attach_databases():
         except Exception as pm_error:
             failed_logs.append(f"{s}❌ premium_manager → Error: {pm_error}\n")
 
-        # AuditLog — records guild/premium/setting actions to the audit_logs collection.
+        # AuditLog - records guild/premium/setting actions to the audit_logs collection.
         try:
             result, is_success = await attach_attribute("audit_log", audit_log)
             (success_logs if is_success else failed_logs).append(result)

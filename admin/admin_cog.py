@@ -579,7 +579,7 @@ class AdminCog(commands.Cog):
         fit the generic (guild_id, values) leaf contract (premium activation, bulk
         reset/delete, bespoke multi-step editors) lives in a per-bot module and is
         attached to a node as ``on_run``. The engine just builds the ActionContext
-        and hands off — it never needs to know what the handler does.
+        and hands off - it never needs to know what the handler does.
 
         Handler contract:  async def on_run(cog, interaction, guild, ctx: ActionContext)
         """
@@ -1611,7 +1611,7 @@ class AdminCog(commands.Cog):
                 None,
             )
             if chosen is None:
-                # Item already gone (deleted elsewhere / list refreshed) — re-render.
+                # Item already gone (deleted elsewhere / list refreshed) - re-render.
                 await pick_interaction.response.edit_message(view=self._rebind_session_view(session, await _build_list_layout()))
                 return
 
@@ -1761,7 +1761,7 @@ class AdminCog(commands.Cog):
         async def on_item_pick(pick_interaction: discord.Interaction, value: str):
             if not self._check_cooldown(pick_interaction.user.id, node.key, guild.id):
                 await pick_interaction.response.send_message(
-                    view=build_notice_layout("Slow Down", "Saving too quickly — please wait a moment."),
+                    view=build_notice_layout("Slow Down", "Saving too quickly - please wait a moment."),
                     ephemeral=True,
                 )
                 return

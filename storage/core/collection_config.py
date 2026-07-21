@@ -22,7 +22,7 @@ class CollectionConfig:
     ``accessor`` is an optional short attribute name: when set, the manager exposes this
     collection as ``db_manager.<accessor>`` (e.g. ``accessor="guild_config"`` →
     ``db_manager.guild_config``). Collections are always reachable by their registry key too,
-    so this is pure sugar — omit it to access by key.
+    so this is pure sugar - omit it to access by key.
     """
     name: str
     database: str

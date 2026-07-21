@@ -22,7 +22,7 @@ METRIC_AUTO_DEACTIVATED = "auto_deactivated"
 logger = logging.getLogger(__name__)
 
 
-# Pre-compiled once at module load — runs on every message in matching guilds.
+# Pre-compiled once at module load - runs on every message in matching guilds.
 _EMBEDDABLE_URL_RE = re.compile(
     r'https?://(?:www\.)?(?:twitter|x|youtube|instagram|tiktok|reddit|github|twitch|spotify)\.(?:com|tv)/\S+'
     r'|https?://youtu\.be/\S+'
@@ -182,7 +182,7 @@ class Forwarding(commands.Cog):
             f"author={message.author.id} mid={message.id}"
         )
 
-        # Dispatch off the listener thread — the embed-wait below can sleep
+        # Dispatch off the listener thread - the embed-wait below can sleep
         # several seconds, and the listener should never block on it.
         task = asyncio.create_task(self._dispatch(message))
         self._dispatch_tasks.add(task)
@@ -206,7 +206,7 @@ class Forwarding(commands.Cog):
         await self._ensure_runtime_config()
         gid_str = str(message.guild.id)
 
-        # Single cached fetch — settings cache (5-min TTL) covers repeats.
+        # Single cached fetch - settings cache (5-min TTL) covers repeats.
         guild_settings = await guild_manager.get_guild_settings(gid_str)
         if not guild_settings.get("features", {}).get("forwarding_enabled", False):
             logger.debug(f"[{gid_str}] forwarding_enabled=False; skip mid={message.id}")
@@ -336,7 +336,7 @@ class Forwarding(commands.Cog):
             )
             return False
 
-        # Permission gate — without this, every source message produces a
+        # Permission gate - without this, every source message produces a
         # Forbidden + log line. One warning per rule per cooldown window.
         # `me is None` covers two distinct cross-guild failure modes: the
         # bot was kicked from the destination guild, or the destination's
@@ -357,7 +357,7 @@ class Forwarding(commands.Cog):
             )
             return False
 
-        # Cross-guild opt-in gate. Same-guild rules bypass — destination guild
+        # Cross-guild opt-in gate. Same-guild rules bypass - destination guild
         # is the rule owner, so consent is implicit.
         if target_guild.id != message.guild.id:
             if not await guild_manager.is_inbound_allowed(
@@ -371,13 +371,13 @@ class Forwarding(commands.Cog):
                 return False
 
         await self.forward_message(settings.get("formatting", {}), message, destination_channel)
-        # Successful forward — clear failure counter so a recovered rule
+        # Successful forward - clear failure counter so a recovered rule
         # doesn't carry stale strikes from before the fix.
         self._perm_fail.pop(rule_id, None)
 
         # Lazy v3 stamp: legacy rules created before schema v3 lack
         # destination_guild_id. Backfill it now that we've resolved the
-        # destination channel — fire-and-forget so the hot path stays clean.
+        # destination channel - fire-and-forget so the hot path stays clean.
         if not rule.get("destination_guild_id"):
             # Track the task (like the dispatch tasks) so it isn't GC'd mid-flight and
             # is cancelled on cog unload, rather than a truly untracked create_task.
@@ -586,7 +586,7 @@ class Forwarding(commands.Cog):
 
         if formatting.get("forward_attachments", True) and message.attachments:
             max_size = formatting.get("max_attachment_size", 25) * 1024 * 1024
-            # Destination dictates the upload ceiling — Discord enforces it
+            # Destination dictates the upload ceiling - Discord enforces it
             # regardless of source premium. `filesize_limit` already accounts
             # for boost tier, so future Discord tier changes pick up cleanly.
             max_total_size = destination.guild.filesize_limit
@@ -628,7 +628,7 @@ class Forwarding(commands.Cog):
                         f"`{attachment.filename}` download failed ({type(e).__name__})"
                     )
                 except Exception as e:
-                    # Unexpected — log full trace but still surface a generic line so
+                    # Unexpected - log full trace but still surface a generic line so
                     # the user sees why the attachment didn't make it.
                     logger.warning(
                         f"Unexpected error downloading {attachment.filename}: {e}",
@@ -648,7 +648,7 @@ class Forwarding(commands.Cog):
             quoted_content += f"\n-# **Some attachments not forwarded:**\n{issue_text}"
 
         # Branding (free SOURCE guilds only, with cooldown). A premium source
-        # forwards ad-free regardless of where the destination lives — the
+        # forwards ad-free regardless of where the destination lives - the
         # rule owner pays for the suppression, not the recipient guild.
         source_gid = message.guild.id if message.guild else destination.guild.id
         is_premium = await guild_manager.is_premium_guild(str(source_gid))
@@ -685,7 +685,7 @@ class Forwarding(commands.Cog):
             send_kwargs["reference"] = message
             send_kwargs["mention_author"] = formatting.get("mention_author", False)
 
-        # Metrics key off the source guild — that's the rule owner. A premium
+        # Metrics key off the source guild - that's the rule owner. A premium
         # source guild forwarding into a free destination still attributes
         # oversized fallbacks to source.
         source_gid = message.guild.id if message.guild else destination.guild.id

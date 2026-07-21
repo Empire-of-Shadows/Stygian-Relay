@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""storage_engine — the Empire of Shadows shared MongoDB storage engine.
+"""storage_engine - the Empire of Shadows shared MongoDB storage engine.
 
 This is the MASTER copy. It is vendored byte-for-byte into each bot's ``storage/``
 directory by ``tools/sync_storage_engine.py``. Like ``admin_engine``, it is an

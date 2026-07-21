@@ -10,7 +10,7 @@ Everything the legacy ``GuildCacheManager`` hardcoded lives here as tunable conf
 collection registry keys, the "dangerous"/"moderation" permission sets, the suspicious-member
 threshold, the account-age buckets, the analytics timezone, and the freshness TTL. Defaults
 reproduce the legacy behavior field-for-field (except the timezone default, which is now
-``UTC`` rather than ``America/Chicago`` — set it explicitly if you want the old clock).
+``UTC`` rather than ``America/Chicago`` - set it explicitly if you want the old clock).
 """
 
 from __future__ import annotations

@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""SnapshotEventLog — generic append-only event trail with an in-memory recency ring.
+"""SnapshotEventLog - generic append-only event trail with an in-memory recency ring.
 
 Promoted from the event-logging half of TheCodex's ``GuildCacheManager``. Discord-free:
 partitions are identified by a plain id, events are ``(event_type, data)`` pairs. Each write
@@ -54,7 +54,7 @@ class SnapshotEventLog:
         self._recent: Dict[Any, Deque[Dict[str, Any]]] = {}
 
     async def log(self, partition_id: Any, event_type: str, data: Dict[str, Any]) -> bool:
-        """Append one event. Best-effort — logs and returns ``False`` on error, never raises."""
+        """Append one event. Best-effort - logs and returns ``False`` on error, never raises."""
         record = {
             self._partition_field: partition_id,
             "event_type": event_type,

@@ -1,4 +1,4 @@
-"""Stygian-Relay — admin engine bindings (the per-bot seam).
+"""Stygian-Relay - admin engine bindings (the per-bot seam).
 
 The vendored engine (``admin_cog.py``) is byte-identical across every bot; it reaches all of
 Stygian-Relay's backends through the names defined here. See
@@ -33,7 +33,7 @@ logger = logging.getLogger("AdminBindings")
 BOT_NAME = "Stygian-Relay"
 
 # Relay gates the panel on Administrator or the configured manager role (see
-# database/permissions.can_manage_guild_settings) — there is no mod tier.
+# database/permissions.can_manage_guild_settings) - there is no mod tier.
 MOD_ALLOWED_CATEGORIES: set[str] = set()
 
 SETUP_GUIDE_TEXT = (
@@ -165,7 +165,7 @@ async def config_unset(guild_id: int, path: str) -> bool:
     return await guild_manager.update_guild_settings(str(guild_id), {path: None})
 
 
-# ── Collection access (inert — Relay's panel has no collection actions) ───────────
+# ── Collection access (inert - Relay's panel has no collection actions) ───────────
 
 async def db_find(collection: str, query: dict, *, sort=None, limit: int | None = None) -> list[dict]:
     return []

@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""SnapshotSpec — the plain, backend-agnostic description of one snapshot collection.
+"""SnapshotSpec - the plain, backend-agnostic description of one snapshot collection.
 
 A ``SnapshotStore`` is driven entirely by a list of these. The spec carries no domain
 knowledge (it never mentions "guild" or "member"); it only says which registry key backs a
@@ -28,7 +28,7 @@ class SnapshotSpec:
             Every record handed to the store MUST contain these fields.
         partition_field: the field matched to delete every row for one partition
             (a guild's ``"guild_id"``; the root doc's own id field for the root spec).
-        is_root: exactly one spec is the root — the doc whose ``updated_at`` drives freshness.
+        is_root: exactly one spec is the root - the doc whose ``updated_at`` drives freshness.
         chunk_size: if set, ``upsert_many`` splits records into chunks of this size per
             ``bulk_write`` (large guilds → ``1000``). ``None`` = one bulk write.
     """

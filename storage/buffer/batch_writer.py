@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""BatchWriter — coalesce high-frequency writes into batched ``bulk_write`` flushes.
+"""BatchWriter - coalesce high-frequency writes into batched ``bulk_write`` flushes.
 
 Promoted from EcomRebuild ``ecom_system/helpers/batch_writer.py``. Differences from the
 original (which keyed by ``id(collection)`` over raw motor collections):
@@ -13,10 +13,10 @@ original (which keyed by ``id(collection)`` over raw motor collections):
   decoupled from collection objects and survives reconnects.
 * Flushes route through the engine's ``CollectionManager.bulk_write`` (via a resolver the
   ``DatabaseManagerBase`` supplies), inheriting its retry, ``updated_at`` stamping, and
-  cache invalidation — no separate motor path.
+  cache invalidation - no separate motor path.
 
 Merging semantics (unchanged): multiple updates to the same ``(collection, filter)`` are
-merged before flush — ``$inc`` values are summed, ``$set`` values last-write-wins,
+merged before flush - ``$inc`` values are summed, ``$set`` values last-write-wins,
 ``$push`` arrays concatenated.
 """
 
@@ -227,7 +227,7 @@ class BatchWriter:
         self._flush_task = asyncio.create_task(_loop())
 
     def stop(self) -> None:
-        """Stop the background auto-flush loop (does not flush — use ``shutdown``)."""
+        """Stop the background auto-flush loop (does not flush - use ``shutdown``)."""
         self._flushing = False
         if self._flush_task:
             self._flush_task.cancel()

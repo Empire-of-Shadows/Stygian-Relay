@@ -1216,7 +1216,7 @@ tr:hover td {
   height: 20px;
   border-radius: 50%;
 }
-/* Bot-not-installed cue — dashed + dimmed. */
+/* Bot-not-installed cue - dashed + dimmed. */
 .guild-pill--setup {
   opacity: 0.7;
   border-style: dashed;
@@ -1645,7 +1645,7 @@ tr:hover td {
 .reason-row__val { margin-left: auto; color: var(--text-1); font-weight: 700; font-variant-numeric: tabular-nums; }
 .reason-row__desc { font-size: 12px; color: var(--muted); }
 
-/* Bento rows — size each item to its content, stack on narrow screens */
+/* Bento rows - size each item to its content, stack on narrow screens */
 .bento {
   display: grid;
   gap: 16px;
@@ -1670,7 +1670,7 @@ tr:hover td {
 }
 .usage-bar > span { display: block; height: 100%; border-radius: 999px; transition: width 0.5s ease; }
 
-/* Route cards — the "top rules" display (a rule is a source→dest route) */
+/* Route cards - the "top rules" display (a rule is a source→dest route) */
 .route-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));

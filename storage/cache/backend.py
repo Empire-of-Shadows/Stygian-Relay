@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""CacheBackend — the one interface every cache backend implements.
+"""CacheBackend - the one interface every cache backend implements.
 
 The storage layer reads through a CacheBackend FIRST and only falls through to MongoDB
 on a miss; writes call ``invalidate`` so the cache never serves stale data after a known

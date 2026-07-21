@@ -28,6 +28,9 @@ bot = commands.AutoShardedBot(
     intents=intents,
     help_command=None,
     case_insensitive=True,
+    # Safe default: never mass-ping @everyone or roles from bot-sent content; a place
+    # that intentionally needs to must pass an explicit allowed_mentions override.
+    allowed_mentions=discord.AllowedMentions(everyone=False, roles=False, users=True),
 )
 
 # Logging indent helper
@@ -102,7 +105,7 @@ async def on_guild_channel_delete(channel):
         local_guild_id = str(channel.guild.id)
         settings = await guild_manager.get_guild_settings(local_guild_id)
 
-        # Clear log channel if it pointed here. (Always local — log channels
+        # Clear log channel if it pointed here. (Always local - log channels
         # are stored per-guild and never reference foreign channels.)
         log_channel_id = settings.get("master_log_channel_id")
         if log_channel_id and str(log_channel_id) == str(channel.id):

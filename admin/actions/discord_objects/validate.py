@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Validate Discord entities — existence/type + bot role-assignment capability."""
+"""Validate Discord entities - existence/type + bot role-assignment capability."""
 
 from __future__ import annotations
 

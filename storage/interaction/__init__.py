@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""storage_engine.interaction — Discord interaction / component state.
+"""storage_engine.interaction - Discord interaction / component state.
 
 One polymorphic store mapping a Discord ``message_id`` to the feature context needed to
 service its button/select interactions (``InteractionStateStore``), plus a tiny
@@ -16,7 +16,7 @@ TTL-indexed collection, hit-first cached lookups (button handlers are high-frequ
 a ``iter_active`` helper to re-register persistent views on startup.
 
 Genuinely feature-specific state (in-memory game sessions, guide page-tree navigation) is
-intentionally out of scope — see ``docs/storage_engine/interaction-state.md``.
+intentionally out of scope - see ``docs/storage_engine/interaction-state.md``.
 """
 
 from .custom_id import pack, parse, CustomId

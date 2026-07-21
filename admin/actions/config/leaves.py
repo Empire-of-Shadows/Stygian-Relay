@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Config-bound leaf factories — create PanelNode leaves wired to a config path.
+"""Config-bound leaf factories - create PanelNode leaves wired to a config path.
 
 A bot calls these with a dotted config ``path`` (and a label) and gets a ready
 PanelNode whose get/set/clear route through the config doers. Covers the bulk of

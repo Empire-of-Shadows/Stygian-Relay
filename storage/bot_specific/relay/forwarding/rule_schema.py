@@ -20,7 +20,7 @@ fresh rules never need migrating.
 1. Bump `CURRENT_RULE_SCHEMA_VERSION`.
 2. Add a `_migrate_to_<N>(rule)` function that takes a rule at version N-1
    and returns it at version N. Treat the input as immutable; return a new
-   dict or mutate-and-return — both are fine, callers expect the migrated
+   dict or mutate-and-return - both are fine, callers expect the migrated
    dict back.
 3. Register it in `_MIGRATIONS` keyed by the *target* version.
 4. Lazy migration handles existing docs on read; the next `update_rule` /
@@ -30,17 +30,17 @@ fresh rules never need migrating.
 
 ## Versions
 
-- v0 — pre-versioning. Any doc without `schema_version` is treated as v0.
-- v1 — adds the `schema_version` field; otherwise structurally identical to
+- v0 - pre-versioning. Any doc without `schema_version` is treated as v0.
+- v1 - adds the `schema_version` field; otherwise structurally identical to
   v0.
-- v2 — adds `settings.author_filters` with empty allow/deny lists for users
+- v2 - adds `settings.author_filters` with empty allow/deny lists for users
   + roles. Consumers can read the dict directly without `dict.get(..., {})`
   hedging.
-- v3 — reserves `destination_guild_id` (int) on the rule. Migration is a
+- v3 - reserves `destination_guild_id` (int) on the rule. Migration is a
   no-op stamp; the runtime path lazily backfills the field the first time it
   resolves the destination channel via `bot.get_channel`. Wizard-created
   rules at v3 stamp it directly at creation time.
-- v4 — current. Ensures the full `settings` block (`message_types`, `filters`,
+- v4 - current. Ensures the full `settings` block (`message_types`, `filters`,
   `formatting`, `advanced_options`, `author_filters`) exists. Repairs early
   dashboard-created rules that were stamped v3 with only `author_filters` and
   so forwarded nothing (BUG-R1). Backfill is non-clobbering.
@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 CURRENT_RULE_SCHEMA_VERSION = 4
 
 # Default author-filter shape stamped onto every rule at v2. Empty lists mean
-# "no filter" — the runtime check in Forwarding.check_author_filters short-
+# "no filter" - the runtime check in Forwarding.check_author_filters short-
 # circuits when nothing is configured, so v2 rules behave like v1 rules until
 # an admin populates a list.
 DEFAULT_AUTHOR_FILTERS = {
@@ -148,7 +148,7 @@ _MIGRATIONS: Dict[int, Callable[[dict], dict]] = {
 
 def migrate_rule(rule: dict) -> dict:
     """
-    Bring a single rule up to ``CURRENT_RULE_SCHEMA_VERSION``. Idempotent — a
+    Bring a single rule up to ``CURRENT_RULE_SCHEMA_VERSION``. Idempotent - a
     rule already at the current version returns unchanged. Errors in a single
     migration step are logged and the partially-migrated rule is returned so
     one bad doc can't block the rest of a guild's rules.

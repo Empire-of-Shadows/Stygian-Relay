@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Collection-bound node factory — browse a Mongo collection with a per-item action."""
+"""Collection-bound node factory - browse a Mongo collection with a per-item action."""
 
 from __future__ import annotations
 

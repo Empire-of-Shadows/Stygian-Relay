@@ -1,4 +1,4 @@
-"""Audit log API — relay schema: {category, guild_id:str, actor_id:str, action, payload, created_at}."""
+"""Audit log API - relay schema: {category, guild_id:str, actor_id:str, action, payload, created_at}."""
 
 import logging
 from datetime import datetime
@@ -38,7 +38,7 @@ def _serialize_entry(doc: dict) -> dict:
 async def get_audit_log(
     guild_id: str,
     category: str | None = Query(default=None),
-    before: str | None = Query(default=None, description="ObjectId cursor — return entries older than this."),
+    before: str | None = Query(default=None, description="ObjectId cursor - return entries older than this."),
     limit: int = Query(default=_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
     session: dict = Depends(get_current_user),
 ):

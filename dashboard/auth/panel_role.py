@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 PanelRole = Literal["admin", "mod", "none"]
 
-# Relay has no mod tier — this frozenset is intentionally empty.
+# Relay has no mod tier - this frozenset is intentionally empty.
 MOD_ALLOWED_SECTIONS: frozenset[str] = frozenset()
 
 _MEMBER_CACHE_TTL = 60.0

@@ -7,9 +7,9 @@
 """Timezone option helpers for the admin panel's grouped timezone picker.
 
 Pure, guild-independent functions that generate the region → zone tree from
-``pytz.common_timezones`` (the curated IANA list — better UX than the full
+``pytz.common_timezones`` (the curated IANA list - better UX than the full
 ``all_timezones``). Consumed by a ``grouped_select_leaf`` (timezone) and rendered
-by the generic engine. No state, no DB — the tz database is static, so the buckets
+by the generic engine. No state, no DB - the tz database is static, so the buckets
 are built once at import.
 """
 
@@ -78,8 +78,8 @@ def pretty_zone(tz: str) -> str:
 
 
 def offset_label(tz: str) -> str:
-    """Current UTC offset for ``tz`` as ``UTC+02:00`` / ``UTC−05:00`` (uses a
-    proper minus-sign glyph). DST-accurate — evaluated at call time."""
+    """Current UTC offset for ``tz`` as ``UTC+02:00`` / ``UTC-05:00`` (uses a
+    proper minus-sign glyph). DST-accurate - evaluated at call time."""
     try:
         off = datetime.now(pytz.timezone(tz)).utcoffset()
     except Exception:
@@ -87,6 +87,6 @@ def offset_label(tz: str) -> str:
     if off is None:
         return "UTC"
     total = int(off.total_seconds())
-    sign = "+" if total >= 0 else "−"  # − minus sign
+    sign = "+" if total >= 0 else "-"  # - minus sign
     hours, minutes = divmod(abs(total) // 60, 60)
     return f"UTC{sign}{hours:02d}:{minutes:02d}"

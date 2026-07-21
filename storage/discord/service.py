@@ -4,16 +4,15 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""GuildSnapshotService — discord-facing facade over the generic snapshot core.
+"""GuildSnapshotService - discord-facing facade over the generic snapshot core.
 
 Wires the discord extractors to a :class:`~storage_engine.snapshots.store.SnapshotStore` +
-:class:`~storage_engine.snapshots.event_log.SnapshotEventLog`, and re-exposes the exact method
-names TheCodex's legacy ``GuildCacheManager`` had (``cache_all``, ``cache_members``, …) so call
-sites migrate with a one-line repoint. Individual ``cache_*`` write methods do NOT lock or check
-freshness (they are event-driven forced writes, matching legacy); only ``cache_all`` and
-``delete_guild`` take the per-guild lock.
+:class:`~storage_engine.snapshots.event_log.SnapshotEventLog`. The ``cache_*`` write methods are
+named after the discord object graph they snapshot (guild / channels / roles / members /
+analytics). Individual ``cache_*`` writes do NOT lock or check freshness (they are event-driven
+forced writes); only ``cache_all`` and ``delete_guild`` take the per-guild lock.
 
-Adding a new object type later is ``register(object_type, SnapshotSpec, extractor)`` — no change
+Adding a new object type later is ``register(object_type, SnapshotSpec, extractor)`` - no change
 to the core.
 """
 
@@ -76,7 +75,7 @@ class GuildSnapshotService:
             result = await result
         return result
 
-    # ── writes (legacy method names) ─────────────────────────────────────────
+    # ── writes ───────────────────────────────────────────────────────────────
 
     async def cache_all(self, guild, force_refresh: bool = False) -> bool:
         """Snapshot every registered object type for ``guild`` under its lock (freshness-gated)."""
@@ -101,7 +100,7 @@ class GuildSnapshotService:
         return await self._store.upsert_many("members", await self._extract("members", guild))
 
     async def cache_guild_analytics(self, guild) -> bool:
-        """Best-effort (matches legacy: logs and swallows so it never aborts ``cache_all``)."""
+        """Best-effort: logs and swallows so it never aborts ``cache_all``."""
         try:
             return await self._store.upsert_one("analytics", await self._extract("analytics", guild))
         except Exception as e:

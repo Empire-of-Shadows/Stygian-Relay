@@ -4,12 +4,12 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""storage_engine.log — the shared, loguru-powered structured logger.
+"""storage_engine.log - the shared, loguru-powered structured logger.
 
 The single vendored home for the ecosystem's logger. **loguru** does the rendering (colored,
 aligned console + rotating file + optional JSON, beautiful tracebacks, built-in rotation and
 retention); the stdlib is kept as the front door so ``get_logger`` returns a real
-``logging.Logger`` and every call site — plus discord.py / pymongo — funnels into loguru via an
+``logging.Logger`` and every call site - plus discord.py / pymongo - funnels into loguru via an
 ``InterceptHandler``.
 
 Bots import the public surface::

@@ -4,12 +4,12 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""GuildConfigStore — the shared, dict-level guild configuration store.
+"""GuildConfigStore - the shared, dict-level guild configuration store.
 
 Generalized from EcomRebuild ``storage/config_manager.py``. This is the *engine* half:
 it standardizes how a per-guild config document is read (hit-first), written (surgical
 dotted ``$set`` / ``$unset`` / full-doc upsert), and invalidated. It deliberately knows
-nothing about a bot's feature schema — the bot wraps it with its own ``GuildConfig``
+nothing about a bot's feature schema - the bot wraps it with its own ``GuildConfig``
 dataclass for typed access (see ``docs/storage_engine/guild-config.md``).
 
 Caching & coherency are delegated to the ``CollectionManager`` it is constructed with:
@@ -177,21 +177,18 @@ class GuildConfigStore:
     # ── canonical panel roles (admin_engine contract shape) ──────────────────
 
     @staticmethod
-    def _normalize_roles(doc: Dict[str, Any], path: str, legacy_singular: str) -> List[int]:
-        """Fold ``roles.{admin,mod}_role_ids`` with legacy singular fallback into a list."""
+    def _normalize_roles(doc: Dict[str, Any], path: str) -> List[int]:
+        """Fold ``roles.{admin,mod}_role_ids`` into an int list."""
         ids = GuildConfigStore._dig(doc, path)
-        if ids is None:
-            singular = doc.get(legacy_singular)
-            ids = [singular] if singular is not None else []
         return [int(r) for r in (ids or [])]
 
     async def get_admin_role_ids(self, guild_id: Any) -> List[int]:
-        """Resolve the guild's admin panel-role ids (canonical shape, legacy-tolerant)."""
-        return self._normalize_roles(await self.get_settings(guild_id), _ADMIN_ROLES_PATH, "admin_role_id")
+        """Resolve the guild's admin panel-role ids (canonical shape)."""
+        return self._normalize_roles(await self.get_settings(guild_id), _ADMIN_ROLES_PATH)
 
     async def get_mod_role_ids(self, guild_id: Any) -> List[int]:
-        """Resolve the guild's mod panel-role ids (canonical shape, legacy-tolerant)."""
-        return self._normalize_roles(await self.get_settings(guild_id), _MOD_ROLES_PATH, "mod_role_id")
+        """Resolve the guild's mod panel-role ids (canonical shape)."""
+        return self._normalize_roles(await self.get_settings(guild_id), _MOD_ROLES_PATH)
 
     async def add_role(self, guild_id: Any, kind: str, role_id: int) -> bool:
         """Add a role id to the ``admin`` or ``mod`` canonical list (idempotent).

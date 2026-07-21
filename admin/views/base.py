@@ -8,7 +8,7 @@
 Base utilities for Admin Panel Components v2 views.
 
 Provides shared builders and utilities for creating consistent LayoutView layouts.
-This is engine code — identical across every bot (vendored from admin_engine/).
+This is engine code - identical across every bot (vendored from admin_engine/).
 It is intentionally a *superset*: helpers that only some bots use still live here
 so the engine file stays byte-identical everywhere.
 """
@@ -58,7 +58,7 @@ def readonly_container(*items: discord.ui.Item) -> discord.ui.Container:
 
 
 def editable_container(*items: discord.ui.Item) -> discord.ui.Container:
-    """Container with no accent — used for current-value + active editor blocks."""
+    """Container with no accent - used for current-value + active editor blocks."""
     return _container(None, items)
 
 

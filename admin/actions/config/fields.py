@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Config-field doers — read/write per-guild config through the bindings seam.
+"""Config-field doers - read/write per-guild config through the bindings seam.
 
 Generic over which field (a dotted ``path``) and which backend (each bot's
 ``bindings`` adapts ``config_get``/``config_set``/``config_unset`` to its own

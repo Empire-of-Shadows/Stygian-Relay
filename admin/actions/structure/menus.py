@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Menu structure factory — assemble child nodes into a menu group."""
+"""Menu structure factory - assemble child nodes into a menu group."""
 
 from __future__ import annotations
 

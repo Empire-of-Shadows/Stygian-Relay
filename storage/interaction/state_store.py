@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""InteractionStateStore — map a Discord message to its feature context.
+"""InteractionStateStore - map a Discord message to its feature context.
 
 A single polymorphic collection replaces the per-feature ``message_id → context`` maps that
 recur across the bots. Each record is::
@@ -12,7 +12,7 @@ recur across the bots. Each record is::
     {message_id, guild_id, feature, context: {...}, created_at, expires_at}
 
 * ``record`` upserts the mapping (optionally with a TTL).
-* ``get_context`` is the hot path — button handlers call it on every click, so it reads
+* ``get_context`` is the hot path - button handlers call it on every click, so it reads
   hit-first through the manager's shared cache.
 * ``iter_active`` lets a cog re-register persistent views on startup (``bot.add_view``).
 
@@ -117,7 +117,7 @@ class InteractionStateStore:
         return await self._mgr.find_many(query)
 
     async def iter_active(self, feature: str, guild_id: Any = None) -> AsyncIterator[Dict[str, Any]]:
-        """Yield active records for a feature — use at startup to re-register persistent
+        """Yield active records for a feature - use at startup to re-register persistent
         views (``bot.add_view``) so their buttons keep working after a restart."""
         for record in await self.find_by_feature(feature, guild_id):
             yield record

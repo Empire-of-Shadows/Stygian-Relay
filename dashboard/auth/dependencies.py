@@ -41,7 +41,7 @@ async def require_guild_access(session: dict, guild_id: str):
 async def require_panel_access(session: dict, guild_id: str) -> PanelRole:
     """Resolve and require Admin tier panel access for this guild.
 
-    Relay has no mod tier — returns "admin" or raises 403.
+    Relay has no mod tier - returns "admin" or raises 403.
     """
     role = await resolve_panel_role(session, guild_id)
     if role == "none":

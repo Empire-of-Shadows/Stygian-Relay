@@ -10,7 +10,7 @@ It mirrors/forwards messages between channels (and across guilds) according to p
 Empire of Shadows ecosystem (see the monorepo root `../../CLAUDE.md` and the engine masters in
 `../../EmpireSystems/`).
 
-- **Entry point:** `Relay.py` — loads `docker/.env` (+ `.env.local` override) → `storage.logging`
+- **Entry point:** `Relay.py` - loads `docker/.env` (+ `.env.local` override) → `storage.logging`
   setup (+ email ErrorReporter on root) → signal handlers → `db_manager` init → health
   endpoint (**port 50013**) → `on_ready` (Database Attachment via `attach_databases` +
   `initialize_existing_guilds`, cog load, command sync, status).
@@ -20,14 +20,14 @@ Empire of Shadows ecosystem (see the monorepo root `../../CLAUDE.md` and the eng
 
 Both shared engines are **vendored copies** living in this repo. Relay does NOT pip-install
 `EmpireSystems`; there is no engine entry in `requirements.txt` and no GitHub fetch at build.
-This is deliberate — see the note at the bottom of this file.
+This is deliberate - see the note at the bottom of this file.
 
 | Master | Vendored into | Owner |
 |---|---|---|
 | `../../EmpireSystems/storage_engine/` | `storage/` (imported as `storage`) | master |
 | `../../EmpireSystems/admin_engine/` | `admin/` (at the repo root) | master |
 | `../../EmpireSystems/storage_engine/bot_specific/relay/` | `storage/bot_specific/relay/` | master, relay only |
-| — | `admin/settings/`, `storage/settings/` | **relay** (the seam) |
+| - | `admin/settings/`, `storage/settings/` | **relay** (the seam) |
 
 Files carrying a `# VENDORED ... DO NOT EDIT HERE` banner are generated. **Never edit them.**
 Edit the master in `../../EmpireSystems/` and re-run the sync tool; drift is caught by `--check`.
@@ -56,19 +56,19 @@ full storage engine syncs like any other bot - there is no `--scope` restriction
 | `Relay.py` | Main entrypoint (bot-named, PascalCase). |
 | `startup/` | `bot.py` (instance/intents/token), `sync.py` (parallel+priority cog loader, command table), `phases.py` (startup metrics/summary). Canonical ecosystem startup package. |
 | `commands/` | Relay's own slash-command cogs only: `common/`, `forward/`, `premium/`. Cog discovery is `COG_DIRECTORIES = ["commands", "admin"]`. `premium/` is the **entitlement-based premium cog** (Discord monetization: gateway events + a reconciliation safety net + interaction backfill, plus owner `/premium-admin grant` for manual grants). Public `/premium status` is global; the management commands are a separate **guild-scoped `/premium-admin` group** (registered only in `ADMIN_GUILD_IDS`, owner-gated; the cog syncs those guilds itself since the entrypoint only does a global `tree.sync()`). It is portable across bots - all data logic lives in the shared engine (`storage.premium`, the bot-agnostic `PremiumManager` promoted out of `bot_specific/relay/`; the relay singleton is wired in `bot_specific/relay/__init__.py`); the only per-bot file is the **`commands/premium/settings/` seam** (`config.py`: `APPLICATION_ID` + SKU->tier map + `ADMIN_GUILD_IDS`/`OWNER_IDS`). The old code-redemption model (`/premium-generate`/`/redeem`) is retired. |
-| `admin/` | **Vendored `admin_engine`** (the shared `/admin panel`), at the repo root. `admin/settings/` is the bot-owned seam: `bindings.py`, `panel_configs.py`, and `forwarding_actions.py` (the Add-Rule wizard + Manage-Rules list wired into the Forwarding Rules section). Branding text + tier resolution are inlined in `bindings.py` (valid variant — the engine reads them through the bindings seam, so there is no separate `panel_branding.py` / `role_auth.py`). `admin/admin_cog.py` is the only `def setup(...)` under `admin/`, so discovery picks up exactly it. |
+| `admin/` | **Vendored `admin_engine`** (the shared `/admin panel`), at the repo root. `admin/settings/` is the bot-owned seam: `bindings.py`, `panel_configs.py`, and `forwarding_actions.py` (the Add-Rule wizard + Manage-Rules list wired into the Forwarding Rules section). Branding text + tier resolution are inlined in `bindings.py` (valid variant - the engine reads them through the bindings seam, so there is no separate `panel_branding.py` / `role_auth.py`). `admin/admin_cog.py` is the only `def setup(...)` under `admin/`, so discovery picks up exactly it. |
 | `storage/` | **Vendored `storage_engine`**. `storage/settings/` is the bot-owned seam: `bindings.py`, `define_collections.py` (collection registry), `manager.py` (the concrete `DatabaseManager` → the shared `db_manager`). The bespoke `database/` package it replaced is gone; `database_properties.py` is gone too - the engine base builds the per-collection accessor map (`db_manager.<key>`) itself. |
-| `storage/bot_specific/relay/` | Relay's domain layer — **master-owned**, authored in `../../EmpireSystems/storage_engine/bot_specific/relay/` and vendored here. Grouped by feature: `guild/` (`guild_manager.py`, `constants.py`, `permissions.py`), `forwarding/` (`rule_schema.py`), `audit/` (`writer.py`), plus flat `exceptions.py` / `utils.py` (plumbing, deliberately not directories). Reaches Mongo through the engine's pymongo connection. Import the singletons from the facade: `from storage.bot_specific.relay import db_manager, guild_manager, audit_log, premium_manager`. Entitlement-backed premium was **promoted out of here into the shared engine** (`storage.premium` — bot-agnostic `PremiumManager` + `PremiumState`, DB name injected); this package's `__init__.py` still wires the relay-specific singleton (`db_name="discord_forwarding_bot"`, opt-in `premium_subscriptions` legacy migration, and the premium-cache-invalidation hook into `GuildManager`). |
-| `logger/` | Bot-owned email `ErrorReporter` add-on (`error_reporter.py`, `email_templates.py`, `reporting_types.py`) — the survivor of the old logging package; wired onto the root logger in `Relay.py` (ERROR+ → email). Structured logging comes from the vendored loguru `storage.log`; `Relay.py` calls `setup_application_logging` (loguru sinks + stdlib→loguru intercept on root) and then hangs the email `ReportingHandler` off root, so an ERROR renders once via loguru and is queued for email. (Email transport is moving to Proton.) |
+| `storage/bot_specific/relay/` | Relay's domain layer - **master-owned**, authored in `../../EmpireSystems/storage_engine/bot_specific/relay/` and vendored here. Grouped by feature: `guild/` (`guild_manager.py`, `constants.py`, `permissions.py`), `forwarding/` (`rule_schema.py`), `audit/` (`writer.py`), plus flat `exceptions.py` / `utils.py` (plumbing, deliberately not directories). Reaches Mongo through the engine's pymongo connection. Import the singletons from the facade: `from storage.bot_specific.relay import db_manager, guild_manager, audit_log, premium_manager`. Entitlement-backed premium was **promoted out of here into the shared engine** (`storage.premium` - bot-agnostic `PremiumManager` + `PremiumState`, DB name injected); this package's `__init__.py` still wires the relay-specific singleton (`db_name="discord_forwarding_bot"`, opt-in `premium_subscriptions` legacy migration, and the premium-cache-invalidation hook into `GuildManager`). |
+| `logger/` | Bot-owned email `ErrorReporter` add-on (`error_reporter.py`, `email_templates.py`, `reporting_types.py`) - the survivor of the old logging package; wired onto the root logger in `Relay.py` (ERROR+ → email). Structured logging comes from the vendored loguru `storage.log`; `Relay.py` calls `setup_application_logging` (loguru sinks + stdlib→loguru intercept on root) and then hangs the email `ReportingHandler` off root, so an ERROR renders once via loguru and is queued for email. (Email transport is moving to Proton.) |
 | `status/` | Presence / idle rotation. |
 | `dashboard/` | FastAPI backend (`routers/`, `services/`, `auth/`) + React/Vite SPA (`frontend/`). Standalone: it does **not** import the bot's `storage/` package. |
-| `context/` | Reference docs (e.g. `componentsv2guide.md` — gitignored). |
+| `context/` | Reference docs (e.g. `componentsv2guide.md` - gitignored). |
 | `docker/` | Dockerfile, docker-compose, `.env(.local)`, `stygian.sh`. |
 
 ## What is and isn't yours
 
 Only `admin/settings/` and `storage/settings/` are relay's to edit. Everything else in those two
-directories is generated — the engine (from `ENGINE_FILES`) and relay's own domain layer (from
+directories is generated - the engine (from `ENGINE_FILES`) and relay's own domain layer (from
 `bot_specific/relay/`). That is the point of the split: hand-written and generated code no longer
 interleave.
 
@@ -92,7 +92,7 @@ dropped, and relay removed from the tool's `LEGACY_LOGGING` set).
 
 Relay briefly ran on `EmpireSystems` as an installed package (`pip install
 EmpireSystems[admin,discord] @ git+https://github.com/...@dev`). That was **reverted deliberately**
-— it added complexity without paying for itself at this stage:
+- it added complexity without paying for itself at this stage:
 
 - `docker/Dockerfile` clones Stygian-Relay standalone, so the engine had to be fetched from a
   second GitHub repo at build time.

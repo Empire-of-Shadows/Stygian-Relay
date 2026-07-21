@@ -80,7 +80,7 @@ class PanelNode:
     clear_values: Optional[Callable] = None  # async (guild_id) -> bool
     pre_check: Optional[Callable] = None       # async (interaction, guild_id) -> LayoutView|None
     post_save_hook: Optional[Callable] = None  # async (interaction, guild_id, saved_values) -> None
-    # role/channel/option_select only — optional async (guild, values) -> error_str | None,
+    # role/channel/option_select only - optional async (guild, values) -> error_str | None,
     # run on save (after permission checks, before set_values). Return an error string to
     # reject the selection with a notice; None to allow. For validating a selection against
     # live guild state (e.g. "this channel must sit inside the configured category").
@@ -151,7 +151,7 @@ class PanelNode:
     # premium_label is set, renderers display it instead of `label`.
     premium_label: Optional[str] = None
 
-    # file_upload only — optional sync (parsed) -> (ok, error_msg) validator. The
+    # file_upload only - optional sync (parsed) -> (ok, error_msg) validator. The
     # engine reads the attachment, decodes it as UTF-8 text, and (when this is set)
     # parses it as JSON and runs the validator against the PARSED payload before
     # persisting. set_values receives the decoded text (str), never the raw
@@ -159,7 +159,7 @@ class PanelNode:
     # contract.
     schema_validator: Optional[Callable] = None
 
-    # paginated_list only — a generic, scrollable list of items with an optional
+    # paginated_list only - a generic, scrollable list of items with an optional
     # per-item action. The engine paginates: each page shows up to
     # ``list_page_size`` items, so the per-item action Select never exceeds
     # Discord's 25-option cap regardless of total list length.
@@ -173,14 +173,14 @@ class PanelNode:
     list_action_confirm_line: Optional[Callable] = None  # sync (item) -> str; confirm-step text
     list_count: Optional[Callable] = None              # async (guild_id) -> int; efficient summary count
 
-    # grouped_paginated_select only — a single-value leaf chosen via a two-step
+    # grouped_paginated_select only - a single-value leaf chosen via a two-step
     # picker: pick a group, then pick an item within it (the item step reuses the
     # list_* formatter fields above + build_paginated_list_view). get_values /
     # set_values keep the normal single-value leaf contract.
     group_get_groups: Optional[Callable] = None        # sync () -> list[(group_value, group_label)]
     group_get_items: Optional[Callable] = None         # sync (group_value) -> list[item]
 
-    # action only — a leaf that runs an arbitrary handler (no value contract).
+    # action only - a leaf that runs an arbitrary handler (no value contract).
     on_run: Optional[Callable] = None                  # async (interaction, ctx) -> None
     # Tri-state mod access: True/False are explicit; None inherits from the nearest
     # ancestor (root default: admin-only). A menu's True cascades to its children; a
@@ -936,7 +936,7 @@ def build_overview_view(
 
     builder.add_text("Select a category below to configure it.")
 
-    # Category select dropdown — inject a disabled-style "── Feature
+    # Category select dropdown - inject a disabled-style "── Feature
     # Configurations ──" divider between main and feature groups per
     # ADMIN_PANEL_STANDARD.md §1 / §7.
     options: list[discord.SelectOption] = []
@@ -947,7 +947,7 @@ def build_overview_view(
             options.append(discord.SelectOption(
                 label="── Feature Configurations ──",
                 value=DASHBOARD_FEATURE_SEPARATOR_VALUE,
-                description="(divider — not selectable)",
+                description="(divider - not selectable)",
             ))
         child_label = _effective_label(child, is_premium)
         options.append(discord.SelectOption(
@@ -969,7 +969,7 @@ def build_overview_view(
             await interaction.response.send_message(
                 view=build_notice_layout(
                     "Pick a category",
-                    "That line is a divider — choose an actual category.",
+                    "That line is a divider - choose an actual category.",
                 ),
                 ephemeral=True,
             )
@@ -1374,7 +1374,7 @@ def build_paginated_list_view(
             for offset, item in enumerate(page_items)
         ]
         end = start + len(page_items)
-        lines.append(f"\n*Showing {start + 1}–{end} of {total}* (page {page + 1}/{total_pages})")
+        lines.append(f"\n*Showing {start + 1}-{end} of {total}* (page {page + 1}/{total_pages})")
         body_text = "\n".join(lines)
 
     editable_items: list[discord.ui.Item] = [discord.ui.TextDisplay(body_text)]

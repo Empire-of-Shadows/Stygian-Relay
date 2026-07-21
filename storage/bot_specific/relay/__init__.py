@@ -7,9 +7,9 @@
 """Stygian-Relay domain layer (master-owned; vendored into relay only).
 
 Carried over from the retired bespoke ``database/`` package. Reaches Mongo through the shared
-engine ``db_manager`` (``storage/manager.py``) via its back-compat ``get_collection`` /
-``db_client`` accessors, so the proven guild / rule / premium query logic runs unchanged on the
-shared engine connection.
+engine ``db_manager`` (``storage/settings/collections.py`` after the seam consolidation) via its
+back-compat ``get_collection`` / ``db_client`` accessors, so the proven guild / rule / premium
+query logic runs unchanged on the shared engine connection.
 
 Exposes the module-level singletons the rest of the bot imports (same names the old
 ``database`` package exported, so call sites only change their import path):
@@ -49,27 +49,6 @@ premium_manager = PremiumManager(
 )
 
 
-async def ensure_database_connection() -> bool:
-    """Ensure the engine db_manager is initialized (compat shim from the old database package)."""
-    if not db_manager.is_connected:
-        await db_manager.initialize()
-    return db_manager.is_connected
-
-
-async def setup_new_guild(guild_id: str, guild_name: str) -> Dict[str, Any]:
-    """Convenience: create/refresh a guild's settings doc."""
-    if not await ensure_database_connection():
-        raise DatabaseConnectionError("Could not establish database connection")
-    return await guild_manager.setup_new_guild(guild_id, guild_name)
-
-
-async def get_guild_settings(guild_id: str) -> Dict[str, Any]:
-    """Convenience: fetch (or create) a guild's settings doc."""
-    if not await ensure_database_connection():
-        raise DatabaseConnectionError("Could not establish database connection")
-    return await guild_manager.get_guild_settings(guild_id)
-
-
 __all__ = [
     "db_manager",
     "guild_manager",
@@ -81,7 +60,4 @@ __all__ = [
     "PremiumState",
     "DatabaseConnectionError",
     "DatabaseOperationError",
-    "ensure_database_connection",
-    "setup_new_guild",
-    "get_guild_settings",
 ]

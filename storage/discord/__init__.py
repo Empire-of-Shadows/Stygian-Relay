@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""discord — opt-in Discord object snapshotting built on the generic ``snapshots`` core.
+"""discord - opt-in Discord object snapshotting built on the generic ``snapshots`` core.
 
 This subpackage is the ONLY part of the engine that imports discord.py, and it is imported on
 demand (a bot does ``from storage.discord import ...``); the top-level ``storage`` package never

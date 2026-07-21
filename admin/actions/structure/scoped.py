@@ -6,8 +6,8 @@
 # ---------------------------------------------------------------------------
 """Scoped reset/delete action factories (data wipe + bot-specific sub-actions).
 
-These generalize the bots' bespoke reset/delete handlers. The reusable part — wiping a
-list of collections scoped by ids — is done by ``mutate_scoped``. The bot-specific part is
+These generalize the bots' bespoke reset/delete handlers. The reusable part - wiping a
+list of collections scoped by ids - is done by ``mutate_scoped``. The bot-specific part is
 supplied as **sub-actions**: async ``before`` / ``after`` hooks the bot passes in. Keep a
 note of known sub-actions right above the action that uses them, e.g.:
 

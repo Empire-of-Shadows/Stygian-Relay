@@ -40,7 +40,7 @@ def setup_application_logging(
     :param log_level: Base level (the ``LOG_LEVEL`` env var still wins).
     :param log_dir: Directory for ``{app_name}.log`` / ``{app_name}.jsonl``.
     :param enable_performance_logging: When true, also write a structured JSON sink
-        (``{app_name}.jsonl``) — this is where performance/structured records land.
+        (``{app_name}.jsonl``) - this is where performance/structured records land.
     :param max_file_size: Accepted for backwards compat; loguru rotates at 10 MB.
     :param backup_count: Accepted for backwards compat; loguru retains 10 days.
     :return: The main application logger (a stdlib logger routed into loguru).

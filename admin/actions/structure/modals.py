@@ -7,7 +7,7 @@
 """Modal-driven action factory: open a single-field modal and run a custom submit handler.
 
 Generalizes flows whose submit has a *side effect* rather than storing to config and so
-don't fit the ``(guild_id, values)`` leaf contract — e.g. premium-code redemption
+don't fit the ``(guild_id, values)`` leaf contract - e.g. premium-code redemption
 (Reminder/Decree) or create-entity-from-a-name (see ``create_role_action`` /
 ``create_channel_action`` in ``actions/discord_objects``).
 """

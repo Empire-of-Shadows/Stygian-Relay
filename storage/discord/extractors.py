@@ -4,7 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""Extractors — turn discord.py objects into plain snapshot dicts.
+"""Extractors - turn discord.py objects into plain snapshot dicts.
 
 This is the ONLY module in the engine that imports discord.py, and it is imported on demand
 (never from the top-level package), so the engine core keeps its zero-discord invariant. Each

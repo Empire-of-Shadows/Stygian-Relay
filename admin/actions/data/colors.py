@@ -4,7 +4,7 @@
 #     python tools/sync_admin_engine.py
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
-"""Color helpers — convert between ``#RRGGBB`` strings and stored ints.
+"""Color helpers - convert between ``#RRGGBB`` strings and stored ints.
 
 Reused by any branding/color feature (Decree embed color, Codex color sets).
 ``hex_validator`` plugs into a modal leaf (see ``config.leaves.color_leaf``).

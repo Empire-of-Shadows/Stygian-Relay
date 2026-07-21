@@ -4,10 +4,10 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
-"""SetupGate — cached "is this guild configured enough?" gate.
+"""SetupGate - cached "is this guild configured enough?" gate.
 
 Capability: cached requirement gate. The storage half of TheHost/TheCodex's
-``SetupGatekeeper`` — the fast, cached predicate that event listeners hit on every message —
+``SetupGatekeeper`` - the fast, cached predicate that event listeners hit on every message -
 with the discord-facing UI (embeds, permission checks) left in the bot (the engine carries no
 discord dependency).
 
@@ -41,7 +41,7 @@ def _dig(settings: Mapping[str, Any], path: str) -> Any:
 
 def require_all(*dotted_paths: str) -> Callable[[Mapping[str, Any]], bool]:
     """Build a requirement predicate that is satisfied only when **every** listed dotted path
-    resolves to a truthy value — the common "all these channels/roles must be set" case."""
+    resolves to a truthy value - the common "all these channels/roles must be set" case."""
     def predicate(settings: Mapping[str, Any]) -> bool:
         return all(_dig(settings, p) for p in dotted_paths)
     return predicate

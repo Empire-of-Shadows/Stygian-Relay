@@ -233,7 +233,7 @@ class GuildManager:
             if self._transactions_supported:
                 logger.info("✅ MongoDB transactions supported")
             else:
-                logger.info("ℹ️ MongoDB standalone — transactions disabled, falling back to non-atomic writes")
+                logger.info("ℹ️ MongoDB standalone - transactions disabled, falling back to non-atomic writes")
         except Exception as e:
             self._transactions_supported = False
             logger.warning(f"Transaction probe failed, assuming unsupported: {e}")
@@ -484,7 +484,7 @@ class GuildManager:
         return guilds
 
     async def iter_all_guilds(self, batch_size: int = 500):
-        """Async iterator over all guild settings — preferred for large deployments."""
+        """Async iterator over all guild settings - preferred for large deployments."""
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         cursor = collection.find({}).batch_size(batch_size)
         async for doc in cursor:
@@ -522,7 +522,7 @@ class GuildManager:
         Return ``(guild_id, rule_id)`` for every active rule whose source or
         destination is ``channel_id``. Cross-guild rules can live in a
         different guild than the channel that's just been deleted, so this
-        scans every guild_settings doc — backed by indexes on
+        scans every guild_settings doc - backed by indexes on
         ``rules.source_channel_id`` and ``rules.destination_channel_id``.
         """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
@@ -543,7 +543,7 @@ class GuildManager:
                     continue
                 src = rule.get("source_channel_id")
                 dst = rule.get("destination_channel_id")
-                # Coerce both to int — Mongo may return BSON Long or string.
+                # Coerce both to int - Mongo may return BSON Long or string.
                 try:
                     src_int = int(src) if src is not None else None
                     dst_int = int(dst) if dst is not None else None
@@ -628,7 +628,7 @@ class GuildManager:
         """
         Bulk-insert forwarded-message logs and atomically bump the daily
         counter (per guild, per UTC day) on the `daily_counters` collection.
-        Safe to call concurrently from any number of processes — the counter
+        Safe to call concurrently from any number of processes - the counter
         relies on `$inc` upserts rather than read-modify-write.
         """
         if not entries:
@@ -657,7 +657,7 @@ class GuildManager:
         except Exception as e:
             # ordered=False already lets Mongo skip duplicates / per-doc errors;
             # any exception here is a connectivity-class failure worth logging
-            # but not raising — forwarding shouldn't fail because the audit log did.
+            # but not raising - forwarding shouldn't fail because the audit log did.
             logger.warning(f"log_forwarded_messages insert_many failed: {e}")
             return
 
@@ -674,7 +674,7 @@ class GuildManager:
                     "$setOnInsert": {
                         "guild_id": gid,
                         "date": day_iso,
-                        # Drop the doc 3 days after the day it covers — long
+                        # Drop the doc 3 days after the day it covers - long
                         # enough for late reads, short enough to keep the
                         # collection trivial in size.
                         "expires_at": day_date + timedelta(days=3),
@@ -973,7 +973,7 @@ class GuildManager:
             # Either the doc doesn't exist, or the cap was reached. Disambiguate.
             existing = await collection.find_one({"guild_id": gid}, {"rules": 1})
             if existing is None:
-                # First-time guild — create defaults and retry once (still atomic on retry).
+                # First-time guild - create defaults and retry once (still atomic on retry).
                 logger.warning(f"Guild {gid} not found. Creating defaults and retrying rule addition.")
                 await self.get_guild_settings(gid)
                 retry = await collection.update_one(
@@ -984,7 +984,7 @@ class GuildManager:
                 if retry.modified_count > 0:
                     self.settings_cache.invalidate(gid)
                     return True, "ok"
-                # Still failed — must be cap.
+                # Still failed - must be cap.
                 return False, "limit_reached"
 
             active_count = sum(1 for r in existing.get("rules", []) if r.get("is_active"))

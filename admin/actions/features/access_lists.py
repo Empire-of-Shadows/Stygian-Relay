@@ -51,7 +51,7 @@ def access_list_pair(
     allow_description="", block_description="", channel_types=None, max_values=25,
     mod_allowed=False, premium_label=None,
 ) -> dict[str, PanelNode]:
-    """Return ``{allow_key: node, block_key: node}`` — two mutually-exclusive channel lists."""
+    """Return ``{allow_key: node, block_key: node}`` - two mutually-exclusive channel lists."""
     return {
         allow_key: _exclusive_leaf(
             allow_key, allow_path, block_path, label=allow_label,

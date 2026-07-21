@@ -111,7 +111,7 @@ export function RuleEditorPage() {
         </div>
 
         <div className="field">
-          <label>Destination Guild ID <span className="muted">(optional — leave blank for same server)</span></label>
+          <label>Destination Guild ID <span className="muted">(optional - leave blank for same server)</span></label>
           <input type="text" value={destGuildId} onChange={(e) => setDestGuildId(e.target.value)} placeholder="Guild snowflake" />
         </div>
 

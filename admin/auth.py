@@ -5,16 +5,16 @@
 # Drift is enforced by:  python tools/sync_admin_engine.py --check
 # ---------------------------------------------------------------------------
 """
-admin_engine — panel authorization gate (vendored engine module).
+admin_engine - panel authorization gate (vendored engine module).
 
 Centralizes the role-based access logic every bot shares:
 
-- ``resolve_panel_role_from_config`` — compute a caller's tier ("admin" | "mod" | "none")
+- ``resolve_panel_role_from_config`` - compute a caller's tier ("admin" | "mod" | "none")
   from manage_guild + the admin/mod role-id lists stored in config. A bot's
   ``bindings.resolve_panel_role`` delegates here instead of hand-rolling get_panel_role.
-- ``manage_guild_pre_check`` — a reusable ``pre_check`` for the admin/mod role-picker nodes
+- ``manage_guild_pre_check`` - a reusable ``pre_check`` for the admin/mod role-picker nodes
   so only Manage-Server members can change who has panel access.
-- ``effective_mod_allowed`` — resolve a node's mod access from the declarative ``mod_allowed``
+- ``effective_mod_allowed`` - resolve a node's mod access from the declarative ``mod_allowed``
   flags in the panel tree (a menu's ``True`` cascades to children; a child's ``False`` overrides).
 
 Backend reads go through the bindings seam (``settings/bindings.py``); those imports are lazy
