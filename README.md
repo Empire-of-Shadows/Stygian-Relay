@@ -25,7 +25,7 @@ Automatically mirrors messages between channels - within a server or across serv
 - Channel-to-channel message mirroring
 - Cross-server forwarding support
 - Rule-based dispatch - multiple rules per guild, each with its own source and destination
-- Setup wizard via `/forward setup` guides the initial configuration
+- Setup wizard via `/admin panel` guides the initial configuration
 
 </td>
 <td width="50%" valign="top">
