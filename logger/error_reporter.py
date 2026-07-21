@@ -1,5 +1,6 @@
 import asyncio
 import os
+import tempfile
 import json
 import logging
 import re
@@ -450,8 +451,12 @@ class ErrorReporter:
                 log_content.append("-" * 80)
                 log_content.append("")
 
-            # Write to temporary file
-            filename = f"error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            # Write to a temp file in the system temp dir (never the CWD, which
+            # would leave error_log_*.txt orphaned in the working directory).
+            filename = os.path.join(
+                tempfile.gettempdir(),
+                f"error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            )
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(log_content))
 
@@ -526,20 +531,22 @@ class ErrorReporter:
             self.consecutive_failures = 0
             self.stats['total_sent'] += 1
 
-            # Cleanup attachment file
-            if attachment_path and os.path.exists(attachment_path):
-                try:
-                    os.remove(attachment_path)
-                    print(f"🗑️ Cleaned up attachment: {attachment_path}")
-                except Exception as e:
-                    print(f"⚠️ Failed to cleanup attachment: {e}")
-
         except Exception as e:
             self.consecutive_failures += 1
             print(f"❌ Failed to send email (attempt {self.consecutive_failures}): {e}")
 
             if self.consecutive_failures >= self.max_failures:
                 print(f"🚫 Maximum email failures reached. Disabling email notifications temporarily.")
+
+        finally:
+            # Cleanup attachment file on both success and failure so a failed
+            # send doesn't orphan the temp file.
+            if attachment_path and os.path.exists(attachment_path):
+                try:
+                    os.remove(attachment_path)
+                    print(f"🗑️ Cleaned up attachment: {attachment_path}")
+                except Exception as e:
+                    print(f"⚠️ Failed to cleanup attachment: {e}")
 
     async def start_loop(self):
         """Enhanced background loop with comprehensive error processing"""

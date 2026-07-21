@@ -16,7 +16,7 @@ Schema (shared across Host/Codex/Ecom/ImperialReminder/TheDecree + main site):
 import asyncio
 import logging
 import secrets
-from collections import defaultdict
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -40,8 +40,32 @@ GUILDS_REFRESH_TTL_SECONDS = 300
 _TOKEN_URL = f"{DISCORD_API_BASE}/oauth2/token"
 _HTTP_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
-# Single-flight locks per session token so concurrent requests don't stampede Discord.
-_refresh_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+# Single-flight locks per session token so concurrent requests don't stampede
+# Discord. Bounded LRU: a token seen once would otherwise leave a Lock in memory
+# for the process lifetime. Evicting an *idle* lock is safe -- a lock only needs
+# to exist for the brief refresh window; worst case after eviction is a rare
+# duplicate refresh (the pre-lock behavior).
+_MAX_REFRESH_LOCKS = 2048
+_refresh_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
+
+
+def _get_refresh_lock(token: str) -> asyncio.Lock:
+    """Return this token's single-flight lock, creating it on first use and
+    evicting the oldest idle locks once over the cap."""
+    lock = _refresh_locks.get(token)
+    if lock is None:
+        lock = asyncio.Lock()
+        _refresh_locks[token] = lock
+    else:
+        _refresh_locks.move_to_end(token)
+    # Evict oldest-idle locks when over the cap. Never evict a held lock.
+    while len(_refresh_locks) > _MAX_REFRESH_LOCKS:
+        old_token, old_lock = next(iter(_refresh_locks.items()))
+        if old_lock.locked():
+            _refresh_locks.move_to_end(old_token)
+            break
+        _refresh_locks.pop(old_token, None)
+    return lock
 
 
 async def create_session(
@@ -96,6 +120,7 @@ async def get_session(token: str) -> dict[str, Any] | None:
 
 async def delete_session(token: str):
     await db.shared_sessions().delete_one({"token": token})
+    _refresh_locks.pop(token, None)
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -151,7 +176,7 @@ async def refresh_guilds_if_stale(session: dict) -> dict:
     if not _is_stale(session.get("guilds_fetched_at")):
         return session
 
-    async with _refresh_locks[token]:
+    async with _get_refresh_lock(token):
         latest = await db.shared_sessions().find_one({"token": token})
         if latest is None:
             return session

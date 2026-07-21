@@ -1,0 +1,43 @@
+# Keeps the local-build COPY context lean (docker/Dockerfile.local +
+# Dockerfile.dashboard.local). Production builds clone from GitHub with the build
+# context set to docker/, so this root-level file does not affect them.
+
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Node (frontend deps are reinstalled in the image via npm install)
+**/node_modules/
+
+# Runtime artifacts
+logs/
+log/
+storage/logs/
+cache/
+
+# IDE / tooling
+.idea/
+.vscode/
+.ruff_cache/
+*.iml
+
+# Env files (injected via docker-compose env_file)
+.env
+.env.*
+
+# Dev-only
+.claude/
+context/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

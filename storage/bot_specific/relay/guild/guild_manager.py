@@ -559,19 +559,44 @@ class GuildManager:
         """
         Updates fields of a specific rule within a guild's `rules` array.
         Invalidates the cache for the owning guild.
+
+        Re-activating a rule (is_active -> True) is gated by the same active-rule
+        cap that add_rule enforces, so a user cannot bypass the limit by filling
+        to the cap, deactivating one, adding another, then re-enabling the
+        deactivated rule. Mirrors the dashboard-side guard in
+        dashboard/services/rule_service.update_rule.
         """
         collection = self.db.get_collection("discord_forwarding_bot", "guild_settings")
         updates["updated_at"] = datetime.now(timezone.utc)
 
         update_fields = {f"rules.$.{key}": value for key, value in updates.items()}
 
-        # Resolve guild_id first so we can invalidate the right cache key.
+        # Resolve guild_id first so we can invalidate the right cache key (and,
+        # for a re-activation, resolve that guild's rule cap).
         owner = await collection.find_one({"rules.rule_id": rule_id}, {"guild_id": 1})
 
-        result = await collection.update_one(
-            {"rules.rule_id": rule_id},
-            {"$set": update_fields}
-        )
+        query: Dict[str, Any] = {"rules.rule_id": rule_id}
+        if updates.get("is_active") is True and owner and owner.get("guild_id"):
+            limits = await self.get_guild_limits(str(owner["guild_id"]))
+            max_rules = int(limits["max_rules"])
+            # Only match (and thus activate) when the OTHER active rules are
+            # under the cap -- exclude this rule_id from the count so a rule
+            # already active stays editable.
+            query["$expr"] = {
+                "$lt": [
+                    {"$size": {"$filter": {
+                        "input": {"$ifNull": ["$rules", []]},
+                        "as": "r",
+                        "cond": {"$and": [
+                            {"$eq": ["$$r.is_active", True]},
+                            {"$ne": ["$$r.rule_id", rule_id]},
+                        ]},
+                    }}},
+                    max_rules,
+                ]
+            }
+
+        result = await collection.update_one(query, {"$set": update_fields})
         if owner and owner.get("guild_id"):
             self.settings_cache.invalidate(owner["guild_id"])
         return result.modified_count > 0

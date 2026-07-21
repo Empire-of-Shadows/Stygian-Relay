@@ -38,6 +38,10 @@ _PERM_WARN_COOLDOWN_SECONDS = 600
 # (missing destination, missing send_messages). Resets on the next successful
 # forward through the rule.
 _AUTO_DEACTIVATE_THRESHOLD = 20
+# Upper bound on the per-rule tracking dicts (_perm_warn / _perm_fail). Deleted
+# or rotated rule_ids would otherwise accumulate for the process lifetime; when
+# over the cap we drop the oldest-inserted entries.
+_MAX_TRACKED_RULES = 5000
 
 
 class _TokenBucket:
@@ -95,6 +99,23 @@ class Forwarding(commands.Cog):
         # Cancel any background dispatch tasks so cog reload is clean.
         for task in list(self._dispatch_tasks):
             task.cancel()
+
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild: discord.Guild):
+        """Drop per-guild runtime state when the bot leaves a guild, so these
+        maps track live membership rather than every guild ever seen."""
+        gid = guild.id
+        self._buckets.pop(gid, None)
+        self._guild_sems.pop(gid, None)
+        self._metrics.pop(gid, None)
+
+    def _cap_rule_tracking(self) -> None:
+        """Bound the per-rule tracking dicts so deleted/rotated rule_ids can't
+        accumulate forever. dict preserves insertion order, so we evict the
+        oldest keys first."""
+        for d in (self._perm_warn, self._perm_fail):
+            while len(d) > _MAX_TRACKED_RULES:
+                d.pop(next(iter(d)), None)
 
     async def _ensure_runtime_config(self):
         """Load rate / branding cooldown from bot_settings once per process."""
@@ -394,6 +415,7 @@ class Forwarding(commands.Cog):
         if count >= _AUTO_DEACTIVATE_THRESHOLD:
             await self._auto_deactivate_rule(rule, guild_settings, reason)
             self._perm_fail.pop(rule_id, None)
+        self._cap_rule_tracking()
 
     async def _auto_deactivate_rule(self, rule: dict, guild_settings: dict, reason: str) -> None:
         """Soft-delete a chronically-broken rule and notify the guild's log channel."""
