@@ -74,16 +74,16 @@ def confirm_action(
 
 
 def purge_action(key, *, collection, label, confirm_text, query: Optional[Callable] = None,
-                 description="", mod_allowed=False, premium_label=None, stringify_ids=False) -> PanelNode:
+                 description="", mod_allowed=False, premium_label=None) -> PanelNode:
     """A confirm-gated ``action`` that purges all documents in ``collection`` matching
-    ``query(guild_id)`` (default ``{"guild_id": guild_id}``). ``stringify_ids=True`` casts
-    ``guild_id`` to ``str`` in the default query (else it deletes nothing against
-    string-id collections)."""
+    ``query(guild_id)`` (default ``{"guild_id": str(guild_id)}`` - IDs are stored as
+    strings, the ecosystem standard; a collection that deviates must pass its own
+    ``query``)."""
     async def _run(guild_id):
         if query is not None:
             q = query(guild_id)
         else:
-            q = {"guild_id": str(guild_id) if stringify_ids else guild_id}
+            q = {"guild_id": str(guild_id)}
         removed = await purge_collection(collection, q)
         safe_invalidate(guild_id)
         return removed

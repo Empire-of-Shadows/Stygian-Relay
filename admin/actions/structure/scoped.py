@@ -47,7 +47,7 @@ async def _back_to_parent(cog, ci, guild, ctx: ActionContext, *, fallback="Close
         await ci.response.edit_message(view=AdminLayoutBuilder().add_text(fallback).build())
 
 
-def _make_runner(cog, guild, ctx, *, key, label, specs, scope, require, stringify_ids,
+def _make_runner(cog, guild, ctx, *, key, label, specs, scope, require,
                  before, after, success_text, member=None):
     """Return an async ``run(interaction)`` performing the full scoped pipeline."""
     async def _run(ci: discord.Interaction):
@@ -61,9 +61,7 @@ def _make_runner(cog, guild, ctx, *, key, label, specs, scope, require, stringif
         try:
             if before is not None:
                 await (before(guild, member) if member is not None else before(guild))
-            result = await mutate_scoped(
-                specs, scope, require=require, stringify_ids=stringify_ids,
-            )
+            result = await mutate_scoped(specs, scope, require=require)
             if after is not None:
                 extra = await (after(guild, member, result) if member is not None else after(guild, result))
                 if isinstance(extra, dict):
@@ -121,7 +119,6 @@ def scoped_guild_action(
     typed_confirm: Optional[Callable] = None,
     before: Optional[Callable] = None,
     after: Optional[Callable] = None,
-    stringify_ids: bool = False,
     require=("guild_id",),
     description="", success_text: Optional[Callable] = None,
     mod_allowed=False, premium_label=None,
@@ -136,7 +133,7 @@ def scoped_guild_action(
         scope = {"guild_id": guild.id}
         run = _make_runner(
             cog, guild, ctx, key=key, label=label, specs=specs, scope=scope,
-            require=require, stringify_ids=stringify_ids, before=before, after=after,
+            require=require, before=before, after=after,
             success_text=success_text,
         )
 
@@ -188,7 +185,6 @@ def scoped_member_action(
     typed_confirm: Optional[Callable] = None,
     before: Optional[Callable] = None,
     after: Optional[Callable] = None,
-    stringify_ids: bool = False,
     require=("guild_id", "user_id"),
     description="", placeholder="Select a member...",
     success_text: Optional[Callable] = None,
@@ -217,7 +213,7 @@ def scoped_member_action(
             scope = {"guild_id": guild.id, "user_id": member.id}
             run = _make_runner(
                 cog, guild, ctx, key=key, label=label, specs=specs, scope=scope,
-                require=require, stringify_ids=stringify_ids, before=before, after=after,
+                require=require, before=before, after=after,
                 success_text=success_text, member=member,
             )
             if typed_confirm is not None:

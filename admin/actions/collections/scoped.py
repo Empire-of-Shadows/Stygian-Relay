@@ -24,13 +24,16 @@ from typing import Iterable, Sequence
 from .documents import purge_collection, update_many_documents
 
 
-def _build_query(scope: dict, *, stringify_ids: bool) -> dict:
-    """Build a Mongo query from the non-None entries of ``scope``."""
+def _build_query(scope: dict) -> dict:
+    """Build a Mongo query from the non-None entries of ``scope``.
+
+    Scope values are Discord IDs and are cast to their canonical string form
+    (the ecosystem standard for stored IDs)."""
     query = {}
     for key, value in scope.items():
         if value is None:
             continue
-        query[key] = str(value) if stringify_ids else value
+        query[key] = str(value)
     return query
 
 
@@ -39,7 +42,6 @@ async def mutate_scoped(
     scope: dict,
     *,
     require: Iterable[str] = ("guild_id",),
-    stringify_ids: bool = False,
 ) -> dict:
     """Delete or field-reset documents across ``specs`` collections, scoped by ``scope``.
 
@@ -49,8 +51,8 @@ async def mutate_scoped(
          "fields": [...],        # for mode="unset": field names to remove
          "defaults": {...}}      # for mode="set": field -> default value
     ``scope`` - e.g. ``{"guild_id": gid, "user_id": uid}``; the query is built from the
-        non-None entries. ``stringify_ids=True`` casts id values to ``str`` (some bots store
-        guild/user ids as strings).
+        non-None entries, with id values cast to ``str`` (the ecosystem stores IDs as
+        strings).
     ``require`` - keys that MUST be present and non-None in ``scope`` (default: guild_id).
 
     Returns ``{"affected_collections": [...], "documents_affected": N}``.
@@ -62,7 +64,7 @@ async def mutate_scoped(
         if scope.get(key) is None:
             raise ValueError(f"mutate_scoped requires scope[{key!r}] to be set")
 
-    query = _build_query(scope, stringify_ids=stringify_ids)
+    query = _build_query(scope)
     if not query:
         raise ValueError("mutate_scoped refuses to run with an empty scope query")
 
