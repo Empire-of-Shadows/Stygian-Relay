@@ -24,6 +24,13 @@ Pools map an activity-type name (``playing`` / ``watching`` / ``listening`` /
 placeholders ``{guilds}``, ``{users}`` and ``{latency_ms}``, resolved at set time
 (unknown placeholders render literally, so plain braces in copy are safe).
 
+Weighted sub-pools: a pool key may carry a ``:label`` suffix after the activity
+type (``playing:promo``, ``playing:flavor``) so one activity type can host
+several pools with different ``type_weights`` (TheHost's category-weighted
+rotator: promo 3 / info 2 / flavor 1). The suffix only namespaces the pool;
+the activity type is everything before the first ``:``. No-repeat shuffling
+applies within each sub-pool.
+
 No-repeat: each pool rotates through a shuffled queue and reshuffles only when
 exhausted, so a phrase never repeats until its whole pool has been shown.
 """
@@ -179,12 +186,14 @@ class PresenceRotator:
             if item is None:
                 return None, self.default_status
 
-        # Build activity outside the lock
-        if activity_type_key == "streaming":
+        # Build activity outside the lock. Pool keys may carry a ":label"
+        # sub-pool suffix; the activity type is everything before it.
+        activity_type = activity_type_key.split(":", 1)[0]
+        if activity_type == "streaming":
             act = discord.Streaming(name=self._format_text(item["text"]), url=item["url"])
         else:
             act = discord.Activity(
-                type=getattr(discord.ActivityType, activity_type_key),
+                type=getattr(discord.ActivityType, activity_type),
                 name=self._format_text(item),
             )
         return act, self.default_status

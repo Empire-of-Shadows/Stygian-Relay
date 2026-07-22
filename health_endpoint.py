@@ -212,7 +212,12 @@ def initialize_health_server(port, bot=None, db_manager=None, bot_name="Bot",
     HealthCheckHandler.db_manager = db_manager
     HealthCheckHandler.bot_name = bot_name
     HealthCheckHandler.service = service
-    HealthCheckHandler.extra_fields = extra_fields
+    # staticmethod wrapper: a plain function stored on the class would bind as
+    # a method on ``self.extra_fields()`` and be called with the handler
+    # instance as an unexpected argument.
+    HealthCheckHandler.extra_fields = (
+        staticmethod(extra_fields) if extra_fields is not None else None
+    )
 
     try:
         _health_server = ReusableTCPServer(("0.0.0.0", port), HealthCheckHandler)
