@@ -172,38 +172,48 @@ class DiscordApiCache:
 
     # -- per-guild resources ----------------------------------------------------
 
+    async def guild_channels(self, guild_id: str, types: tuple = (0,)) -> List[dict]:
+        """Guild channels filtered to ``types``, sorted by position.
+
+        The RAW channel list (all types, with ``parent_id``) is what's cached,
+        so different callers can request different type filters (text-only
+        pickers vs category+text panels like TheHost's ``game_category_id``
+        select) off one fetch. Returns a NEW list per call - callers may
+        re-sort freely. Empty list on failure.
+        """
+        guild_id = str(guild_id)
+        raw = self._channels.get(guild_id)
+        if raw is None:
+            async with self._resource_locks[f"c:{guild_id}"]:
+                raw = self._channels.get(guild_id)
+                if raw is None:
+                    if not _token():
+                        return []
+                    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                        resp = await _get_with_retry(
+                            client, f"{_api_base()}/guilds/{guild_id}/channels"
+                        )
+                        if resp is None:
+                            return []
+                    raw = [
+                        {
+                            "id": ch["id"],
+                            "name": ch["name"],
+                            "type": ch["type"],
+                            "parent_id": ch.get("parent_id"),
+                            "position": ch.get("position", 0),
+                        }
+                        for ch in resp.json()
+                    ]
+                    self._channels.set(guild_id, raw)
+
+        channels = [dict(ch) for ch in raw if ch["type"] in types]
+        channels.sort(key=lambda c: c["position"])
+        return channels
+
     async def guild_text_channels(self, guild_id: str) -> List[dict]:
         """Text channels (type 0) sorted by position. Empty list on failure."""
-        guild_id = str(guild_id)
-        cached = self._channels.get(guild_id)
-        if cached is not None:
-            return cached
-
-        async with self._resource_locks[f"c:{guild_id}"]:
-            cached = self._channels.get(guild_id)
-            if cached is not None:
-                return cached
-            if not _token():
-                return []
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                resp = await _get_with_retry(
-                    client, f"{_api_base()}/guilds/{guild_id}/channels"
-                )
-                if resp is None:
-                    return []
-            channels = [
-                {
-                    "id": ch["id"],
-                    "name": ch["name"],
-                    "type": ch["type"],
-                    "position": ch.get("position", 0),
-                }
-                for ch in resp.json()
-                if ch["type"] == 0  # GUILD_TEXT
-            ]
-            channels.sort(key=lambda c: c["position"])
-            self._channels.set(guild_id, channels)
-            return channels
+        return await self.guild_channels(guild_id, types=(0,))
 
     async def guild_roles(self, guild_id: str) -> List[dict]:
         """Assignable roles (position > 0, not managed) sorted by position.
