@@ -6,6 +6,17 @@
 # ---------------------------------------------------------------------------
 """storage_engine.helpers - small, dependency-light reusable primitives."""
 
+from .content_filter import FilterHit, compile_entry, compile_filters, scan, wildcard_to_regex
 from .lru_cache import LRUCache, TimedLRUCache
+from .text import normalize_text
 
-__all__ = ["LRUCache", "TimedLRUCache"]
+__all__ = [
+    "LRUCache",
+    "TimedLRUCache",
+    "FilterHit",
+    "compile_entry",
+    "compile_filters",
+    "scan",
+    "wildcard_to_regex",
+    "normalize_text",
+]

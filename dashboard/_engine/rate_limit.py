@@ -23,7 +23,14 @@ import time
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from dashboard import config as _config
 from dashboard.config import RATE_LIMITS as _LIMITS
+
+# Reverse proxies whose X-Forwarded-For header may be trusted for client-IP
+# resolution. OPTIONAL seam value (``config.TRUSTED_PROXY_IPS``, an iterable of
+# peer IPs) - like the admin engine's optional bindings, a config that omits it
+# still loads; the limiter then keys on the socket address only.
+_TRUSTED_PROXIES = frozenset(getattr(_config, "TRUSTED_PROXY_IPS", ()) or ())
 
 # key -> (window_start_epoch, count)
 _buckets: dict[str, tuple[float, int]] = {}
@@ -32,11 +39,16 @@ _SWEEP_INTERVAL = 300.0
 
 
 def _client_ip(request: Request) -> str:
-    # Behind a reverse proxy the real client is the first X-Forwarded-For hop.
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    # X-Forwarded-For is attacker-controlled unless the immediate peer is a
+    # trusted reverse proxy; trusting it blindly hands every client a fresh
+    # rate-limit bucket per request. Only honor it from TRUSTED_PROXY_IPS,
+    # otherwise use the socket address.
+    peer = request.client.host if request.client else "unknown"
+    if peer in _TRUSTED_PROXIES:
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            return xff.split(",")[0].strip()
+    return peer
 
 
 def _match_limit(path: str) -> tuple[str, int, int] | None:

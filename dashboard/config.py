@@ -86,6 +86,20 @@ RATE_LIMITS: list[tuple[str, str, int, int]] = [
     ("/api/me", "me", 100, 60),
 ]
 
+# Reverse proxies whose X-Forwarded-For header may be trusted for client-IP
+# resolution (_engine/rate_limit.py). Comma-separated peer IPs; when the
+# immediate peer is not listed, the socket address is used instead so a client
+# cannot spoof a fresh rate-limit bucket per request. Set this in docker/.env
+# when the dashboard runs behind a reverse proxy, or all proxied clients share
+# one bucket.
+import os as _os
+TRUSTED_PROXY_IPS = frozenset(
+    ip.strip()
+    for ip in _os.getenv("TRUSTED_PROXY_IPS", "").split(",")
+    if ip.strip()
+)
+
+
 
 # ── Validation ───────────────────────────────────────────────────────────────
 

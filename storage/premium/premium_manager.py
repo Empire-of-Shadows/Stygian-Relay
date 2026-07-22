@@ -238,15 +238,25 @@ class PremiumManager:
         await self.recompute_state(doc["scope"], doc["scope_id"])
         return True
 
-    async def mark_fulfilled(self, entitlement_id: str, *, consumed: bool = False) -> bool:
-        """Record that a one-time SKU was fulfilled (and optionally consumed). Idempotent."""
+    async def mark_fulfilled(
+        self, entitlement_id: str, *, consumed: bool = False, only_if_unfulfilled: bool = False
+    ) -> bool:
+        """Record that a one-time SKU was fulfilled (and optionally consumed). Idempotent.
+
+        ``only_if_unfulfilled=True`` makes the write an atomic one-shot claim: it succeeds for
+        exactly one caller and returns False for everyone else, so concurrent redeem flows
+        (e.g. activating the same purchase for two different guilds) cannot double-spend.
+        """
         now = _now()
         updates: Dict[str, Any] = {"fulfilled": True, "last_updated_at": now}
         if consumed:
             updates["consumed"] = True
             updates["consumed_at"] = now
+        query: Dict[str, Any] = {"_id": str(entitlement_id)}
+        if only_if_unfulfilled:
+            query["fulfilled"] = {"$ne": True}
         doc = await self._entitlements().find_one_and_update(
-            {"_id": str(entitlement_id)},
+            query,
             {"$set": updates},
         )
         if not doc:
