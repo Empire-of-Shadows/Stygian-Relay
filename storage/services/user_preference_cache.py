@@ -34,7 +34,9 @@ class UserPreferenceCache:
         manager: the ``CollectionManager`` for the preferences collection.
         id_field: the document field identifying the user (default ``"user_id"``).
         flags_field: the document sub-dict holding the boolean flags (default ``"leaderboard"``).
-        keys: the known flag keys (e.g. per-game opt-out keys).
+        keys: the known flag keys (e.g. per-game opt-out keys). Pass ``None`` for
+            DYNAMIC keys: every key saved in the document's flag map is copied
+            (EcomRebuild pattern - opt-out flags keyed by guild id).
         global_key: a flag whose truth means "opted out of everything" (default ``"global"``);
             pass ``None`` to disable the global short-circuit.
         max_size / ttl: bound and freshness (seconds) of the per-user cache.
@@ -46,7 +48,7 @@ class UserPreferenceCache:
         *,
         id_field: str = "user_id",
         flags_field: str = "leaderboard",
-        keys: Sequence[str] = (),
+        keys: Optional[Sequence[str]] = (),
         global_key: Optional[str] = "global",
         max_size: int = 5000,
         ttl: int = 60,
@@ -54,12 +56,13 @@ class UserPreferenceCache:
         self._mgr = manager
         self._id_field = id_field
         self._flags_field = flags_field
-        self._keys = tuple(keys)
+        # keys=None => dynamic mode: copy every saved key (per-guild flag maps).
+        self._keys = tuple(keys) if keys is not None else None
         self._global_key = global_key
         self._cache = TimedLRUCache(max_size=max_size, timeout=ttl)
 
     def _empty(self) -> dict:
-        flags = {k: False for k in self._keys}
+        flags = {k: False for k in self._keys} if self._keys is not None else {}
         if self._global_key:
             flags[self._global_key] = False
         return flags
@@ -75,9 +78,14 @@ class UserPreferenceCache:
             return flags
         saved = doc.get(self._flags_field) or {}
         if isinstance(saved, Mapping):
-            for key in flags:
-                if key in saved:
-                    flags[key] = bool(saved[key])
+            if self._keys is None:
+                # Dynamic mode: mirror the whole saved map (bool-coerced).
+                for key, val in saved.items():
+                    flags[str(key)] = bool(val)
+            else:
+                for key in flags:
+                    if key in saved:
+                        flags[key] = bool(saved[key])
         return flags
 
     async def get_flags(self, user_id: Any) -> dict:

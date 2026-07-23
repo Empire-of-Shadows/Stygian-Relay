@@ -14,6 +14,7 @@ multipliers or counts, so the stored value is a real int/float rather than the r
 
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional
 
 
@@ -41,6 +42,10 @@ def float_value_validator(minimum: Optional[float] = None,
             n = float(str(raw).strip())
         except (TypeError, ValueError):
             return False, "Enter a number (decimals allowed).", None
+        # NaN compares False against any bound (silently passing range checks)
+        # and infinities pass open-ended bounds; both poison downstream math.
+        if not math.isfinite(n):
+            return False, "Enter a finite number.", None
         if minimum is not None and n < minimum:
             return False, f"Must be at least {minimum}.", None
         if maximum is not None and n > maximum:

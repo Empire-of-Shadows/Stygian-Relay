@@ -106,8 +106,15 @@ class GuildConfigStore:
         return self._default_factory(gid) if self._default_factory else {}
 
     async def get_setting(self, path: str, guild_id: Any, default: Any = None) -> Any:
-        """Read a single setting by dotted ``path`` (e.g. ``"message.base_xp"``)."""
+        """Read a single setting by dotted ``path`` (e.g. ``"message.base_xp"``).
+
+        A flat top-level key is honored FIRST (EcomRebuild convention: some legacy
+        docs store a literal dotted key at the top level), then the dotted path is
+        traversed into the nested doc. Returns ``default`` if neither resolves.
+        """
         settings = await self.get_settings(guild_id)
+        if path in settings:
+            return settings[path]
         return self._dig(settings, path, default)
 
     async def find_many(self, filter_dict: Dict[str, Any]) -> List[Dict[str, Any]]:

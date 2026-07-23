@@ -50,6 +50,16 @@ class ChangeStreamWatcher:
     watched:
         collection names to attach a change stream to. Empty => watcher is a no-op
         (pure TTL coherency).
+    on_change:
+        optional ``callable(collection_name, change_doc)`` invoked after the cache
+        namespace is invalidated. Lets side-caches that do not live in the shared
+        ``CacheBackend`` (a SetupGate's TimedLRUCache, a typed config wrapper's
+        memo) invalidate in the same beat. Exceptions are swallowed and logged.
+    on_degraded:
+        optional ``callable(collection_name)`` invoked once when a collection's
+        stream degrades to TTL-only (standalone mongod, unexpected error). Lets
+        the owner shorten its cache TTL as the cross-process freshness fallback
+        (EcomRebuild pattern: 300s -> 30s).
     """
 
     def __init__(
@@ -59,11 +69,15 @@ class ChangeStreamWatcher:
         watched: Iterable[str],
         *,
         full_document: str = "updateLookup",
+        on_change: Optional[Callable[[str, dict], None]] = None,
+        on_degraded: Optional[Callable[[str], None]] = None,
     ):
         self._provider = collection_provider
         self._cache = cache
         self._watched = list(watched)
         self._full_document = full_document
+        self._on_change = on_change
+        self._on_degraded = on_degraded
         self._tasks: list[asyncio.Task] = []
         self._stopped = asyncio.Event()
         self._degraded = False  # True once we fall back to TTL-only
@@ -117,6 +131,7 @@ class ChangeStreamWatcher:
                     f"Change streams unavailable for {name!r} ({e}); "
                     f"falling back to TTL-only coherency for this collection."
                 )
+                self._notify_degraded(name)
                 return
             except PyMongoError as e:
                 # Transient (primary stepdown, network blip): resume from the last
@@ -132,6 +147,7 @@ class ChangeStreamWatcher:
             except Exception as e:  # never let a watcher crash take down the bot
                 self._degraded = True
                 logger.error(f"Unexpected change-stream error on {name!r}: {e}", exc_info=True)
+                self._notify_degraded(name)
                 return
 
     def _invalidate_for(self, name: str, change: dict) -> None:
@@ -140,6 +156,18 @@ class ChangeStreamWatcher:
         removed = self._cache.invalidate(f"{name}:")
         op = change.get("operationType", "?") if isinstance(change, dict) else "?"
         logger.debug(f"Invalidated {removed} cache entr(y/ies) for {name!r} after {op}.")
+        if self._on_change is not None:
+            try:
+                self._on_change(name, change if isinstance(change, dict) else {})
+            except Exception as e:
+                logger.error(f"on_change hook failed for {name!r}: {e}", exc_info=True)
+
+    def _notify_degraded(self, name: str) -> None:
+        if self._on_degraded is not None:
+            try:
+                self._on_degraded(name)
+            except Exception as e:
+                logger.error(f"on_degraded hook failed for {name!r}: {e}", exc_info=True)
 
     async def stop(self) -> None:
         """Cancel all watch loops."""
