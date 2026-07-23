@@ -2023,6 +2023,16 @@ class AdminCog(commands.Cog):
         """Fetch current values for all children of a menu node."""
         summary_map: dict[str, list] = {}
         for key, child in node.children.items():
+            # Custom overview summary: precompute the text and carry it through
+            # the summary map behind a sentinel _child_summary renders verbatim.
+            if child.summary_builder:
+                try:
+                    text = await child.summary_builder(guild_id)
+                except Exception:
+                    text = None
+                if text is not None:
+                    summary_map[key] = [f"__summary__:{text}"]
+                    continue
             if child.kind == "paginated_list":
                 count = await self._paginated_list_count(child, guild_id)
                 summary_map[key] = ["x"] * count

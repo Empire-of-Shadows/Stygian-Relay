@@ -192,6 +192,13 @@ class PanelNode:
     default_summary: str = ""
     is_customized: Optional[Callable] = None
 
+    # Optional custom overview summary: async ``(guild_id) -> str`` replacing the
+    # generic value summary for this node on menu overviews. Precomputed by
+    # ``AdminCog._gather_summaries`` and carried through the summary map behind a
+    # sentinel value; ``_child_summary`` renders it verbatim. (Merged up from
+    # EcomRebuild's seam, its first consumer.)
+    summary_builder: Optional[Callable] = None
+
     # Async description override: async (guild) -> str, resolved at render time.
     async_description: Optional[Callable] = None
 
@@ -256,6 +263,14 @@ def _option_label(node: PanelNode, value: str) -> str:
 
 def _child_summary(node: PanelNode, values: list, guild: discord.Guild | None = None) -> str:
     """Return a short human-readable summary of a child node's current value."""
+    # A node with a summary_builder had its text precomputed in _gather_summaries
+    # and carried through the summary map behind this sentinel - render verbatim.
+    if (
+        len(values) == 1
+        and isinstance(values[0], str)
+        and values[0].startswith("__summary__:")
+    ):
+        return values[0][len("__summary__:"):]
     kind = node.kind
     n = len(values)
     if kind == "role_select":
