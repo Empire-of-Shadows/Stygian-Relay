@@ -37,10 +37,17 @@ class UserPreferenceCache:
         keys: the known flag keys (e.g. per-game opt-out keys). Pass ``None`` for
             DYNAMIC keys: every key saved in the document's flag map is copied
             (EcomRebuild pattern - opt-out flags keyed by guild id).
-        global_key: a flag whose truth means "opted out of everything" (default ``"global"``);
-            pass ``None`` to disable the global short-circuit.
+        global_key: a flag INSIDE ``flags_field`` whose truth means "opted out of
+            everything" (default ``"global"``); pass ``None`` to disable.
+        global_field: a TOP-LEVEL document field whose truth means "opted out of
+            everything" (e.g. EcomRebuild's ``opted_out_all``, a sibling of the
+            per-guild ``opted_out_guilds`` map, not a key inside it). ``None`` to
+            disable. Either/both of global_key and global_field may be set.
         max_size / ttl: bound and freshness (seconds) of the per-user cache.
     """
+
+    # Reserved cache-map key holding the top-level global flag's value.
+    _GLOBAL_FIELD_SLOT = "__global_field__"
 
     def __init__(
         self,
@@ -50,6 +57,7 @@ class UserPreferenceCache:
         flags_field: str = "leaderboard",
         keys: Optional[Sequence[str]] = (),
         global_key: Optional[str] = "global",
+        global_field: Optional[str] = None,
         max_size: int = 5000,
         ttl: int = 60,
     ):
@@ -59,12 +67,15 @@ class UserPreferenceCache:
         # keys=None => dynamic mode: copy every saved key (per-guild flag maps).
         self._keys = tuple(keys) if keys is not None else None
         self._global_key = global_key
+        self._global_field = global_field
         self._cache = TimedLRUCache(max_size=max_size, timeout=ttl)
 
     def _empty(self) -> dict:
         flags = {k: False for k in self._keys} if self._keys is not None else {}
         if self._global_key:
             flags[self._global_key] = False
+        if self._global_field:
+            flags[self._GLOBAL_FIELD_SLOT] = False
         return flags
 
     async def _load(self, user_id: Any) -> dict:
@@ -76,6 +87,8 @@ class UserPreferenceCache:
             return flags
         if not doc:
             return flags
+        if self._global_field:
+            flags[self._GLOBAL_FIELD_SLOT] = bool(doc.get(self._global_field))
         saved = doc.get(self._flags_field) or {}
         if isinstance(saved, Mapping):
             if self._keys is None:
@@ -100,17 +113,22 @@ class UserPreferenceCache:
         return flags
 
     async def is_opted_out(self, user_id: Any, key: str) -> bool:
-        """Capability: opt-out check. ``True`` if the user set ``key`` or the global flag."""
+        """Capability: opt-out check. ``True`` if the user set ``key`` or either global flag."""
         flags = await self.get_flags(user_id)
         if self._global_key and flags.get(self._global_key):
+            return True
+        if self._global_field and flags.get(self._GLOBAL_FIELD_SLOT):
             return True
         return bool(flags.get(key, False))
 
     async def is_globally_opted_out(self, user_id: Any) -> bool:
-        """``True`` if the user set the global opt-out (gates all data collection)."""
-        if not self._global_key:
-            return False
-        return bool((await self.get_flags(user_id)).get(self._global_key))
+        """``True`` if the user set either global opt-out (gates all data collection)."""
+        flags = await self.get_flags(user_id)
+        if self._global_key and flags.get(self._global_key):
+            return True
+        if self._global_field and flags.get(self._GLOBAL_FIELD_SLOT):
+            return True
+        return False
 
     def invalidate(self, user_id: Any) -> None:
         """Drop one user's cached flags (call after a preference mutation)."""
