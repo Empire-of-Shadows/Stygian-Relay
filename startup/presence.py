@@ -70,6 +70,7 @@ class PresenceRotator:
         interval_jitter: float = 3.0,
         status: discord.Status = discord.Status.online,
         type_weights: Optional[Dict[str, float]] = None,
+        humans_only_users: bool = False,
     ):
         """
         :param bot: discord.Client instance
@@ -78,6 +79,9 @@ class PresenceRotator:
         :param interval_jitter: max random ± jitter added to the interval per cycle
         :param status: presence status to use while rotating
         :param type_weights: optional relative weight per pool key (uniform when omitted)
+        :param humans_only_users: resolve ``{users}`` counting humans only (excludes
+            bots; needs the members intent to be accurate - EcomRebuild pattern).
+            Default counts ``member_count`` (humans + bots), which needs no intent.
         """
         self.bot = bot
         self.status_pools: Dict[str, List[PoolItem]] = pools
@@ -85,6 +89,7 @@ class PresenceRotator:
         self.interval_jitter = max(0.0, interval_jitter)
         self.default_status = status
         self.type_weights = type_weights or {}
+        self.humans_only_users = humans_only_users
 
         self._is_running: bool = False
         self._task: Optional[asyncio.Task] = None
@@ -163,9 +168,13 @@ class PresenceRotator:
             )
         except Exception:
             latency_ms = None
+        if self.humans_only_users:
+            users = sum(1 for g in guilds for m in g.members if not m.bot)
+        else:
+            users = sum(g.member_count or 0 for g in guilds)
         return _SafeDict(
             guilds=len(guilds),
-            users=sum(g.member_count or 0 for g in guilds),
+            users=users,
             latency_ms=latency_ms if latency_ms is not None else "?",
         )
 

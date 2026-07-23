@@ -21,13 +21,22 @@ _loaded = False
 
 
 def load_project_env() -> Path | None:
-    """Load docker/.env once. Returns the path loaded, or None for the fallback."""
+    """Load docker/.env once (+ a docker/.env.local dev override when present).
+
+    Returns the path loaded, or None for the fallback. ``.env.local`` is loaded
+    AFTER the main file with ``override=True`` so local development values win
+    over the deploy env (EcomRebuild convention; it is gitignored and absent in
+    production, making the override a no-op there).
+    """
     global _loaded
     here = Path(__file__).resolve()
     for parent in here.parents:
         candidate = parent / "docker" / ".env"
         if candidate.exists():
             load_dotenv(candidate)
+            local = parent / "docker" / ".env.local"
+            if local.exists():
+                load_dotenv(local, override=True)
             _loaded = True
             return candidate
     load_dotenv()
