@@ -1,9 +1,9 @@
-// DRAFT legal copy - adapted from TheCodex's Privacy Policy for Stygian Relay's
-// actual data practices (see relay's storage layer). Two claims especially worth
-// confirming before publishing: (1) that forwarded message content is processed in
-// transit and NOT stored/archived, and (2) the retention specifics. Effective date
-// is a placeholder.
-const EFFECTIVE_DATE = "July 19, 2026";
+// Adapted from TheCodex's Privacy Policy for Stygian Relay's actual data practices.
+// Verified against the storage layer on 2026-08-01: `message_logs` entries carry only
+// guild/rule/channel/message IDs plus a success flag and timestamp - no message text and
+// no author - and forwarded content is never persisted. Retention comes from the TTL
+// indexes in guild_manager._ensure_indexes: message_logs 90 days, audit_logs 365 days.
+const EFFECTIVE_DATE = "August 1, 2026";
 
 export function PrivacyPolicyPage() {
   return (
@@ -46,9 +46,10 @@ export function PrivacyPolicyPage() {
               an optional destination server, a rule name, and any author filters you set.
             </li>
             <li>
-              <strong>Forwarding statistics:</strong> aggregate counts such as how many messages were
-              forwarded per rule and per day, used to show usage on the dashboard. These are counts,
-              not copies of the messages.
+              <strong>A delivery record for each message forwarded:</strong> which rule ran, the
+              source and destination channel, the ID of the original message, whether it succeeded,
+              and when. These power the usage figures on the dashboard. They contain no message text
+              and do not name the author.
             </li>
             <li>
               <strong>An audit log</strong> of configuration and rule changes (who changed what, and
@@ -59,8 +60,8 @@ export function PrivacyPolicyPage() {
           </ul>
           <p className="muted">
             Message content is read in transit to forward it to the destination channel; the bot
-            does not store or archive the content of forwarded messages. It keeps forwarding counts
-            and the rules that route them, not the messages themselves.
+            does not store or archive the content of forwarded messages. It keeps the rules that
+            route them and a record that a delivery happened, not the messages themselves.
           </p>
         </section>
 
@@ -96,8 +97,8 @@ export function PrivacyPolicyPage() {
           <h2 className="section-title" style={{ marginTop: 0 }}>6. Data retention</h2>
           <p>
             We keep your server configuration and forwarding rules for as long as the bot is set up
-            in your server. Forwarding statistics and audit-log entries are kept to provide history
-            on the dashboard. Login sessions expire automatically. If the bot is removed from a
+            in your server. Delivery records are deleted automatically after 90 days, and audit-log
+            entries after 365 days. Login sessions expire automatically. If the bot is removed from a
             server, related configuration may be cleaned up.
           </p>
         </section>

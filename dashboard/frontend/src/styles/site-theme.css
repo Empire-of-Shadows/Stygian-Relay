@@ -24,8 +24,8 @@
   --radius: 14px;
   --radius-sm: 10px;
   --max: 1200px;
-  --link: var(--eos-fg-accent);
-  --link-hover: #debaff;
+  --link: var(--eos-link);
+  --link-hover: var(--eos-link-hover);
   /* Codex-vocabulary aliases - same tokens, the names discord-theme.css and the
      shared components use - so either naming resolves and the two dashboards can
      share styles verbatim. */
@@ -81,7 +81,8 @@ a {
   color: var(--link);
   text-decoration: none;
 }
-a:hover {
+a:hover,
+a:focus-visible {
   color: var(--link-hover);
 }
 
@@ -657,6 +658,27 @@ tr:hover td {
   margin-top: 0.25rem;
   padding: 0.8rem 1.6rem;
   font-size: 1rem;
+}
+
+/* Sign-in legal line. Small, muted prose, so the link inside needs both a
+   lifted colour and an underline - hue alone is not enough at 0.85rem.
+   Uses the canonical --eos-* tokens rather than the per-sheet aliases, since
+   site-theme.css and discord-theme.css name those differently. */
+.login-hero .muted {
+  color: var(--eos-fg-muted);
+}
+.login-hero .muted a {
+  color: var(--eos-link);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--eos-link) 50%, transparent);
+  text-underline-offset: 3px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+.login-hero .muted a:hover,
+.login-hero .muted a:focus-visible {
+  color: var(--eos-link-hover);
+  text-decoration-color: currentColor;
 }
 
 .login-divider {

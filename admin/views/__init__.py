@@ -51,6 +51,8 @@ from .panel_engine import (
     build_dual_modal_trigger_view as build_dual_modal_trigger_view,
     build_file_upload_view as build_file_upload_view,
     build_dict_editor_view as build_dict_editor_view,
+    build_dict_key_channel_view as build_dict_key_channel_view,
+    build_dict_value_role_view as build_dict_value_role_view,
     build_overview_view as build_overview_view,
     build_paginated_list_view as build_paginated_list_view,
     build_confirm_view as build_confirm_view,

@@ -32,7 +32,20 @@ from typing import Callable, Optional
 
 from ..config.leaves import role_leaf
 from ...auth import manage_guild_pre_check
+from ...permission_checks import check_delegation_role
 from ...views.panel_engine import PanelNode
+
+
+async def _delegation_validator(guild, values) -> Optional[str]:
+    """Reject @everyone / managed / deleted roles for access lists.
+
+    Deliberately no hierarchy check: panel access is delegation, not assignment -
+    admin roles normally sit above the bot and must stay selectable."""
+    for rid in values:
+        ok, err = check_delegation_role(guild, int(rid))
+        if not ok:
+            return err
+    return None
 
 
 def panel_roles_pair(
@@ -63,16 +76,23 @@ def panel_roles_pair(
     ``auth.manage_guild_pre_check``, so only members with Manage Server can change who has panel
     access). Pass ``pre_check=None`` to drop that gate, ``include_mod=False`` for an admin-only
     bot, or ``str_ids=True`` to store ids as strings (e.g. EcomRebuild).
+
+    Selections are validated with ``check_delegation_role``: @everyone, integration-managed,
+    and deleted roles are rejected. The bot-hierarchy rule is deliberately NOT applied -
+    these roles are only checked for membership, never assigned, and admin roles normally
+    sit above the bot.
     """
     nodes: dict[str, PanelNode] = {
         admin_key: role_leaf(
             admin_key, admin_path, label=admin_label, description=admin_description,
             multi=True, max_values=max_values, pre_check=pre_check, str_ids=str_ids,
+            value_validator=_delegation_validator,
         ),
     }
     if include_mod:
         nodes[mod_key] = role_leaf(
             mod_key, mod_path, label=mod_label, description=mod_description,
             multi=True, max_values=max_values, pre_check=pre_check, str_ids=str_ids,
+            value_validator=_delegation_validator,
         )
     return nodes

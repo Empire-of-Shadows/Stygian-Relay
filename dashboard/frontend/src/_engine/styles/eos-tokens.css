@@ -38,6 +38,13 @@
   --eos-fg-muted:        #9aa3b2;   /* Captions, hints, timestamps */
   --eos-fg-accent:       #a97dff;   /* Brand-accented text (links inside cards) */
 
+  /* ── Links ───────────────────────────────────────────────────────── */
+  /* Deliberately lighter than --eos-fg-accent: inline links sit in small,
+     often muted prose over the violet page glow, where #a97dff reads muddy.
+     Contrast on --eos-bg-1: rest 9.0:1, hover 13.4:1 (both AAA). */
+  --eos-link:            #c9a6ff;
+  --eos-link-hover:      #e6d6ff;
+
   /* ── Semantic ────────────────────────────────────────────────────── */
   --eos-success:         #3ddc97;
   --eos-danger:          #ff6b6b;

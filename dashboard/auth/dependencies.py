@@ -1,7 +1,8 @@
 """FastAPI dependencies for authentication."""
 
-from fastapi import Cookie, HTTPException
+from fastapi import Cookie, HTTPException, Request
 
+from dashboard._engine.activity import record_actor
 from dashboard._engine.auth.panel_access import PanelRole, has_manage_guild
 from dashboard._engine.auth.session import get_session, refresh_guilds_if_stale
 from dashboard._engine.auth.signing import unsign_token
@@ -10,6 +11,7 @@ from dashboard.config import MANAGE_GUILD_PERMISSION, SESSION_COOKIE_NAME
 
 
 async def get_current_user(
+    request: Request,
     eos_session: str | None = Cookie(None, alias=SESSION_COOKIE_NAME),
 ) -> dict:
     if not eos_session:
@@ -21,6 +23,8 @@ async def get_current_user(
     if session is None:
         raise HTTPException(status_code=401, detail="Session expired")
     session = await refresh_guilds_if_stale(session)
+    # Name the actor so the activity log records a person, not just an IP.
+    record_actor(request, session)
     return session
 
 

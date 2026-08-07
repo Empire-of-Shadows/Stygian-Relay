@@ -22,6 +22,7 @@ import json
 import time
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Optional
 
 import discord
 from discord import app_commands
@@ -45,7 +46,19 @@ from .settings.bindings import (
 # optional binding; auth.effective_mod_allowed imports it with a fallback so a bot
 # that omits it still loads. Hard-importing it here would break the whole cog for
 # any such bot.
-from .permission_checks import check_channel_permissions, check_role_permissions
+from .permission_checks import (
+    check_assignable_role,
+    check_bot_guild_permission,
+    check_channel_permissions,
+    check_role_permissions,
+)
+from .actions.discord_objects.create import (
+    channel_kind_for_types,
+    create_channel,
+    create_role,
+    validate_role_name,
+    validator_for_channel_kind,
+)
 from .auth import effective_mod_allowed
 from .settings.panel_configs import MAIN_PANEL
 from .views.panel_engine import (
@@ -59,6 +72,8 @@ from .views.panel_engine import (
     build_dual_modal_trigger_view,
     build_file_upload_view,
     build_dict_editor_view,
+    build_dict_key_channel_view,
+    build_dict_value_role_view,
     build_paginated_list_view,
     build_confirm_view,
     build_grouped_region_view,
@@ -72,6 +87,7 @@ from .views.base import (
     build_premium_layout,
     cid,
     create_empty_layout,
+    notice_container,
 )
 from .views.panel_views import PanelSession
 
@@ -279,6 +295,17 @@ class AdminCog(commands.Cog):
                     await sel_interaction.followup.send(view=notice, ephemeral=True)
                     return
 
+            # Pre-check gate: a flat panel exposes gated leaves (e.g. the
+            # Manage-Server-only panel-access node) directly at the top level,
+            # so the gate must run here too, not only inside menu navigation.
+            if child.pre_check:
+                denied_view = await child.pre_check(sel_interaction, guild.id)
+                if denied_view is not None:
+                    refreshed = await _build_overview()
+                    await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
+                    await sel_interaction.followup.send(view=denied_view, ephemeral=True)
+                    return
+
             # Auto-close previous message 2
             if session.msg2_message is not None:
                 try:
@@ -298,11 +325,20 @@ class AdminCog(commands.Cog):
             except Exception as e:
                 logger.debug(f"Could not refresh overview select state: {e}")
 
-            # Send category as new message 2 (followup)
-            await self._show_category_on_msg2(
-                sel_interaction, child, guild, interaction, admin_id,
-                _build_overview, session,
-            )
+            # Send the child as new message 2 (followup). Only a menu gets the
+            # category renderer; a top-level leaf (role_select, option_select,
+            # action, ...) must open its real editor - build_menu_view renders a
+            # childless node as bare description text with no controls.
+            if child.kind == "menu":
+                await self._show_category_on_msg2(
+                    sel_interaction, child, guild, interaction, admin_id,
+                    _build_overview, session,
+                )
+            else:
+                await self._show_leaf_on_msg2(
+                    sel_interaction, child, guild, interaction,
+                    _build_overview, session,
+                )
 
         async def _build_overview():
             deep_summary = await self._gather_deep_summaries(MAIN_PANEL, guild.id, guild)
@@ -445,7 +481,7 @@ class AdminCog(commands.Cog):
                 await self._handle_inline_modal(
                     child_interaction, child, category_node, guild,
                     summary_map, on_child_select, on_back,
-                    refresh_parent=refresh_nav,
+                    refresh_parent=refresh_nav, session=session,
                 )
             else:
                 # Navigate within message 2 (edit in-place)
@@ -510,6 +546,50 @@ class AdminCog(commands.Cog):
         session.register_view(layout)
         await sel_interaction.response.send_message(view=layout, ephemeral=True)
         session.set_msg2(layout, await sel_interaction.original_response())
+
+    # -- Top-level leaf on Message 2 --------------------------------------------
+
+    async def _show_leaf_on_msg2(
+        self,
+        sel_interaction: discord.Interaction,
+        leaf_node: PanelNode,
+        guild: discord.Guild,
+        original_interaction: discord.Interaction,
+        build_overview: Callable[[], Awaitable[discord.ui.LayoutView]],
+        session: PanelSession,
+    ) -> None:
+        """Send a new message 2 (followup) showing a top-level leaf's editor.
+
+        A flat panel (ADMIN_PANEL_STANDARD §1) places editable leaves directly
+        under the root; those go through the same kind dispatch as menu
+        children (`_navigate_to`) so a role_select opens its role picker, an
+        option_select its checklist, an action its handler - never the
+        category-menu renderer, which shows a childless node as description
+        text with no controls.
+        """
+        async def refresh_nav():
+            try:
+                new_view = await build_overview()
+                await original_interaction.edit_original_response(view=self._rebind_session_view(session, new_view))
+            except Exception as e:
+                logger.debug(f"Could not refresh overview after save: {e}")
+
+        await self._navigate_to(
+            sel_interaction, leaf_node, guild,
+            parent_node=None,
+            edit=False,
+            refresh_parent=refresh_nav,
+            session=session,
+        )
+        # Track message 2 like the category path so the next front-screen pick
+        # auto-closes this editor. _navigate_to registered the layout it built.
+        try:
+            session.set_msg2(
+                session.last_registered_view,
+                await sel_interaction.original_response(),
+            )
+        except discord.HTTPException as http_exc:
+            logger.debug(f"Could not track leaf msg2: {http_exc}")
 
     # -- Generic PanelNode Navigator (Message 2) --------------------------------
 
@@ -722,7 +802,7 @@ class AdminCog(commands.Cog):
                 await self._handle_inline_modal(
                     sel_interaction, child, node, guild,
                     summary_map, on_select, on_cancel,
-                    refresh_parent=refresh_parent,
+                    refresh_parent=refresh_parent, session=session,
                 )
             else:
                 # Navigate within message 2 (edit=True)
@@ -899,7 +979,10 @@ class AdminCog(commands.Cog):
                     old_value=old_vals, new_value=list(values),
                     action="set", parent_node=parent_node,
                 )
-                new_layout = build_select_view(node, values, guild, on_save, on_back, on_clear_fn, back_label, is_premium=premium)
+                new_layout = build_select_view(
+                    node, values, guild, on_save, on_back, on_clear_fn, back_label,
+                    is_premium=premium, on_create=on_create_fn, create_label=_create_label,
+                )
                 try:
                     await save_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
@@ -950,7 +1033,10 @@ class AdminCog(commands.Cog):
                         old_value=old_vals, new_value=[],
                         action="clear", parent_node=parent_node,
                     )
-                    new_layout = build_select_view(node, [], guild, on_save, on_back, on_clear_fn, back_label, is_premium=premium)
+                    new_layout = build_select_view(
+                        node, [], guild, on_save, on_back, on_clear_fn, back_label,
+                        is_premium=premium, on_create=on_create_fn, create_label=_create_label,
+                    )
                     await clear_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                     if refresh_parent:
                         await refresh_parent()
@@ -962,7 +1048,270 @@ class AdminCog(commands.Cog):
 
             on_clear_fn = on_clear
 
-        layout = build_select_view(node, current_values, guild, on_save, on_back, on_clear_fn, back_label, is_premium=premium)
+        # -- Inline create button (standard §11) --------------------------------
+        # Every role/channel select editor lets the admin create the entity right
+        # where it is picked - no separate create node. Flow: bot-permission check
+        # at the button click -> name modal -> validate -> create -> save through
+        # the same checks as picking. Every failure after the modal offers Try
+        # Again with the rejected input pre-filled (Discord forbids answering a
+        # modal submit with another modal, so the retry is a button hop).
+        on_create_fn = None
+        _create_label = "Create"
+        if node.kind in ("role_select", "channel_select") and node.allow_create:
+            _is_role = node.kind == "role_select"
+            _chan_kind = None if _is_role else channel_kind_for_types(node.channel_types)
+            _create_noun = "Role" if _is_role else {
+                "category": "Category", "voice": "Voice Channel",
+            }.get(_chan_kind, "Channel")
+            _create_label = node.create_label or f"Create {_create_noun}"
+            _create_perm = "manage_roles" if _is_role else "manage_channels"
+            _name_validator = (
+                validate_role_name if _is_role else validator_for_channel_kind(_chan_kind)
+            )
+            # Text/voice channels get an optional parent-category picker in the
+            # create modal (skippable - empty means top of the channel list).
+            # Categories cannot nest, and a bot-specific create_entity owns its
+            # own creation contract, so neither gets the picker.
+            _pick_category = (
+                not _is_role
+                and _chan_kind in ("text", "voice")
+                and node.create_entity is None
+            )
+            # The select editor is refreshed via the create button's interaction
+            # (a component interaction's original response is its host message);
+            # a Try Again chain reuses the first button's token.
+            _view_bi: list = [None]
+
+            def _entity_display(entity) -> str:
+                if not _is_role and _chan_kind == "category":
+                    return f"**{entity.name}**"
+                return getattr(entity, "mention", f"**{entity.name}**")
+
+            def _create_retry_layout(
+                body: str, previous: str, previous_category: Optional[int] = None,
+            ) -> discord.ui.LayoutView:
+                retry_btn = discord.ui.Button(
+                    label="Try Again", style=discord.ButtonStyle.primary,
+                    custom_id=cid("editor", "create_retry", node.key),
+                )
+
+                async def _retry(ri: discord.Interaction):
+                    await _send_create_modal(
+                        ri, default=previous, category_default=previous_category,
+                    )
+
+                retry_btn.callback = _retry
+                retry_row = discord.ui.ActionRow()
+                retry_row.add_item(retry_btn)
+                layout = discord.ui.LayoutView()
+                layout.add_item(notice_container(
+                    discord.ui.TextDisplay(f"## {_create_label}\n{body}"), retry_row,
+                ))
+                return layout
+
+            async def _handle_create_submit(
+                mi: discord.Interaction, raw: str, category_id: Optional[int] = None,
+            ):
+                if not self._check_cooldown(mi.user.id, node.key, guild.id):
+                    await mi.response.send_message(
+                        view=_create_retry_layout(
+                            "Please wait a moment before trying again.", raw, category_id,
+                        ),
+                        ephemeral=True,
+                    )
+                    return
+                ok, name, error = _name_validator(raw)
+                if not ok:
+                    await mi.response.send_message(
+                        view=_create_retry_layout(
+                            error or "That name is not valid.", raw, category_id,
+                        ),
+                        ephemeral=True,
+                    )
+                    return
+                await mi.response.defer(ephemeral=True)
+                category = None
+                if _pick_category and category_id is not None:
+                    category = guild.get_channel(category_id)
+                    if category is None or getattr(category, "type", None) != discord.ChannelType.category:
+                        await mi.followup.send(
+                            view=_create_retry_layout(
+                                "That category no longer exists. Pick another or leave it empty.",
+                                raw,
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+
+                old_vals = list(await node.get_values(guild.id)) if node.get_values else []
+
+                if node.create_entity is not None:
+                    # Bot-specific creator: owns creation AND persistence
+                    # (e.g. create-and-configure flows). Contract:
+                    # async (guild, name, actor) -> (entity | None, error | None).
+                    try:
+                        entity, create_err = await node.create_entity(guild, name, mi.user)
+                    except Exception:
+                        logger.exception("create_entity failed for node=%s", node.key)
+                        entity, create_err = None, None
+                    if entity is None:
+                        await mi.followup.send(
+                            view=_create_retry_layout(
+                                create_err or f"Could not create the {_create_noun.lower()}.",
+                                raw,
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+                    new_vals = list(await node.get_values(guild.id)) if node.get_values else []
+                else:
+                    reason = f"Admin panel: created by {mi.user}"
+                    if _is_role:
+                        entity = await create_role(guild, name, reason=reason)
+                    else:
+                        extra = {"category": category} if _pick_category else {}
+                        entity = await create_channel(
+                            guild, name, kind=_chan_kind, reason=reason, **extra,
+                        )
+                    if entity is None:
+                        await mi.followup.send(
+                            view=_create_retry_layout(
+                                f"Discord refused to create the {_create_noun.lower()}. "
+                                "Check the bot's permissions and try again.",
+                                raw, category_id,
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+                    # Creation succeeded - save through the same checks as picking.
+                    if node.max_values == 1:
+                        new_vals = [entity.id]
+                    else:
+                        new_vals = [int(v) for v in old_vals if int(v) != entity.id] + [entity.id]
+                    if _is_role:
+                        perm_ok, err = check_role_permissions(node, guild, entity.id)
+                    else:
+                        perm_ok, err = check_channel_permissions(node, guild, entity.id)
+                    if perm_ok and node.value_validator:
+                        err = await node.value_validator(guild, new_vals)
+                    elif perm_ok:
+                        err = None
+                    if err:
+                        # Retyping the name will not help here - plain notice, no retry.
+                        await mi.followup.send(
+                            view=build_notice_layout(
+                                "Created but not saved",
+                                f"{_entity_display(entity)} was created, but it cannot be "
+                                f"saved to **{node.label}**: {err}",
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+                    try:
+                        success = await node.set_values(guild.id, new_vals)
+                    except Exception as save_exc:
+                        logger.exception("Create save failed for node=%s", node.key)
+                        success = False
+                        save_detail = f" {save_exc.__class__.__name__}"
+                    else:
+                        save_detail = ""
+                    if not success:
+                        await mi.followup.send(
+                            view=build_notice_layout(
+                                "Created but not saved",
+                                f"{_entity_display(entity)} was created, but saving "
+                                f"**{node.label}** failed.{save_detail}",
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+
+                self._invalidate_guild_caches(guild.id)
+                logger.info(
+                    f"Admin {mi.user} created {_create_noun.lower()} {entity.id} "
+                    f"for {node.key} in guild {guild.id}"
+                )
+                await self._audit(
+                    mi, guild.id, node,
+                    old_value=old_vals, new_value=new_vals,
+                    action="create", parent_node=parent_node,
+                )
+                try:
+                    fresh = list(await node.get_values(guild.id)) if node.get_values else []
+                    new_layout = build_select_view(
+                        node, fresh, guild, on_save, on_back, on_clear_fn, back_label,
+                        is_premium=premium, on_create=on_create_fn, create_label=_create_label,
+                    )
+                    if _view_bi[0] is not None:
+                        await _view_bi[0].edit_original_response(
+                            view=self._rebind_session_view(session, new_layout)
+                        )
+                except discord.HTTPException as http_exc:
+                    logger.warning("Could not refresh select view after create: %s", http_exc)
+                if node.post_save_hook and node.create_entity is None:
+                    await node.post_save_hook(mi, guild.id, new_vals)
+                if refresh_parent:
+                    await refresh_parent()
+                placed = f" under **{category.name}**" if category is not None else ""
+                await mi.followup.send(
+                    view=build_notice_layout(
+                        _create_label,
+                        f"Created {_entity_display(entity)}{placed} and saved it to **{node.label}**.",
+                    ),
+                    ephemeral=True,
+                )
+
+            async def _send_create_modal(
+                bi: discord.Interaction, default: str = "",
+                category_default: Optional[int] = None,
+            ):
+                modal = PanelInputModal(
+                    title=_create_label[:45],
+                    label=f"{_create_noun} name",
+                    placeholder="",
+                    min_length=1,
+                    max_length=100,
+                    default=default,
+                    on_submit_callback=_handle_create_submit,
+                    category_picker=_pick_category,
+                    category_default=category_default,
+                )
+                await bi.response.send_modal(modal)
+
+            async def on_create(create_interaction: discord.Interaction):
+                perm_ok, perm_err = check_bot_guild_permission(guild, _create_perm)
+                if not perm_ok:
+                    await create_interaction.response.send_message(
+                        view=build_notice_layout("Missing Permission", perm_err or ""),
+                        ephemeral=True,
+                    )
+                    return
+                # A full multi-select is refused before the modal - never create
+                # an entity there is no room to save.
+                if node.create_entity is None and node.max_values > 1:
+                    effective_max = node.max_values
+                    if node.premium_max_values is not None and await self._is_premium(guild.id):
+                        effective_max = node.premium_max_values
+                    current = list(await node.get_values(guild.id)) if node.get_values else []
+                    if len(current) >= effective_max:
+                        await create_interaction.response.send_message(
+                            view=build_notice_layout(
+                                "Selection Full",
+                                f"**{node.label}** already holds the maximum of "
+                                f"**{effective_max}**. Remove one first.",
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+                _view_bi[0] = create_interaction
+                await _send_create_modal(create_interaction)
+
+            on_create_fn = on_create
+
+        layout = build_select_view(
+            node, current_values, guild, on_save, on_back, on_clear_fn, back_label,
+            is_premium=premium, on_create=on_create_fn, create_label=_create_label,
+        )
         if session:
             session.register_view(layout)
         await self._send_or_edit(interaction, layout, edit)
@@ -1344,11 +1693,29 @@ class AdminCog(commands.Cog):
     ):
         """Render a dict_editor PanelNode on message 2.
 
-        Generic key->value map editor. Buttons: Add (dual-modal), Edit (select
-        existing key, then dual-modal), Remove (select existing key). Persists
-        through node.dict_set_value / node.dict_remove_value, validates new
-        values via node.dict_value_validator when present.
+        Generic key->value map editor. Buttons: Add, Edit (select an existing key),
+        Remove (select an existing key). Persists through node.dict_set_value /
+        node.dict_remove_value, validating the key via node.dict_key_validator and
+        the value via node.dict_value_validator when present.
+
+        The input shape follows node.dict_key_kind / node.dict_value_kind, so an
+        admin never has to type a snowflake id:
+          text -> text (both default): one dual-field modal, exactly as before.
+          channel -> text: Add opens a ChannelSelect screen, then the value modal;
+              Edit re-opens only the value modal, because a channel key is fixed
+              (change one by removing the entry and adding it again).
+          text -> role: Add opens a one-field key modal, then a RoleSelect screen;
+              Edit re-opens the key modal pre-filled, then the RoleSelect
+              pre-filled, so both the key and the role can change.
+          channel -> role: both screens, no modal at all (a channel key is fixed,
+              so Edit goes straight to the RoleSelect).
+        Role values are permission-checked before they are persisted (Manage Roles,
+        role exists, never @everyone, never integration-managed, below the bot's
+        top role).
         """
+        key_is_channel = node.dict_key_kind == "channel"
+        value_is_role = node.dict_value_kind == "role"
+
         async def fetch_current() -> dict:
             try:
                 return dict(await node.dict_get_values(guild.id)) if node.dict_get_values else {}
@@ -1365,20 +1732,85 @@ class AdminCog(commands.Cog):
                 on_back=on_back,
                 back_label=back_label,
                 is_premium=await self._is_premium(guild.id),
+                guild=guild,
             )
 
-        async def _persist(button_interaction, modal_interaction, raw_key, raw_value, *, original_key=None):
-            key = raw_key.strip()
+        def _validate_key(raw_key) -> tuple[bool, str, str]:
+            """Return (ok, normalized_key, error) for a candidate key.
+
+            An empty key is always rejected. When the node supplies a
+            dict_key_validator it also parses/normalizes the key, and a parsed
+            value that is not None is stored in its string form (so a typed key
+            such as "05" lands as "5").
+            """
+            key = str(raw_key).strip()
             if not key:
-                await modal_interaction.response.send_message(
-                    view=build_notice_layout("Invalid Key", "Key cannot be empty."),
+                return False, "", "Key cannot be empty."
+            if node.dict_key_validator:
+                ok, error_msg, parsed = node.dict_key_validator(key)
+                if not ok:
+                    return False, key, error_msg or "Invalid key."
+                if parsed is not None:
+                    key = str(parsed)
+            return True, key, ""
+
+        async def _persist(ui_interaction, resp_interaction, raw_key, raw_value, *, original_key=None):
+            """Validate and write a single entry.
+
+            ``ui_interaction`` owns message 2 - its original response is refreshed
+            with the rebuilt editor on success. ``resp_interaction`` is the one
+            Discord is still waiting on and must be answered. They are the same
+            interaction whenever the final step is a component (the role picker)
+            instead of a modal.
+            """
+            ok, key, error_msg = _validate_key(raw_key)
+            if not ok:
+                await resp_interaction.response.send_message(
+                    view=build_notice_layout("Invalid Key", error_msg),
                     ephemeral=True,
                 )
                 return
-            if node.dict_value_validator:
+
+            # A channel key honors the node's required_channel_perms, same as a
+            # channel_select leaf - without it a per-channel entry can point at a
+            # channel the bot cannot even see, leaving the setting silently inert.
+            if key_is_channel and node.required_channel_perms:
+                try:
+                    perm_ok, perm_err = check_channel_permissions(node, guild, int(key))
+                except (TypeError, ValueError):
+                    perm_ok, perm_err = False, "That channel could not be read. Please pick it again."
+                if not perm_ok:
+                    await resp_interaction.response.send_message(
+                        view=build_notice_layout("Permission Issue", perm_err),
+                        ephemeral=True,
+                    )
+                    return
+
+            if value_is_role:
+                # A role this bot is expected to hand out must always clear the same
+                # bar as a requires_role_manage role_select.
+                try:
+                    role_id = int(raw_value)
+                except (TypeError, ValueError):
+                    await resp_interaction.response.send_message(
+                        view=build_notice_layout(
+                            "Invalid Role", "That role could not be read. Please pick it again.",
+                        ),
+                        ephemeral=True,
+                    )
+                    return
+                perm_ok, perm_err = check_assignable_role(guild, role_id)
+                if not perm_ok:
+                    await resp_interaction.response.send_message(
+                        view=build_notice_layout("Permission Issue", perm_err),
+                        ephemeral=True,
+                    )
+                    return
+                value = str(role_id)
+            elif node.dict_value_validator:
                 ok, error_msg, parsed = node.dict_value_validator(raw_value)
                 if not ok:
-                    await modal_interaction.response.send_message(
+                    await resp_interaction.response.send_message(
                         view=build_notice_layout(
                             "Invalid Value", error_msg or "Invalid value.",
                         ),
@@ -1389,13 +1821,13 @@ class AdminCog(commands.Cog):
             else:
                 value = raw_value
 
-            if not self._check_cooldown(button_interaction.user.id, node.key, guild.id):
-                await modal_interaction.response.send_message(
+            if not self._check_cooldown(ui_interaction.user.id, node.key, guild.id):
+                await resp_interaction.response.send_message(
                     view=build_notice_layout("Slow Down", "Saving too quickly, please wait a moment."),
                     ephemeral=True,
                 )
                 return
-            await modal_interaction.response.defer(ephemeral=True)
+            await resp_interaction.response.defer(ephemeral=True)
 
             current = await fetch_current()
             if (
@@ -1404,7 +1836,7 @@ class AdminCog(commands.Cog):
                 and key not in current
                 and len(current) >= node.dict_max_entries
             ):
-                await modal_interaction.followup.send(
+                await resp_interaction.followup.send(
                     view=build_notice_layout(
                         "Limit Reached",
                         f"Maximum **{node.dict_max_entries}** entries reached.",
@@ -1420,9 +1852,9 @@ class AdminCog(commands.Cog):
                 await node.dict_remove_value(guild.id, original_key)
             if success:
                 self._invalidate_guild_caches(guild.id)
-                logger.info(f"Admin {button_interaction.user} updated {node.key}[{key}] in guild {guild.id}")
+                logger.info(f"Admin {ui_interaction.user} updated {node.key}[{key}] in guild {guild.id}")
                 await self._audit(
-                    button_interaction, guild.id, node,
+                    ui_interaction, guild.id, node,
                     old_value={original_key: current.get(original_key)} if original_key else None,
                     new_value={key: value},
                     action="set", parent_node=parent_node,
@@ -1430,13 +1862,13 @@ class AdminCog(commands.Cog):
                 )
                 new_layout = await _build_view()
                 try:
-                    await button_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
+                    await ui_interaction.edit_original_response(view=self._rebind_session_view(session, new_layout))
                 except discord.HTTPException as http_exc:
                     logger.warning("Could not refresh dict editor: %s", http_exc)
                 if refresh_parent:
                     await refresh_parent()
             else:
-                await modal_interaction.followup.send(
+                await resp_interaction.followup.send(
                     view=build_notice_layout(
                         "Failed to save",
                         f"Could not save **{node.label}** entry.",
@@ -1444,7 +1876,134 @@ class AdminCog(commands.Cog):
                     ephemeral=True,
                 )
 
+        # -- Picker steps (only reached when a new dict_*_kind is set) ----------
+
+        async def on_picker_back(back_interaction: discord.Interaction):
+            """Leave a picker step without changing anything - back to the entries."""
+            await back_interaction.response.edit_message(
+                view=self._rebind_session_view(session, await _build_view())
+            )
+
+        async def _open_value_modal(trigger_interaction, key, *, original_key, default_value=""):
+            """One-field value modal for an already-decided key (channel-key flow)."""
+            async def _submit(mi, raw):
+                await _persist(trigger_interaction, mi, key, raw, original_key=original_key)
+
+            modal = PanelInputModal(
+                title=(f"Edit {node.label}" if original_key is not None else f"Add {node.label}")[:45],
+                label=(node.dict_value_label or "Value")[:45],
+                placeholder="",
+                min_length=1,
+                max_length=node.modal_max_length_2 or 500,
+                default=default_value,
+                on_submit_callback=_submit,
+            )
+            await trigger_interaction.response.send_modal(modal)
+
+        def _make_role_pick(entry_key, original_key):
+            """Bind one entry's key to the role picker's pick callback."""
+            async def _on_role_pick(role_interaction: discord.Interaction, role_id: int):
+                await _persist(
+                    role_interaction, role_interaction, entry_key, str(role_id),
+                    original_key=original_key,
+                )
+
+            return _on_role_pick
+
+        async def _role_picker_layout(entry_key, original_key, current_role_id):
+            return build_dict_value_role_view(
+                node, entry_key,
+                current_role_id=current_role_id,
+                on_pick=_make_role_pick(entry_key, original_key),
+                on_back=on_picker_back,
+                back_label="Back",
+                is_premium=await self._is_premium(guild.id),
+                guild=guild,
+            )
+
+        async def _continue_after_key(component_interaction, key, original_key, current_value):
+            """Run the value step for a key just chosen on a component screen."""
+            if value_is_role:
+                layout = await _role_picker_layout(key, original_key, current_value)
+                await component_interaction.response.edit_message(
+                    view=self._rebind_session_view(session, layout)
+                )
+            else:
+                await _open_value_modal(
+                    component_interaction, key,
+                    original_key=original_key,
+                    default_value="" if current_value is None else str(current_value),
+                )
+
+        async def on_channel_pick(channel_interaction: discord.Interaction, channel_id: int):
+            current = await fetch_current()
+            key = str(channel_id)
+            # Picking a channel that already has an entry edits that entry rather
+            # than tripping the max-entries guard with a duplicate.
+            await _continue_after_key(
+                channel_interaction, key,
+                key if key in current else None,
+                current.get(key),
+            )
+
         async def on_add(bi: discord.Interaction):
+            if key_is_channel:
+                layout = build_dict_key_channel_view(
+                    node,
+                    on_pick=on_channel_pick,
+                    on_back=on_picker_back,
+                    back_label="Back",
+                    is_premium=await self._is_premium(guild.id),
+                )
+                await bi.response.edit_message(view=self._rebind_session_view(session, layout))
+                return
+
+            if value_is_role:
+                async def _submit_key(mi: discord.Interaction, raw_key: str):
+                    ok, key, error_msg = _validate_key(raw_key)
+                    if not ok:
+                        await mi.response.send_message(
+                            view=build_notice_layout("Invalid Key", error_msg),
+                            ephemeral=True,
+                        )
+                        return
+                    current = await fetch_current()
+                    if (
+                        node.dict_max_entries is not None
+                        and key not in current
+                        and len(current) >= node.dict_max_entries
+                    ):
+                        await mi.response.send_message(
+                            view=build_notice_layout(
+                                "Limit Reached",
+                                f"Maximum **{node.dict_max_entries}** entries reached.",
+                            ),
+                            ephemeral=True,
+                        )
+                        return
+                    # The role picker is a screen, not a modal: acknowledge the modal
+                    # submit, then swap message 2 (the Add button's message) to it.
+                    await mi.response.defer(ephemeral=True)
+                    layout = await _role_picker_layout(
+                        key, key if key in current else None, current.get(key),
+                    )
+                    try:
+                        await bi.edit_original_response(view=self._rebind_session_view(session, layout))
+                    except discord.HTTPException as http_exc:
+                        logger.warning("Could not open role picker for %s: %s", node.key, http_exc)
+
+                modal = PanelInputModal(
+                    title=f"Add {node.label}"[:45],
+                    label=(node.dict_key_label or "Key")[:45],
+                    placeholder="",
+                    min_length=1,
+                    max_length=node.modal_max_length,
+                    default="",
+                    on_submit_callback=_submit_key,
+                )
+                await bi.response.send_modal(modal)
+                return
+
             async def _submit(mi, raw1, raw2):
                 await _persist(bi, mi, raw1, raw2)
 
@@ -1467,6 +2026,58 @@ class AdminCog(commands.Cog):
         async def on_edit(bi: discord.Interaction, original_key: str):
             current = await fetch_current()
             current_value = current.get(original_key, "")
+
+            if key_is_channel and value_is_role:
+                # A channel key is fixed - editing changes only the role. Change a
+                # key by removing the entry and adding it again.
+                layout = await _role_picker_layout(
+                    str(original_key), original_key, current_value,
+                )
+                await bi.response.edit_message(view=self._rebind_session_view(session, layout))
+                return
+
+            if value_is_role:
+                # A text key is editable: re-open the key modal pre-filled, then
+                # the role picker - the same two steps as Add. _persist handles the
+                # rename (write new key, then drop the old one).
+                async def _submit_key(mi: discord.Interaction, raw_key: str):
+                    ok, key, error_msg = _validate_key(raw_key)
+                    if not ok:
+                        await mi.response.send_message(
+                            view=build_notice_layout("Invalid Key", error_msg),
+                            ephemeral=True,
+                        )
+                        return
+                    # The role picker is a screen, not a modal: acknowledge the modal
+                    # submit, then swap message 2 (the edit select's message) to it.
+                    await mi.response.defer(ephemeral=True)
+                    layout = await _role_picker_layout(key, original_key, current_value)
+                    try:
+                        await bi.edit_original_response(view=self._rebind_session_view(session, layout))
+                    except discord.HTTPException as http_exc:
+                        logger.warning("Could not open role picker for %s: %s", node.key, http_exc)
+
+                modal = PanelInputModal(
+                    title=f"Edit {node.label}"[:45],
+                    label=(node.dict_key_label or "Key")[:45],
+                    placeholder="",
+                    min_length=1,
+                    max_length=node.modal_max_length,
+                    default=str(original_key),
+                    on_submit_callback=_submit_key,
+                )
+                await bi.response.send_modal(modal)
+                return
+
+            if key_is_channel:
+                # A channel key is fixed - editing changes only the value. Change a
+                # key by removing the entry and adding it again.
+                await _open_value_modal(
+                    bi, str(original_key),
+                    original_key=original_key,
+                    default_value=str(current_value),
+                )
+                return
 
             async def _submit(mi, raw1, raw2):
                 await _persist(bi, mi, raw1, raw2, original_key=original_key)
@@ -1816,7 +2427,7 @@ class AdminCog(commands.Cog):
 
     async def _handle_inline_modal(
         self, sel_interaction, child, parent_menu, guild, summary_map, on_select, on_cancel,
-        *, refresh_parent: Callable[[], Awaitable[None]] | None = None,
+        *, refresh_parent: Callable[[], Awaitable[None]] | None = None, session=None,
     ):
         """Handle a modal_input child selected from a menu dropdown."""
         current_str = ""
@@ -1936,6 +2547,16 @@ class AdminCog(commands.Cog):
         result: dict[str, dict[str, str | dict[str, str]]] = {}
         for cat_key, cat_node in root.children.items():
             cat_data: dict[str, str | dict[str, str]] = {}
+            # A childless top-level node (a direct leaf or action on the root)
+            # has no children to summarize - summarize the node ITSELF under
+            # the "__self__" sentinel so the overview can show its state
+            # instead of a bare label. Honors summary_builder via _leaf_summary.
+            if not cat_node.children and cat_node.kind != "menu":
+                summary = await self._leaf_summary(cat_node, guild_id, guild)
+                if summary and summary != "Not configured":
+                    cat_data["__self__"] = summary
+                result[cat_key] = cat_data
+                continue
             for child_key, child_node in cat_node.children.items():
                 if child_node.kind == "menu":
                     # Pure feature-toggle menu (a switch with no sub-settings):
@@ -1965,9 +2586,33 @@ class AdminCog(commands.Cog):
         self, node: PanelNode, guild_id: int, guild: discord.Guild,
     ) -> str:
         """Produce a guild-aware summary string for a single leaf node."""
+        # A custom summary_builder wins here as it does in _gather_summaries, so the
+        # overview (message 1) and the category menu (message 2) describe a node the
+        # same way. This also decides "configured" for the category badge, which tests
+        # the returned string against _UNSET_SUMMARIES - so a node whose value is not
+        # renderable by the generic branches below (a bespoke action editor) needs its
+        # builder honored here or it reads as unset no matter how it is configured.
+        if node.summary_builder:
+            try:
+                text = await node.summary_builder(guild_id)
+            except Exception:
+                text = None
+            if text is not None:
+                return text
+
         if node.kind == "paginated_list":
             count = await self._paginated_list_count(node, guild_id)
             return f"{count} item(s)" if count else "Empty"
+
+        if node.kind == "dict_editor" and node.dict_get_values:
+            # Dict editors have dict_get_values, not get_values - without this
+            # branch they read "Not configured" forever regardless of content.
+            try:
+                entries = await node.dict_get_values(guild_id) or {}
+            except Exception:
+                entries = {}
+            n = len(entries)
+            return f"{n} entr{'y' if n == 1 else 'ies'}" if n else "Not set"
 
         if not node.get_values:
             return "Not configured"
@@ -2036,6 +2681,17 @@ class AdminCog(commands.Cog):
             if child.kind == "paginated_list":
                 count = await self._paginated_list_count(child, guild_id)
                 summary_map[key] = ["x"] * count
+                continue
+            if child.kind == "dict_editor" and child.dict_get_values:
+                # Dict editors expose dict_get_values, not get_values - without
+                # this branch the menu row reads "Not configured" forever.
+                try:
+                    entries = await child.dict_get_values(guild_id) or {}
+                except Exception:
+                    entries = {}
+                n = len(entries)
+                text = f"{n} entr{'y' if n == 1 else 'ies'}" if n else "Not set"
+                summary_map[key] = [f"__summary__:{text}"]
                 continue
             if child.get_values:
                 try:

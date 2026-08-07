@@ -82,6 +82,123 @@ def check_channel_permissions(
     )
 
 
+def check_bot_guild_permission(
+    guild: discord.Guild,
+    permission: str,
+) -> tuple[bool, str | None]:
+    """Check that the bot itself holds a server-wide permission.
+
+    Used by create-entity flows (standard §11) to refuse at the button click -
+    before the admin types anything - rather than failing after modal submit.
+    ``permission`` is the attribute name on ``discord.Permissions``
+    ("manage_roles", "manage_channels", ...).
+
+    Returns (True, None) if OK, (False, error_message) otherwise.
+    """
+    if getattr(guild.me.guild_permissions, permission, False):
+        return True, None
+    return False, (
+        f"The bot is missing the **{_display(permission)}** server permission.\n\n"
+        f"Grant it to the bot's role in Server Settings > Roles, then try again."
+    )
+
+
+def check_assignable_role(
+    guild: discord.Guild,
+    role_id: int,
+) -> tuple[bool, str | None]:
+    """Check unconditionally that the bot could assign the given role to a member.
+
+    This is the whole "requires_role_manage" rule set, independent of any node, so
+    flows that always need it (a dict_editor whose values are roles) can call it
+    directly. `check_role_permissions` delegates here once a node opts in.
+
+    Rejects, in order: no Manage Roles server permission, a role that no longer
+    exists, @everyone, an integration-managed role (bot roles, the booster role -
+    Discord never lets anyone assign these), and a role that is not below the
+    bot's top role.
+
+    Returns (True, None) if OK, (False, error_message) otherwise.
+    """
+    if not guild.me.guild_permissions.manage_roles:
+        return False, (
+            "The bot is missing the **Manage Roles** server permission.\n\n"
+            "Grant it in Server Settings > Roles, then try again."
+        )
+
+    role = guild.get_role(role_id)
+    if role is None:
+        return False, "Could not find that role. It may have been deleted."
+
+    if role.is_default():
+        return False, (
+            "**@everyone** cannot be used here - every member already has it, and "
+            "Discord does not allow it to be assigned or removed.\n\n"
+            "Pick a normal role instead."
+        )
+
+    if role.managed:
+        return False, (
+            f"**@{role.name}** is managed by an integration (a bot role, the "
+            f"Server Booster role, or a subscription role), so Discord does not "
+            f"allow anyone to assign it.\n\n"
+            f"Pick a normal role instead."
+        )
+
+    if role >= guild.me.top_role:
+        bot_role = guild.me.top_role
+        return False, (
+            f"The bot's highest role must be **above** **@{role.name}** in the role hierarchy.\n\n"
+            f"**@{role.name}** is at position {role.position}, but the bot's top role "
+            f"(**@{bot_role.name}**) is at position {bot_role.position}.\n"
+            f"Move the bot's role higher in Server Settings > Roles."
+        )
+
+    return True, None
+
+
+def check_delegation_role(
+    guild: discord.Guild,
+    role_id: int,
+) -> tuple[bool, str | None]:
+    """Check that a role is a sane target for DELEGATION (access/permission lists).
+
+    For roles the bot never assigns - it only checks membership (panel access,
+    command access). The hierarchy rule deliberately does NOT apply: admin and
+    staff roles normally sit above every bot, and blocking them would break the
+    setting's primary purpose. What IS rejected:
+
+    - a role that no longer exists,
+    - **@everyone** - every member holds it, so delegating to it silently grants
+      the permission to the whole server,
+    - an integration-managed role (bot roles, Server Booster, subscription
+      roles) - Discord grants these automatically, so membership is not under
+      the admins' control and the delegation self-extends.
+
+    Returns (True, None) if OK, (False, error_message) otherwise.
+    """
+    role = guild.get_role(role_id)
+    if role is None:
+        return False, "Could not find that role. It may have been deleted."
+
+    if role.is_default():
+        return False, (
+            "**@everyone** cannot be used here - every member holds it, so this "
+            "would grant access to the entire server.\n\n"
+            "Pick a normal role instead."
+        )
+
+    if role.managed:
+        return False, (
+            f"**@{role.name}** is managed by an integration (a bot role, the "
+            f"Server Booster role, or a subscription role). Discord grants it "
+            f"automatically, so access through it would not be under your "
+            f"control.\n\nPick a normal role instead."
+        )
+
+    return True, None
+
+
 def check_role_permissions(
     node: PanelNode,
     guild: discord.Guild,
@@ -96,28 +213,10 @@ def check_role_permissions(
         role_id: Role being assigned to this setting.
 
     Returns (True, None) if OK, (False, error_message) if the bot lacks the
-    Manage Roles server perm or the role outranks the bot's top role.
+    Manage Roles server perm, the role is unassignable by anyone (@everyone or
+    integration-managed), or the role outranks the bot's top role.
     """
     if not node.requires_role_manage:
         return True, None
 
-    if not guild.me.guild_permissions.manage_roles:
-        return False, (
-            "The bot is missing the **Manage Roles** server permission.\n\n"
-            "Grant it in Server Settings > Roles, then try again."
-        )
-
-    role = guild.get_role(role_id)
-    if role is None:
-        return False, "Could not find that role. It may have been deleted."
-
-    if role >= guild.me.top_role:
-        bot_role = guild.me.top_role
-        return False, (
-            f"The bot's highest role must be **above** **@{role.name}** in the role hierarchy.\n\n"
-            f"**@{role.name}** is at position {role.position}, but the bot's top role "
-            f"(**@{bot_role.name}**) is at position {bot_role.position}.\n"
-            f"Move the bot's role higher in Server Settings > Roles."
-        )
-
-    return True, None
+    return check_assignable_role(guild, role_id)

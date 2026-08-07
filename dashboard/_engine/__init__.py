@@ -3,7 +3,10 @@
 #     python EmpireSystems/tools/sync_dashboard_engine.py
 # Drift is enforced by:
 #     python EmpireSystems/tools/sync_dashboard_engine.py --check
-"""Vendored dashboard backend engine (shared auth: signing, session, CSRF, OAuth, rate limit).
+"""Vendored dashboard backend engine (shared auth + rate limit + activity logging).
+
+Contents: signing, session, CSRF, OAuth, per-IP rate limiting, the Discord cache, and
+``activity.py`` (log setup + the who-did-what request log).
 
 Lands at ``<bot>/dashboard/_engine/`` in each bot. Everything here is engine-owned and
 vendored byte-for-byte from ``EmpireSystems/dashboard_engine/backend/``; the bot's own

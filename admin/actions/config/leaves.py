@@ -53,12 +53,14 @@ def _id_accessors(path: str, *, multi: bool, as_str: bool = False):
 
 def role_leaf(key, path, *, label, description="", multi=False, max_values=10,
               requires_role_manage=False, mod_allowed=None, premium_label=None,
-              pre_check=None, str_ids=False) -> PanelNode:
+              pre_check=None, str_ids=False, value_validator=None) -> PanelNode:
     """role_select leaf storing a single role id (``multi=False``) or a list.
 
     ``pre_check`` is an optional ``async (interaction, guild_id) -> LayoutView | None`` gate
     (e.g. ``auth.manage_guild_pre_check`` for admin/mod role-access nodes).
-    ``str_ids=True`` stores ids as strings (see ``_id_accessors``)."""
+    ``str_ids=True`` stores ids as strings (see ``_id_accessors``).
+    ``value_validator`` is an optional ``async (guild, values) -> error_str | None`` run
+    before saving (e.g. the delegation-role check for access lists)."""
     g, s, c = _id_accessors(path, multi=multi, as_str=str_ids)
     return PanelNode(
         key=key, label=label, kind="role_select", description=description,
@@ -66,22 +68,25 @@ def role_leaf(key, path, *, label, description="", multi=False, max_values=10,
         min_values=0, max_values=(max_values if multi else 1),
         requires_role_manage=requires_role_manage, mod_allowed=mod_allowed,
         premium_label=premium_label, pre_check=pre_check,
+        value_validator=value_validator,
     )
 
 
 def channel_leaf(key, path, *, label, description="", channel_types=None, multi=False,
                  max_values=10, required_channel_perms=None, mod_allowed=None,
-                 premium_label=None, str_ids=False) -> PanelNode:
+                 premium_label=None, str_ids=False, counts_as_setting=None) -> PanelNode:
     """channel_select leaf storing a single channel id (``multi=False``) or a list.
 
-    ``str_ids=True`` stores ids as strings (see ``_id_accessors``)."""
+    ``str_ids=True`` stores ids as strings (see ``_id_accessors``).
+    ``counts_as_setting=False`` excludes the leaf from the category's
+    "N of M configured" badge (for optional tuning, e.g. disabled-channel lists)."""
     g, s, c = _id_accessors(path, multi=multi, as_str=str_ids)
     return PanelNode(
         key=key, label=label, kind="channel_select", description=description,
         channel_types=channel_types, get_values=g, set_values=s, clear_values=c,
         min_values=0, max_values=(max_values if multi else 1),
         required_channel_perms=required_channel_perms, mod_allowed=mod_allowed,
-        premium_label=premium_label,
+        premium_label=premium_label, counts_as_setting=counts_as_setting,
     )
 
 
@@ -302,8 +307,23 @@ def color_leaf(key, path, *, label, description="", modal_title="", mod_allowed=
 
 def dict_editor_leaf(key, path, *, label, description="", key_label="Key",
                      value_label="Value", value_validator=None, max_entries=None,
-                     mod_allowed=None, premium_label=None) -> PanelNode:
-    """dict_editor leaf storing a ``{key: value}`` map at config ``path``."""
+                     mod_allowed=None, premium_label=None, key_kind="text",
+                     key_channel_types=None, value_kind="text",
+                     key_validator=None, required_channel_perms=None,
+                     counts_as_setting=None) -> PanelNode:
+    """dict_editor leaf storing a ``{key: value}`` map at config ``path``.
+
+    ``key_kind="channel"`` picks the key from a ChannelSelect (optionally filtered by
+    ``key_channel_types``) and stores it as ``str(channel.id)``; ``value_kind="role"``
+    picks the value from a RoleSelect and stores it as ``str(role.id)``, so an admin
+    never types a snowflake. ``key_validator`` follows the same
+    ``(ok, error_msg, parsed)`` contract as ``value_validator`` and applies to the key
+    on every input path. All four default to the original free-text editor.
+    ``required_channel_perms`` (with ``key_kind="channel"``) makes every channel key
+    pass the same bot-permission check as a channel_select leaf before it is saved.
+    ``counts_as_setting=False`` excludes the leaf from the category's
+    "N of M configured" badge (for optional tuning, e.g. multiplier maps).
+    """
     async def _get(guild_id):
         return dict(await get_config_field(guild_id, path, {}) or {})
 
@@ -321,8 +341,12 @@ def dict_editor_leaf(key, path, *, label, description="", key_label="Key",
         key=key, label=label, kind="dict_editor", description=description,
         dict_get_values=_get, dict_set_value=_set, dict_remove_value=_remove,
         dict_key_label=key_label, dict_value_label=value_label,
-        dict_value_validator=value_validator, dict_max_entries=max_entries,
+        dict_value_validator=value_validator, dict_key_validator=key_validator,
+        dict_max_entries=max_entries,
+        dict_key_kind=key_kind, dict_key_channel_types=key_channel_types,
+        dict_value_kind=value_kind, required_channel_perms=required_channel_perms,
         mod_allowed=mod_allowed, premium_label=premium_label,
+        counts_as_setting=counts_as_setting,
     )
 
 

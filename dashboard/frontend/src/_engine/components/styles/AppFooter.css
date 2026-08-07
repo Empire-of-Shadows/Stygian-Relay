@@ -21,12 +21,18 @@
   gap: 1rem;
 }
 
+/* Footer links sat at the same muted grey as the text beside them, so
+   "Privacy Policy" did not read as a link at all. Lift them to body colour
+   and underline on hover/focus so the affordance is not carried by hue. */
 .site-footer__links a {
-  color: var(--text-muted);
+  color: var(--eos-fg-2);
   text-decoration: none;
+  text-underline-offset: 3px;
   transition: color 0.2s ease;
 }
 
-.site-footer__links a:hover {
-  color: var(--brand-light);
+.site-footer__links a:hover,
+.site-footer__links a:focus-visible {
+  color: var(--eos-link-hover);
+  text-decoration: underline;
 }

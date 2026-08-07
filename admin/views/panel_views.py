@@ -48,6 +48,10 @@ class PanelSession:
         self.panel_role: str = "admin"
         self.msg2_message: discord.Message | None = None
         self.msg2_view: discord.ui.LayoutView | None = None
+        # Most recent view passed through register_view; lets callers that
+        # delegate the send (e.g. a top-level leaf via _navigate_to) still
+        # hand the built view to set_msg2 for stop-on-replace hygiene.
+        self.last_registered_view: discord.ui.LayoutView | None = None
         self._timeout = timeout
         self._timer_task: asyncio.Task | None = None
 
@@ -60,6 +64,7 @@ class PanelSession:
         Returns the same view for chaining.
         """
         view.timeout = None
+        self.last_registered_view = view
         original_check = getattr(view, 'interaction_check', None)
 
         session = self

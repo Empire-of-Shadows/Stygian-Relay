@@ -8,10 +8,14 @@
 
 from .create import (
     create_role, create_channel, create_role_action, create_channel_action,
+    validate_role_name, validate_channel_name,
+    validator_for_channel_kind, channel_kind_for_types,
 )
 from .validate import validate_entity, validate_role_assignment
 
 __all__ = [
     "create_role", "create_channel", "create_role_action", "create_channel_action",
+    "validate_role_name", "validate_channel_name",
+    "validator_for_channel_kind", "channel_kind_for_types",
     "validate_entity", "validate_role_assignment",
 ]

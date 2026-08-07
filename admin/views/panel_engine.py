@@ -89,6 +89,18 @@ class PanelNode:
     # channel_select only
     channel_types: Optional[list] = None   # list[discord.ChannelType] to filter
 
+    # role_select / channel_select only - the inline create button (standard §11).
+    # Every role/channel select editor carries a create button by default;
+    # allow_create=False opts a node out. create_entity, when set, replaces the
+    # engine's default create-and-save: async (guild, name, actor) ->
+    # (entity | None, error_str | None), and OWNS persistence (the engine skips
+    # set_values; use it for flows that configure beyond storing the id).
+    # create_label overrides the button label ("Create Role" / "Create Channel" /
+    # "Create Category" / "Create Voice Channel" by default).
+    allow_create: bool = True
+    create_entity: Optional[Callable] = None
+    create_label: str = ""
+
     # option_select only
     options: Optional[list] = None          # [(val, label[, desc]), ...]
     min_values: int = 1
@@ -120,6 +132,12 @@ class PanelNode:
     # dict_remove_value: async (guild_id, key) -> bool  delete one entry.
     # dict_key_label / dict_value_label: TextInput labels for the add/edit modal.
     # dict_value_validator: sync (raw_str) -> (ok, error_msg, parsed_value).
+    # dict_key_validator: same contract, applied to the KEY on every path (the
+    #   dual modal, the channel-key flow, and the key modal of the role-value
+    #   flow). When it returns a parsed value that is not None, the key is stored
+    #   as ``str(parsed)`` so a typed key ("05" -> 5 -> "5") is normalized before
+    #   it reaches storage. Unset (the default) means keys are only checked for
+    #   emptiness, exactly as before.
     # dict_max_entries: optional cap on the number of entries.
     dict_get_values: Optional[Callable] = None
     dict_set_value: Optional[Callable] = None
@@ -127,7 +145,32 @@ class PanelNode:
     dict_key_label: str = "Key"
     dict_value_label: str = "Value"
     dict_value_validator: Optional[Callable] = None
+    dict_key_validator: Optional[Callable] = None
     dict_max_entries: Optional[int] = None
+
+    # dict_editor input shapes. Both default to "text", which is the original
+    # dual-field-modal editor - a node that sets neither renders and behaves
+    # exactly as it always has.
+    #
+    # dict_key_kind:
+    #   "text"    - key typed into the modal (default).
+    #   "channel" - key picked from a native ChannelSelect and stored as
+    #               str(channel.id), so admins never type a snowflake. Add becomes
+    #               "pick a channel -> supply the value"; Edit keeps the key fixed
+    #               (change a channel key by removing the entry and adding it again).
+    # dict_key_channel_types: list[discord.ChannelType] filtering that ChannelSelect
+    #   (None = every channel type). Only read when dict_key_kind == "channel".
+    # dict_value_kind:
+    #   "text" - value typed into the modal (default), parsed by dict_value_validator.
+    #   "role" - value picked from a native RoleSelect and stored as str(role.id).
+    #            Role values are permission-checked before they are persisted (the
+    #            bot needs Manage Roles, the role must exist, must not be @everyone,
+    #            must not be integration-managed, and must sit below the bot's top
+    #            role) and skip dict_value_validator, which has no meaning for a
+    #            snowflake.
+    dict_key_kind: str = "text"            # "text" | "channel"
+    dict_key_channel_types: Optional[list] = None   # list[discord.ChannelType]
+    dict_value_kind: str = "text"          # "text" | "role"
 
     # file_upload only
     # template_data: sync (no args) -> (bytes, filename); when set, renders a
@@ -201,6 +244,21 @@ class PanelNode:
 
     # Async description override: async (guild) -> str, resolved at render time.
     async_description: Optional[Callable] = None
+
+    # Opt-in override for progress counting (the "N of M configured" category badge).
+    # None = infer from ``kind`` (see ``_counts_toward_progress``), which is right for
+    # every node whose kind already implies whether it holds a value.
+    #
+    # Set True on a ``kind="action"`` node that is really a bespoke SETTINGS EDITOR
+    # owning stored config (codex's Color Tiers / Tag Tracker / Boost Tracker / Drops
+    # Channel / Tracked Channels), so it is counted like any other setting. Such a node
+    # should also supply ``get_values`` (so "configured" can be determined) and normally
+    # ``summary_builder`` (so the summary line reads as text rather than blank).
+    #
+    # Leave unset on the stateless one-shot actions the kind was designed for - View
+    # Status, Export, Publish, Reset, Purge, premium activation - which have no stored
+    # value and must not inflate the badge. Set False to force-exclude any node.
+    counts_as_setting: Optional[bool] = None
 
 
 @dataclass
@@ -409,13 +467,17 @@ def build_menu_view(
 
     # Editable block: admin-settable child summaries.
     # Each line shows the current value of a configurable child the user can edit.
+    # Children with no value summary (actions) render as a plain label - a
+    # trailing colon with nothing after it reads as an unfilled placeholder.
     child_lines = []
     for key, child in node.children.items():
         prefix = "\U0001f512 " if key in _locked else ""
         child_label = _effective_label(child, is_premium)
-        child_lines.append(
-            f"- **{prefix}{child_label}:** {_child_summary(child, summary_map.get(key, []), guild)}"
-        )
+        summary = _child_summary(child, summary_map.get(key, []), guild)
+        if summary:
+            child_lines.append(f"- **{prefix}{child_label}:** {summary}")
+        else:
+            child_lines.append(f"- **{prefix}{child_label}**")
 
     if child_lines or node.children:
         # Visual separator between read-only context and editable summaries.
@@ -495,11 +557,16 @@ def build_select_view(
     on_clear: Optional[Callable[[discord.Interaction], Awaitable[None]]] = None,
     back_label: str = "Back",
     is_premium: bool = False,
+    on_create: Optional[Callable[[discord.Interaction], Awaitable[None]]] = None,
+    create_label: str = "Create",
 ) -> discord.ui.LayoutView:
     """Build a select view for a PanelNode with kind in (role_select, channel_select, option_select).
 
     The component auto-saves on change (no explicit Save button); Back navigates
-    to the parent; Clear (if provided) removes all values.
+    to the parent; Clear (if provided) removes all values. ``on_create`` (if
+    provided) renders the inline create button (standard §11): every role/channel
+    select editor lets the admin create the entity right where it is picked,
+    instead of hunting for a separate create node.
     """
     builder = AdminLayoutBuilder()
 
@@ -650,6 +717,15 @@ def build_select_view(
         clear_btn.callback = on_clear
         btn_row.add_item(clear_btn)
 
+    if on_create is not None:
+        create_btn = discord.ui.Button(
+            label=create_label,
+            style=discord.ButtonStyle.primary,
+            custom_id=cid("editor", "create", node.key),
+        )
+        create_btn.callback = on_create
+        btn_row.add_item(create_btn)
+
     builder.add_item(btn_row)
 
     return builder.build()
@@ -658,7 +734,14 @@ def build_select_view(
 # -- Modal input support -------------------------------------------------------
 
 class PanelInputModal(discord.ui.Modal):
-    """Generic single-field modal used by build_modal_trigger_view."""
+    """Generic single-field modal used by build_modal_trigger_view.
+
+    ``category_picker=True`` (channel-create flows) adds an optional
+    parent-category select under the name field; the submit callback then
+    receives ``(interaction, value, category_id | None)`` instead of
+    ``(interaction, value)`` - ``None`` when the admin skipped the picker.
+    ``category_default`` pre-selects a category (Try Again keeps the pick).
+    """
 
     def __init__(
         self,
@@ -669,14 +752,17 @@ class PanelInputModal(discord.ui.Modal):
         min_length: int,
         max_length: int,
         default: str,
-        on_submit_callback: Callable[[discord.Interaction, str], Awaitable[None]],
+        on_submit_callback: Callable[..., Awaitable[None]],
         paragraph: bool = False,
         required: bool = True,
+        category_picker: bool = False,
+        category_default: Optional[int] = None,
     ):
         super().__init__(title=title)
         self._callback = on_submit_callback
+        self.category_select: Optional[discord.ui.ChannelSelect] = None
         self.value_input = discord.ui.TextInput(
-            label=label,
+            label=None if category_picker else label,
             placeholder=placeholder or None,
             required=required,
             style=discord.TextStyle.paragraph if paragraph else discord.TextStyle.short,
@@ -684,10 +770,36 @@ class PanelInputModal(discord.ui.Modal):
             max_length=max_length,
             default=default or None,
         )
-        self.add_item(self.value_input)
+        if not category_picker:
+            self.add_item(self.value_input)
+        else:
+            # With the picker, every field rides in a Label component -
+            # Discord's modal layout does not mix bare text inputs with Labels.
+            self.add_item(discord.ui.Label(text=label, component=self.value_input))
+            self.category_select = discord.ui.ChannelSelect(
+                channel_types=[discord.ChannelType.category],
+                placeholder="No category",
+                required=False,
+                min_values=0,
+                max_values=1,
+                default_values=(
+                    [discord.Object(id=category_default, type=discord.abc.GuildChannel)]
+                    if category_default else []
+                ),
+            )
+            self.add_item(discord.ui.Label(
+                text="Category",
+                description="Optional - pick where the channel goes, or leave empty.",
+                component=self.category_select,
+            ))
 
     async def on_submit(self, interaction: discord.Interaction):
-        await self._callback(interaction, self.value_input.value.strip())
+        value = self.value_input.value.strip()
+        if self.category_select is None:
+            await self._callback(interaction, value)
+            return
+        picked = self.category_select.values
+        await self._callback(interaction, value, picked[0].id if picked else None)
 
 
 def build_modal_trigger_view(
@@ -837,27 +949,72 @@ class _PanelDualInputModal(discord.ui.Modal):
         )
 
 
+# Summary strings that mean "this setting has no value yet".
+_UNSET_SUMMARIES = ("Not configured", "Not set", "Not assigned", "Empty")
+
+
+def _counts_toward_progress(node: PanelNode) -> bool:
+    """True when a node is a setting an admin can give a value to.
+
+    Read-only screens and one-shot commands (kind="action" - View Status,
+    Export, Reset, Purge) have no stored value, so they can never read as
+    configured and must not inflate the category badge.
+
+    A node can override the kind-based inference with ``counts_as_setting``. That
+    exists because ``kind="action"`` covers two unrelated things: stateless one-shots
+    (correctly excluded) and bespoke settings editors that own real stored config
+    (which must be counted, or a category built entirely from them shows no badge at
+    all while its settings are plainly configurable).
+    """
+    if node.counts_as_setting is not None:
+        return node.counts_as_setting
+    if node.kind == "action":
+        return False
+    if node.kind == "menu":
+        # A toggle-only menu is a real on/off setting. A menu with children is
+        # a container - its children are counted individually. A menu with
+        # neither is a label-only stub.
+        return bool(node.toggle_get) and not node.children
+    return True
+
+
 def _compact_category_summary(
     cat_node: PanelNode,
     cat_summaries: dict[str, str | dict[str, str]],
-    toggle: bool | None,
 ) -> str:
-    """Build a one-line compact summary for a category."""
-    # Count configured leaf values
+    """Build a one-line compact summary for a category.
+
+    Counts only configurable settings - see ``_counts_toward_progress``.
+    Returns "" when the category holds no settable items at all, so the caller
+    can render the label on its own instead of a meaningless "0 of 0".
+    A childless top-level node summarizes itself under the "__self__" sentinel
+    (see AdminCog._gather_deep_summaries) - render that verbatim.
+    """
+    self_summary = cat_summaries.get("__self__")
+    if isinstance(self_summary, str) and self_summary:
+        return self_summary
+
     configured = 0
     total = 0
     for child_key, child_node in cat_node.children.items():
-        val = cat_summaries.get(child_key, "Not configured")
+        val = cat_summaries.get(child_key)
         if isinstance(val, dict):
-            for sub_val in val.values():
+            for sub_key, sub_val in val.items():
+                sub_node = child_node.children.get(sub_key)
+                if sub_node is None or not _counts_toward_progress(sub_node):
+                    continue
                 total += 1
-                if sub_val not in ("Not configured", "Not set", "Not assigned"):
+                if sub_val not in _UNSET_SUMMARIES:
                     configured += 1
         else:
+            if not _counts_toward_progress(child_node):
+                continue
             total += 1
-            if val not in ("Not configured", "Not set", "Not assigned"):
+            if (val or "Not configured") not in _UNSET_SUMMARIES:
                 configured += 1
 
+    if total == 0:
+        return ""
     if configured == 0:
         return "Not configured"
     return f"{configured} of {total} configured"
@@ -909,13 +1066,16 @@ def build_overview_view(
             lock_prefix = "\U0001f512 " if cat_key in _locked else ""
             toggle = toggle_states.get(cat_key)
 
-            summary = _compact_category_summary(cat_node, cat_summaries, toggle)
+            summary = _compact_category_summary(cat_node, cat_summaries)
             cat_label = _effective_label(cat_node, is_premium)
             if toggle is not None:
                 status = "Enabled" if toggle else "Disabled"
-                lines.append(f"**{lock_prefix}{cat_label}** - {status} ({summary})")
-            else:
+                suffix = f" ({summary})" if summary else ""
+                lines.append(f"**{lock_prefix}{cat_label}** - {status}{suffix}")
+            elif summary:
                 lines.append(f"**{lock_prefix}{cat_label}** - {summary}")
+            else:
+                lines.append(f"**{lock_prefix}{cat_label}**")
 
         detail_items.append(discord.ui.TextDisplay("\n".join(lines)))
     else:
@@ -938,9 +1098,15 @@ def build_overview_view(
                 if isinstance(val, dict):
                     lines.append(f"  {child_label_2}:")
                     for sub_key, sub_node in child_node.children.items():
-                        sub_val = val.get(sub_key, "Not configured")
                         sub_label = _effective_label(sub_node, is_premium)
+                        # Read-only screens and one-shot commands hold no value.
+                        if sub_node.kind == "action":
+                            lines.append(f"    \u2022 {sub_label}")
+                            continue
+                        sub_val = val.get(sub_key, "Not configured")
                         lines.append(f"    \u2022 {sub_label}: {sub_val}")
+                elif child_node.kind == "action":
+                    lines.append(f"  \u2022 {child_label_2}")
                 else:
                     lines.append(f"  \u2022 {child_label_2}: {val}")
 
@@ -965,10 +1131,15 @@ def build_overview_view(
                 description="(divider - not selectable)",
             ))
         child_label = _effective_label(child, is_premium)
+        desc = child.description or None
+        if desc and len(desc) > 100:
+            # Truncate on a word boundary with an ellipsis rather than
+            # hard-slicing mid-word (Discord caps option descriptions at 100).
+            desc = desc[:97].rsplit(" ", 1)[0] + "..."
         options.append(discord.SelectOption(
             label=f"\U0001f512 {child_label}" if key in _locked else child_label,
             value=key,
-            description=child.description[:100] if child.description else None,
+            description=desc,
         ))
         prev_group = group
     select = discord.ui.Select(
@@ -1094,6 +1265,72 @@ def build_dual_modal_trigger_view(
 
 # -- Dict Editor --------------------------------------------------------------
 
+def _dict_channel_name(guild: discord.Guild | None, key) -> str:
+    """Resolve a channel key to ``#name``.
+
+    Falls back to the raw id marked ``(deleted)`` when the channel is gone, and to
+    the bare id when no guild was supplied (nothing can be resolved).
+    """
+    if guild is None:
+        return str(key)
+    try:
+        channel = guild.get_channel(int(key))
+    except (TypeError, ValueError):
+        channel = None
+    if channel is not None:
+        return f"#{channel.name}"
+    return f"{key} (deleted)"
+
+
+def _dict_role_name(guild: discord.Guild | None, value) -> str:
+    """Resolve a role value to ``@name``.
+
+    Falls back to the raw id marked ``(deleted)`` when the role is gone, and to the
+    bare id when no guild was supplied.
+    """
+    if guild is None:
+        return str(value)
+    try:
+        role = guild.get_role(int(value))
+    except (TypeError, ValueError):
+        role = None
+    if role is not None:
+        return f"@{role.name}"
+    return f"{value} (deleted)"
+
+
+def _dict_key_display(node: PanelNode, key):
+    """Key as it appears in the entries listing (channel keys render as mentions)."""
+    if node.dict_key_kind == "channel":
+        return f"<#{key}>"
+    return key
+
+
+def _dict_value_display(node: PanelNode, value):
+    """Value as it appears in the entries listing (role values render as mentions)."""
+    if node.dict_value_kind == "role":
+        return f"<@&{value}>"
+    return value
+
+
+def _dict_entry_option_label(
+    node: PanelNode, key, value, guild: discord.Guild | None = None,
+) -> str:
+    """<=100-char option label for the Edit / Remove selects.
+
+    Channel keys and role values are resolved to readable names so an admin never
+    has to recognise a snowflake. Default text/text nodes get ``str(key)[:100]``,
+    unchanged.
+    """
+    if node.dict_key_kind == "channel":
+        label = _dict_channel_name(guild, key)
+    else:
+        label = str(key)
+    if node.dict_value_kind == "role":
+        label = f"{label} - {_dict_role_name(guild, value)}"
+    return label[:100]
+
+
 def build_dict_editor_view(
     node: PanelNode,
     current_values: dict,
@@ -1104,6 +1341,7 @@ def build_dict_editor_view(
     on_back: Callable[[discord.Interaction], Awaitable[None]],
     back_label: str = "Back",
     is_premium: bool = False,
+    guild: discord.Guild | None = None,
 ) -> discord.ui.LayoutView:
     """Build a view for a PanelNode with kind="dict_editor".
 
@@ -1119,6 +1357,9 @@ def build_dict_editor_view(
         on_remove:      Async (interaction, target_key) - delete entry.
         on_back:        Async (interaction) - leave editor.
         back_label:     "Back" or "Close" depending on parent context.
+        guild:          Guild used to resolve channel keys / role values to names.
+                        Optional: without it ids render raw (default text/text
+                        editors never need it).
     """
     builder = AdminLayoutBuilder()
 
@@ -1128,7 +1369,10 @@ def build_dict_editor_view(
         builder.add_item(readonly_container(discord.ui.TextDisplay(node.description)))
 
     if current_values:
-        lines = [f"• **{k}**: {v}" for k, v in current_values.items()]
+        lines = [
+            f"• **{_dict_key_display(node, k)}**: {_dict_value_display(node, v)}"
+            for k, v in current_values.items()
+        ]
         if node.dict_max_entries is not None:
             lines.append(f"\n*{len(current_values)} of {node.dict_max_entries} entries*")
         # The edit/remove selects below are capped at Discord's 25-option limit. Surface
@@ -1162,9 +1406,12 @@ def build_dict_editor_view(
     editor_items.append(add_row)
 
     if current_values:
+        visible_entries = list(current_values.items())[:25]
         edit_options = [
-            discord.SelectOption(label=str(k)[:100], value=str(k))
-            for k in list(current_values.keys())[:25]
+            discord.SelectOption(
+                label=_dict_entry_option_label(node, k, v, guild), value=str(k),
+            )
+            for k, v in visible_entries
         ]
         edit_select = discord.ui.Select(
             placeholder="Edit entry...",
@@ -1180,8 +1427,10 @@ def build_dict_editor_view(
         edit_select.callback = _edit_cb
 
         remove_options = [
-            discord.SelectOption(label=str(k)[:100], value=str(k))
-            for k in list(current_values.keys())[:25]
+            discord.SelectOption(
+                label=_dict_entry_option_label(node, k, v, guild), value=str(k),
+            )
+            for k, v in visible_entries
         ]
         remove_select = discord.ui.Select(
             placeholder="Remove entry...",
@@ -1211,6 +1460,144 @@ def build_dict_editor_view(
         label=back_label,
         style=back_style,
         custom_id=cid("editor", "dict_back", node.key),
+    )
+    back_btn.callback = on_back
+    builder.add_action_row(back_btn)
+
+    return builder.build()
+
+
+def build_dict_key_channel_view(
+    node: PanelNode,
+    *,
+    on_pick: Callable[[discord.Interaction, int], Awaitable[None]],
+    on_back: Callable[[discord.Interaction], Awaitable[None]],
+    back_label: str = "Back",
+    is_premium: bool = False,
+) -> discord.ui.LayoutView:
+    """Channel-key step of a ``dict_key_kind == "channel"`` dict_editor.
+
+    Step 1 of Add: a native ChannelSelect (filtered by
+    ``node.dict_key_channel_types``) whose pick is handed to ``on_pick`` as an int
+    channel id; the orchestrator then runs the value step. Back returns to the
+    entries list without changing anything.
+    """
+    builder = AdminLayoutBuilder()
+
+    builder.add_header(f"## {_effective_label(node, is_premium)}")
+
+    if node.dict_value_kind == "role":
+        next_step = "You will pick the role for it next."
+    else:
+        next_step = (
+            f"You will be asked for the **{node.dict_value_label or 'Value'}** next."
+        )
+    builder.add_item(readonly_container(discord.ui.TextDisplay(
+        f"Pick the channel this entry applies to. {next_step}\n"
+        "Picking a channel that already has an entry updates that entry."
+    )))
+
+    select_kwargs = dict(
+        placeholder="Select a channel...",
+        custom_id=cid("editor", "dict_key_channel", node.key),
+        min_values=1,
+        max_values=1,
+    )
+    if node.dict_key_channel_types:
+        select_kwargs["channel_types"] = node.dict_key_channel_types
+    component = discord.ui.ChannelSelect(**select_kwargs)
+
+    async def _channel_cb(interaction: discord.Interaction):
+        await on_pick(interaction, int(interaction.data["values"][0]))
+
+    component.callback = _channel_cb
+
+    select_row = discord.ui.ActionRow()
+    select_row.add_item(component)
+    builder.add_item(editable_container(
+        discord.ui.TextDisplay(f"**{node.dict_key_label or 'Key'}:**"),
+        select_row,
+    ))
+
+    back_style = discord.ButtonStyle.danger if back_label == "Close" else discord.ButtonStyle.secondary
+    back_btn = discord.ui.Button(
+        label=back_label,
+        style=back_style,
+        custom_id=cid("editor", "dict_key_back", node.key),
+    )
+    back_btn.callback = on_back
+    builder.add_action_row(back_btn)
+
+    return builder.build()
+
+
+def build_dict_value_role_view(
+    node: PanelNode,
+    entry_key,
+    *,
+    current_role_id=None,
+    on_pick: Callable[[discord.Interaction, int], Awaitable[None]],
+    on_back: Callable[[discord.Interaction], Awaitable[None]],
+    back_label: str = "Back",
+    is_premium: bool = False,
+    guild: discord.Guild | None = None,
+) -> discord.ui.LayoutView:
+    """Role-value step of a ``dict_value_kind == "role"`` dict_editor.
+
+    Shows which entry is being edited and a native RoleSelect (pre-filled with the
+    entry's current role when it has one). The pick is handed to ``on_pick`` as an
+    int role id; the orchestrator permission-checks it before persisting. Back
+    returns to the entries list without changing anything.
+    """
+    builder = AdminLayoutBuilder()
+
+    builder.add_header(f"## {_effective_label(node, is_premium)}")
+
+    key_text = _dict_key_display(node, entry_key)
+    builder.add_item(readonly_container(discord.ui.TextDisplay(
+        f"Pick the role for **{node.dict_key_label or 'Key'}: {key_text}**.\n"
+        "The bot has to be able to assign it, so it cannot be @everyone or a role "
+        "managed by an integration, and it must sit below the bot's highest role."
+    )))
+
+    default_values = []
+    if current_role_id:
+        try:
+            default_values = [discord.Object(id=int(current_role_id))]
+        except (TypeError, ValueError):
+            default_values = []
+
+    current_text = (
+        f"**Current role:** {_dict_role_name(guild, current_role_id)}"
+        if current_role_id
+        else "*No role set for this entry yet.*"
+    )
+
+    component = discord.ui.RoleSelect(
+        placeholder="Select a role...",
+        custom_id=cid("editor", "dict_value_role", node.key),
+        min_values=1,
+        max_values=1,
+        default_values=default_values,
+    )
+
+    async def _role_cb(interaction: discord.Interaction):
+        await on_pick(interaction, int(interaction.data["values"][0]))
+
+    component.callback = _role_cb
+
+    select_row = discord.ui.ActionRow()
+    select_row.add_item(component)
+    builder.add_item(editable_container(
+        discord.ui.TextDisplay(current_text),
+        select_row,
+    ))
+
+    back_style = discord.ButtonStyle.danger if back_label == "Close" else discord.ButtonStyle.secondary
+    back_btn = discord.ui.Button(
+        label=back_label,
+        style=back_style,
+        custom_id=cid("editor", "dict_value_back", node.key),
     )
     back_btn.callback = on_back
     builder.add_action_row(back_btn)

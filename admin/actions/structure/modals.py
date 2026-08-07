@@ -20,7 +20,8 @@ import discord
 
 from ...views.panel_engine import PanelNode, ActionContext, PanelInputModal
 from ...views.base import (
-    AdminLayoutBuilder, readonly_container, editable_container, build_notice_layout, cid,
+    AdminLayoutBuilder, readonly_container, editable_container, notice_container,
+    build_notice_layout, cid,
 )
 
 
@@ -29,13 +30,26 @@ def modal_action(
     description="", status: Optional[Callable] = None,
     button_label=None, modal_title=None, field_label="Value",
     placeholder="", min_length=0, max_length=200, paragraph=False,
-    success_text: Optional[Callable] = None, mod_allowed=False, premium_label=None,
+    success_text: Optional[Callable] = None,
+    permission_check: Optional[Callable] = None,
+    validator: Optional[Callable] = None,
+    mod_allowed=False, premium_label=None,
 ) -> PanelNode:
     """An ``action`` node: shows an optional status line + a button that opens a one-field
-    modal, then runs ``on_submit(guild, raw) -> result``.
+    modal, then runs ``on_submit(guild, value) -> result``.
 
     ``status(guild_id) -> str`` (async, optional) renders a current-status line.
     ``success_text(result) -> str`` formats the success notice (default "Done.").
+    ``permission_check(guild) -> (ok, error)`` (sync, optional) runs at the open
+    button click, BEFORE the modal: a missing bot permission is refused with a
+    notice instead of failing after the admin has typed a value (standard §11).
+    ``validator(raw) -> (ok, value, error)`` (sync, optional) runs on submit before
+    ``on_submit``; the validated ``value`` is what ``on_submit`` receives.
+
+    Every failure notice after the modal (cooldown, validation, on_submit error)
+    carries a Try Again button that reopens the modal with the rejected input
+    pre-filled - Discord forbids answering a modal submit with another modal, so
+    the button hop is the closest the API allows to "reopen the modal".
     """
     async def _on_run(cog, interaction, guild, ctx: ActionContext):
         builder = AdminLayoutBuilder()
@@ -50,6 +64,69 @@ def modal_action(
             if status_text:
                 builder.add_item(readonly_container(discord.ui.TextDisplay(status_text)))
 
+        def _retry_layout(body: str, previous: str) -> discord.ui.LayoutView:
+            """Failure notice + Try Again reopening the modal with the input kept."""
+            retry_btn = discord.ui.Button(
+                label="Try Again", style=discord.ButtonStyle.primary,
+                custom_id=cid("modal_action", "retry", key),
+            )
+
+            async def _retry(ri: discord.Interaction):
+                await _send_modal(ri, default=previous)
+
+            retry_btn.callback = _retry
+            retry_row = discord.ui.ActionRow()
+            retry_row.add_item(retry_btn)
+            layout = discord.ui.LayoutView()
+            layout.add_item(notice_container(
+                discord.ui.TextDisplay(f"## {label}\n{body}"), retry_row,
+            ))
+            return layout
+
+        async def _handle_submit(mi: discord.Interaction, raw: str):
+            if not cog._check_cooldown(mi.user.id, key, guild.id):
+                await mi.response.send_message(
+                    view=_retry_layout("Please wait a moment before trying again.", raw),
+                    ephemeral=True,
+                )
+                return
+            value = raw
+            if validator is not None:
+                ok, value, error = validator(raw)
+                if not ok:
+                    await mi.response.send_message(
+                        view=_retry_layout(error or "That value is not valid.", raw),
+                        ephemeral=True,
+                    )
+                    return
+            await mi.response.defer(ephemeral=True)
+            try:
+                result = await on_submit(guild, value)
+            except Exception:
+                await mi.followup.send(
+                    view=_retry_layout(f"Could not complete **{label}**.", raw),
+                    ephemeral=True,
+                )
+                return
+            if ctx.refresh_parent:
+                await ctx.refresh_parent()
+            msg = success_text(result) if success_text else "Done."
+            await mi.followup.send(view=build_notice_layout(label, msg), ephemeral=True)
+
+        async def _send_modal(bi: discord.Interaction, default: str = ""):
+            modal = PanelInputModal(
+                title=modal_title or label,
+                label=field_label,
+                placeholder=placeholder,
+                min_length=min_length,
+                max_length=max_length,
+                default=default,
+                on_submit_callback=_handle_submit,
+                paragraph=paragraph,
+                required=True,
+            )
+            await bi.response.send_modal(modal)
+
         btn = discord.ui.Button(
             label=button_label or f"Set {label}",
             style=discord.ButtonStyle.primary,
@@ -57,39 +134,15 @@ def modal_action(
         )
 
         async def _open(bi: discord.Interaction):
-            async def _submit(mi: discord.Interaction, raw: str):
-                if not cog._check_cooldown(mi.user.id, key, guild.id):
-                    await mi.response.send_message(
-                        view=build_notice_layout("Slow Down", "Please wait a moment before trying again."),
+            if permission_check is not None:
+                ok, error = permission_check(guild)
+                if not ok:
+                    await bi.response.send_message(
+                        view=build_notice_layout("Missing Permission", error or ""),
                         ephemeral=True,
                     )
                     return
-                await mi.response.defer(ephemeral=True)
-                try:
-                    result = await on_submit(guild, raw)
-                except Exception:
-                    await mi.followup.send(
-                        view=build_notice_layout("Failed", f"Could not complete **{label}**."),
-                        ephemeral=True,
-                    )
-                    return
-                if ctx.refresh_parent:
-                    await ctx.refresh_parent()
-                msg = success_text(result) if success_text else "Done."
-                await mi.followup.send(view=build_notice_layout(label, msg), ephemeral=True)
-
-            modal = PanelInputModal(
-                title=modal_title or label,
-                label=field_label,
-                placeholder=placeholder,
-                min_length=min_length,
-                max_length=max_length,
-                default="",
-                on_submit_callback=_submit,
-                paragraph=paragraph,
-                required=True,
-            )
-            await bi.response.send_modal(modal)
+            await _send_modal(bi)
 
         btn.callback = _open
         open_row = discord.ui.ActionRow()

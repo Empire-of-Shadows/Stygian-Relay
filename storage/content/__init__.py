@@ -14,7 +14,7 @@ index rebuilds).
 
 It deliberately introduces no new storage - it caches whatever an async ``loader`` returns,
 keyed (optionally per-guild) with TTL + LRU bounds. See
-``docs/storage_engine/content-cache.md``.
+``.docs/storage_engine/content-cache.md``.
 """
 
 from .cached_loader import CachedLoader

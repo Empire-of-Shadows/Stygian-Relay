@@ -19,6 +19,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from dashboard._engine.activity import record_actor
 from dashboard._engine.auth.session import (
     consume_oauth_state,
     create_session,
@@ -76,7 +77,7 @@ async def discord_login(redirect_to: str | None = None):
 
 
 @router.get("/discord/callback")
-async def discord_callback(code: str, state: str | None = None):
+async def discord_callback(request: Request, code: str, state: str | None = None):
     if not state:
         return RedirectResponse(url="/login", status_code=302)
     redirect_url = await consume_oauth_state(state)
@@ -120,6 +121,9 @@ async def discord_callback(code: str, state: str | None = None):
         refresh_token=tokens.get("refresh_token"),
         expires_in=tokens.get("expires_in"),
     )
+    # The callback is the one place the person is known without a session lookup,
+    # so name them here rather than logging the login as anonymous.
+    record_actor(request, {"user_data": user_data})
 
     redirect = RedirectResponse(url=redirect_url, status_code=302)
     redirect.set_cookie(
