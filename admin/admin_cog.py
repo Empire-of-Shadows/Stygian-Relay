@@ -29,8 +29,8 @@ from discord import app_commands
 from discord.ext import commands
 
 # All bot-specific backends (config, audit, premium, cache invalidation, panel-role
-# resolution, branding text, mod-tier set) are reached through this per-bot seam, so
-# this engine file stays byte-identical across every bot. Each bot ships its own
+# resolution, branding text) are reached through this per-bot seam, so this engine file
+# stays byte-identical across every bot. Each bot ships its own
 # admin/settings/bindings.py wiring these to its real backend.
 from .settings.bindings import (
     OVERVIEW_FOOTER,
@@ -42,10 +42,6 @@ from .settings.bindings import (
     is_premium,
     resolve_panel_role,
 )
-# NOTE: MOD_ALLOWED_CATEGORIES is intentionally NOT imported here. It is a legacy,
-# optional binding; auth.effective_mod_allowed imports it with a fallback so a bot
-# that omits it still loads. Hard-importing it here would break the whole cog for
-# any such bot.
 from .permission_checks import (
     check_assignable_role,
     check_bot_guild_permission,
@@ -59,7 +55,6 @@ from .actions.discord_objects.create import (
     validate_role_name,
     validator_for_channel_kind,
 )
-from .auth import effective_mod_allowed
 from .settings.panel_configs import MAIN_PANEL
 from .views.panel_engine import (
     PanelNode,
@@ -198,15 +193,14 @@ class AdminCog(commands.Cog):
         guild = interaction.guild
         admin_id = interaction.user.id
 
-        # Resolve panel access tier. Gate invocation; mods see a restricted overview.
+        # Resolve panel access tier. The panel is admin-only: "admin" or "none".
         panel_role = await resolve_panel_role(interaction.user, guild.id)
         if panel_role == "none":
             await interaction.response.send_message(
                 view=build_notice_layout(
                     "Permission Denied",
                     "You do not have permission to use the admin panel. "
-                    "Requires **Manage Server**, the configured Admin role, "
-                    "or the configured Mod role.",
+                    "Requires **Manage Server** or a configured Panel Access role.",
                 ),
                 ephemeral=True,
             )
@@ -233,7 +227,7 @@ class AdminCog(commands.Cog):
 
         # Shared session for synced timeout across both messages
         session = PanelSession(interaction)
-        session.panel_role = panel_role  # let nav/save handlers gate by tier
+        session.panel_role = panel_role  # resolved tier, carried to nav/save handlers
 
         async def on_toggle_guide(toggle_interaction: discord.Interaction):
             if not self._check_cooldown(admin_id, "setup_guide_toggle", guild.id):
@@ -266,18 +260,6 @@ class AdminCog(commands.Cog):
         async def on_main_select(sel_interaction: discord.Interaction, child_key: str):
             child = MAIN_PANEL.children.get(child_key)
             if not child:
-                return
-
-            # Mod role may only open categories whose effective mod_allowed is True.
-            if panel_role == "mod" and not effective_mod_allowed(MAIN_PANEL, child):
-                notice = build_notice_layout(
-                    "Admin Only",
-                    "This section is restricted to server admins. "
-                    "Mods can only adjust per-game settings.",
-                )
-                refreshed = await _build_overview()
-                await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
-                await sel_interaction.followup.send(view=notice, ephemeral=True)
                 return
 
             # Lock check
@@ -344,11 +326,6 @@ class AdminCog(commands.Cog):
             deep_summary = await self._gather_deep_summaries(MAIN_PANEL, guild.id, guild)
             toggle_states = await self._gather_toggle_states(MAIN_PANEL, guild.id)
             locked = await self._compute_locked_keys(MAIN_PANEL, guild.id)
-            if panel_role == "mod":
-                locked = set(locked) | {
-                    k for k, child in MAIN_PANEL.children.items()
-                    if not effective_mod_allowed(MAIN_PANEL, child)
-                }
 
             # Preamble (Setup Guide) is wrapped in a readonly_container by build_overview_view;
             # pass the bare TextDisplay items so the engine can apply the accent color.
@@ -436,16 +413,6 @@ class AdminCog(commands.Cog):
         async def on_child_select(child_interaction: discord.Interaction, child_key: str):
             child = category_node.children.get(child_key)
             if not child:
-                return
-
-            # Mod gate: a child may opt out of mod access even inside a mod-allowed category.
-            if session.panel_role == "mod" and not effective_mod_allowed(MAIN_PANEL, child):
-                notice = build_notice_layout(
-                    "Admin Only", "This setting is restricted to server admins."
-                )
-                refreshed = await _build_category_view()
-                await child_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
-                await child_interaction.followup.send(view=notice, ephemeral=True)
                 return
 
             # Lock check
@@ -666,15 +633,6 @@ class AdminCog(commands.Cog):
         if node.on_run is None:
             logger.warning(f"action node {node.key!r} has no on_run handler")
             return
-        # Defense in depth: mods cannot run an action whose effective mod_allowed is False.
-        # A missing session defaults to the restrictive "mod" tier (deny admin-only), never
-        # the permissive "admin".
-        if getattr(session, "panel_role", "mod") == "mod" and not effective_mod_allowed(MAIN_PANEL, node):
-            await interaction.response.send_message(
-                view=build_notice_layout("Admin Only", "This action is restricted to server admins."),
-                ephemeral=True,
-            )
-            return
         ctx = ActionContext(
             session=session,
             parent_node=parent_node,
@@ -756,17 +714,6 @@ class AdminCog(commands.Cog):
         async def on_select(sel_interaction: discord.Interaction, child_key: str):
             child = node.children.get(child_key)
             if not child:
-                return
-
-            # Mod gate (inherited): block a mod from a child that opts out of mod access.
-            # A missing session defaults to the restrictive "mod" tier, never "admin".
-            if getattr(session, "panel_role", "mod") == "mod" and not effective_mod_allowed(MAIN_PANEL, child):
-                notice = build_notice_layout(
-                    "Admin Only", "This setting is restricted to server admins."
-                )
-                refreshed = await _build_current_view()
-                await sel_interaction.response.edit_message(view=self._rebind_session_view(session, refreshed))
-                await sel_interaction.followup.send(view=notice, ephemeral=True)
                 return
 
             # Lock check

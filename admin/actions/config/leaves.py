@@ -52,7 +52,7 @@ def _id_accessors(path: str, *, multi: bool, as_str: bool = False):
 
 
 def role_leaf(key, path, *, label, description="", multi=False, max_values=10,
-              requires_role_manage=False, mod_allowed=None, premium_label=None,
+              requires_role_manage=False, premium_label=None,
               pre_check=None, str_ids=False, value_validator=None) -> PanelNode:
     """role_select leaf storing a single role id (``multi=False``) or a list.
 
@@ -66,14 +66,14 @@ def role_leaf(key, path, *, label, description="", multi=False, max_values=10,
         key=key, label=label, kind="role_select", description=description,
         get_values=g, set_values=s, clear_values=c,
         min_values=0, max_values=(max_values if multi else 1),
-        requires_role_manage=requires_role_manage, mod_allowed=mod_allowed,
+        requires_role_manage=requires_role_manage,
         premium_label=premium_label, pre_check=pre_check,
         value_validator=value_validator,
     )
 
 
 def channel_leaf(key, path, *, label, description="", channel_types=None, multi=False,
-                 max_values=10, required_channel_perms=None, mod_allowed=None,
+                 max_values=10, required_channel_perms=None,
                  premium_label=None, str_ids=False, counts_as_setting=None) -> PanelNode:
     """channel_select leaf storing a single channel id (``multi=False``) or a list.
 
@@ -85,13 +85,13 @@ def channel_leaf(key, path, *, label, description="", channel_types=None, multi=
         key=key, label=label, kind="channel_select", description=description,
         channel_types=channel_types, get_values=g, set_values=s, clear_values=c,
         min_values=0, max_values=(max_values if multi else 1),
-        required_channel_perms=required_channel_perms, mod_allowed=mod_allowed,
+        required_channel_perms=required_channel_perms,
         premium_label=premium_label, counts_as_setting=counts_as_setting,
     )
 
 
 def option_leaf(key, path, *, label, options, description="", multi=False, max_values=25,
-                mod_allowed=None, premium_label=None, premium_values=None) -> PanelNode:
+                premium_label=None, premium_values=None) -> PanelNode:
     """option_select leaf storing a single value (``multi=False``) or a list."""
     async def _get(guild_id):
         if multi:
@@ -110,12 +110,12 @@ def option_leaf(key, path, *, label, options, description="", multi=False, max_v
         key=key, label=label, kind="option_select", description=description,
         options=options, get_values=_get, set_values=_set,
         min_values=1, max_values=(max_values if multi else 1),
-        premium_values=premium_values, mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_values=premium_values, premium_label=premium_label,
     )
 
 
 def bool_leaf(key, path, *, label, description="", true_label="Enabled",
-              false_label="Disabled", mod_allowed=None, premium_label=None) -> PanelNode:
+              false_label="Disabled", premium_label=None) -> PanelNode:
     """option_select leaf storing a real Python bool at ``path`` (a two-choice picker).
 
     Use for a standalone on/off setting that is NOT a menu's own toggle (menus use
@@ -133,13 +133,13 @@ def bool_leaf(key, path, *, label, description="", true_label="Enabled",
         options=[("true", true_label, ""), ("false", false_label, "")],
         get_values=_get, set_values=_set,
         min_values=1, max_values=1,
-        mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_label=premium_label,
     )
 
 
 def text_leaf(key, path, *, label, description="", placeholder="", min_length=0,
               max_length=1000, paragraph=False, modal_title="", validator=None,
-              mod_allowed=None, premium_label=None) -> PanelNode:
+              premium_label=None) -> PanelNode:
     """modal_input leaf storing a free-text string at ``path`` (optional ``validator``)."""
     async def _get(guild_id):
         v = await get_config_field(guild_id, path)
@@ -159,12 +159,12 @@ def text_leaf(key, path, *, label, description="", placeholder="", min_length=0,
         modal_title=modal_title or f"Set {label}", modal_label=label,
         modal_placeholder=placeholder, modal_min_length=min_length,
         modal_max_length=max_length, modal_paragraph=paragraph, modal_required=False,
-        modal_validator=validator, mod_allowed=mod_allowed, premium_label=premium_label,
+        modal_validator=validator, premium_label=premium_label,
     )
 
 
 def int_leaf(key, path, *, label, description="", minimum=None, maximum=None,
-             modal_title="", mod_allowed=None, premium_label=None) -> PanelNode:
+             modal_title="", premium_label=None) -> PanelNode:
     """modal_input leaf storing an integer at ``path`` (range-validated)."""
     def _validate(raw: str):
         try:
@@ -194,12 +194,12 @@ def int_leaf(key, path, *, label, description="", minimum=None, maximum=None,
         get_values=_get, set_values=_set, clear_values=_clear,
         modal_title=modal_title or f"Set {label}", modal_label=label,
         modal_validator=_validate, modal_min_length=1, modal_max_length=20,
-        modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
+        modal_required=False, premium_label=premium_label,
     )
 
 
 def float_leaf(key, path, *, label, description="", minimum=None, maximum=None,
-               modal_title="", mod_allowed=None, premium_label=None) -> PanelNode:
+               modal_title="", premium_label=None) -> PanelNode:
     """modal_input leaf storing a float at ``path`` (range-validated).
 
     The decimal sibling of ``int_leaf`` - use for multipliers / rates (e.g. an XP
@@ -233,12 +233,12 @@ def float_leaf(key, path, *, label, description="", minimum=None, maximum=None,
         get_values=_get, set_values=_set, clear_values=_clear,
         modal_title=modal_title or f"Set {label}", modal_label=label,
         modal_validator=_validate, modal_min_length=1, modal_max_length=20,
-        modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
+        modal_required=False, premium_label=premium_label,
     )
 
 
 def int_list_leaf(key, path, *, label, description="", minimum=None, maximum=None,
-                  modal_title="", mod_allowed=None, premium_label=None) -> PanelNode:
+                  modal_title="", premium_label=None) -> PanelNode:
     """modal_input leaf storing a list of ints, entered/shown as a comma-separated list
     (e.g. ``10, 25, 50``). Empty input clears the list. Round-trips cleanly: the current
     value is pre-filled as the same comma-separated form the validator parses."""
@@ -277,11 +277,11 @@ def int_list_leaf(key, path, *, label, description="", minimum=None, maximum=Non
         modal_title=modal_title or f"Set {label}", modal_label=label,
         modal_placeholder="e.g. 10, 25, 50, 75, 100",
         modal_validator=_validate, modal_min_length=0, modal_max_length=200,
-        modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
+        modal_required=False, premium_label=premium_label,
     )
 
 
-def color_leaf(key, path, *, label, description="", modal_title="", mod_allowed=None,
+def color_leaf(key, path, *, label, description="", modal_title="",
                premium_label=None) -> PanelNode:
     """modal_input leaf storing a color as int, entered/shown as ``#RRGGBB``."""
     async def _get(guild_id):
@@ -301,13 +301,13 @@ def color_leaf(key, path, *, label, description="", modal_title="", mod_allowed=
         get_values=_get, set_values=_set, clear_values=_clear,
         modal_title=modal_title or f"Set {label}", modal_label=f"{label} (#RRGGBB)",
         modal_validator=hex_validator, modal_min_length=3, modal_max_length=9,
-        modal_required=False, mod_allowed=mod_allowed, premium_label=premium_label,
+        modal_required=False, premium_label=premium_label,
     )
 
 
 def dict_editor_leaf(key, path, *, label, description="", key_label="Key",
                      value_label="Value", value_validator=None, max_entries=None,
-                     mod_allowed=None, premium_label=None, key_kind="text",
+                     premium_label=None, key_kind="text",
                      key_channel_types=None, value_kind="text",
                      key_validator=None, required_channel_perms=None,
                      counts_as_setting=None) -> PanelNode:
@@ -345,14 +345,14 @@ def dict_editor_leaf(key, path, *, label, description="", key_label="Key",
         dict_max_entries=max_entries,
         dict_key_kind=key_kind, dict_key_channel_types=key_channel_types,
         dict_value_kind=value_kind, required_channel_perms=required_channel_perms,
-        mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_label=premium_label,
         counts_as_setting=counts_as_setting,
     )
 
 
 def grouped_select_leaf(key, path, *, label, groups, items_for, item_value, item_line,
                         item_option_label, description="", page_size=25,
-                        mod_allowed=None, premium_label=None) -> PanelNode:
+                        premium_label=None) -> PanelNode:
     """grouped_paginated_select leaf storing a single value at config ``path``.
 
     ``groups() -> list[(value, label)]``; ``items_for(group_value) -> list[item]``.
@@ -372,5 +372,5 @@ def grouped_select_leaf(key, path, *, label, groups, items_for, item_value, item
         group_get_groups=groups, group_get_items=items_for,
         list_item_value=item_value, list_format_line=item_line,
         list_item_option_label=item_option_label, list_action_label="Select",
-        list_page_size=page_size, mod_allowed=mod_allowed, premium_label=premium_label,
+        list_page_size=page_size, premium_label=premium_label,
     )

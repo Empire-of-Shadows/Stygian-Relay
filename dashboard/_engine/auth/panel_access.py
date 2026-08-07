@@ -10,7 +10,8 @@ policy on top of. Provides the LIVE guild-permission check (``has_manage_guild``
 token, computing ADMINISTRATOR / MANAGE_GUILD from role permissions), the member-role fetch
 (``member_role_ids``), a session-snapshot hint (``session_has_manage_guild``), plus the
 internal token-bucket rate limiter and TTL caches that keep the bot-token fetches within
-Discord's limits. Only the seam's tier model (2-tier vs 3-tier, role data source) is per-bot.
+Discord's limits. Panel access is ADMIN-ONLY fleet-wide - a seam resolves either "admin"
+or "none" - so only the role data source is per-bot.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from dashboard.config import (
 
 logger = logging.getLogger("dashboard.auth.panel_access")
 
-PanelRole = Literal["admin", "mod", "none"]
+PanelRole = Literal["admin", "none"]
 
 _MEMBER_CACHE_TTL = 60.0
 _MEMBER_NEGATIVE_TTL = 60.0

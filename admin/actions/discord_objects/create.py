@@ -122,7 +122,7 @@ async def create_channel(guild: discord.Guild, name: str, *, kind: str = "text",
 
 def create_role_action(
     key, *, label, store_path, name_label="Role name", description="",
-    reason="Admin panel", mod_allowed=False, premium_label=None, **role_kwargs,
+    reason="Admin panel", premium_label=None, **role_kwargs,
 ):
     """An ``action`` node: prompt for a role name, create the role, store its id at
     config ``store_path``. Extra kwargs pass through to ``guild.create_role``.
@@ -145,13 +145,13 @@ def create_role_action(
         on_submit=_submit, success_text=lambda r: f"Created and saved {r.mention}.",
         permission_check=lambda g: check_bot_guild_permission(g, "manage_roles"),
         validator=validate_role_name,
-        mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_label=premium_label,
     )
 
 
 def create_channel_action(
     key, *, label, store_path, kind="text", name_label="Channel name", description="",
-    reason="Admin panel", mod_allowed=False, premium_label=None, **channel_kwargs,
+    reason="Admin panel", premium_label=None, **channel_kwargs,
 ):
     """An ``action`` node: prompt for a channel name, create the channel (``kind`` =
     "text" | "voice" | "category"), store its id at config ``store_path``.
@@ -176,5 +176,5 @@ def create_channel_action(
         on_submit=_submit, success_text=lambda c: f"Created and saved {c.mention}.",
         permission_check=lambda g: check_bot_guild_permission(g, "manage_channels"),
         validator=name_validator,
-        mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_label=premium_label,
     )

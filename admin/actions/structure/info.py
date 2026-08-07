@@ -22,13 +22,12 @@ from ...views.base import AdminLayoutBuilder, readonly_container, cid
 
 
 def info_action(
-    key, *, label, render: Callable, description="", mod_allowed=True, premium_label=None,
+    key, *, label, render: Callable, description="", premium_label=None,
 ) -> PanelNode:
     """An ``action`` node that renders a read-only display on message 2.
 
     ``render(cog, guild, ctx) -> str`` (async) returns the markdown body to show; a Back
-    button returns to the parent menu. Defaults to ``mod_allowed=True`` since info views
-    are read-only and mods are typically allowed to view them.
+    button returns to the parent menu.
     """
     async def _on_run(cog, interaction, guild, ctx: ActionContext):
         try:
@@ -65,5 +64,5 @@ def info_action(
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )

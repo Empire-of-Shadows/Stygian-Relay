@@ -3,6 +3,9 @@
 The live guild-permission plumbing (bot-token MANAGE_GUILD check, member-role fetch, rate
 limiter, caches) lives in the shared engine at ``dashboard/_engine/auth/panel_access.py``.
 This file is only relay's tier policy. Mirrors ``admin/settings/bindings.py::resolve_panel_role``.
+
+Relay's dashboard is admin-only: this seam resolves exactly "admin" or "none". The stored
+``manager_role_id`` is a full delegation of that admin tier, not a limited one.
 """
 
 from __future__ import annotations
@@ -15,28 +18,24 @@ from dashboard._engine.auth.panel_access import (
     session_has_manage_guild,
 )
 
-# Relay has no mod tier - this frozenset is intentionally empty.
-MOD_ALLOWED_SECTIONS: frozenset[str] = frozenset()
+async def _guild_admin_roles(guild_id: str) -> list[int]:
+    """Return the role ids that grant full panel access for `guild_id`.
 
-
-async def _guild_panel_roles(guild_id: str) -> tuple[list[int], list[int]]:
-    """Return (admin_role_ids, mod_role_ids) for `guild_id`.
-
-    Relay uses a single `manager_role_id` field (no mod tier).
+    Relay stores a single delegated `manager_role_id`; holding it grants the same
+    full access an admin has.
     """
     doc = await db.guild_settings().find_one(
         {"guild_id": str(guild_id)}, projection={"manager_role_id": 1}
     )
     if not doc:
-        return ([], [])
+        return []
     raw = doc.get("manager_role_id")
     if not raw:
-        return ([], [])
+        return []
     try:
-        mid = int(raw)
+        return [int(raw)]
     except (TypeError, ValueError):
-        return ([], [])
-    return ([mid], [])
+        return []
 
 
 async def resolve_panel_role(
@@ -58,7 +57,7 @@ async def resolve_panel_role(
     elif session_has_manage_guild(session, guild_id):
         return "admin"
 
-    admin_role_ids, _ = await _guild_panel_roles(guild_id)
+    admin_role_ids = await _guild_admin_roles(guild_id)
     if not admin_role_ids:
         return "none"
 

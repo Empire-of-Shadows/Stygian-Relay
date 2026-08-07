@@ -225,10 +225,6 @@ class PanelNode:
 
     # action only - a leaf that runs an arbitrary handler (no value contract).
     on_run: Optional[Callable] = None                  # async (interaction, ctx) -> None
-    # Tri-state mod access: True/False are explicit; None inherits from the nearest
-    # ancestor (root default: admin-only). A menu's True cascades to its children; a
-    # child's False overrides. Resolved by auth.effective_mod_allowed.
-    mod_allowed: Optional[bool] = None
 
     # Dashboard summary overrides (consumed by some overview renderers).
     view_only: bool = False

@@ -18,7 +18,7 @@ from ..config.fields import safe_invalidate
 
 def confirm_action(
     key, *, label, confirm_text, run, description="", confirm_label=None,
-    success_text: Optional[Callable] = None, mod_allowed=False, premium_label=None,
+    success_text: Optional[Callable] = None, premium_label=None,
 ) -> PanelNode:
     """An ``action`` node that shows a Confirm/Cancel prompt, then runs ``run(guild_id)``.
 
@@ -69,12 +69,12 @@ def confirm_action(
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )
 
 
 def purge_action(key, *, collection, label, confirm_text, query: Optional[Callable] = None,
-                 description="", mod_allowed=False, premium_label=None) -> PanelNode:
+                 description="", premium_label=None) -> PanelNode:
     """A confirm-gated ``action`` that purges all documents in ``collection`` matching
     ``query(guild_id)`` (default ``{"guild_id": str(guild_id)}`` - IDs are stored as
     strings, the ecosystem standard; a collection that deviates must pass its own
@@ -91,5 +91,5 @@ def purge_action(key, *, collection, label, confirm_text, query: Optional[Callab
     return confirm_action(
         key, label=label, confirm_text=confirm_text, run=_run, description=description,
         success_text=lambda n: f"Removed {n} item(s).",
-        mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_label=premium_label,
     )

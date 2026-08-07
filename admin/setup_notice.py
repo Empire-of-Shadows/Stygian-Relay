@@ -51,7 +51,6 @@ DEFAULT_PANEL_COMMAND = "`/admin panel`"
 DEFAULT_ROLE_ACCESS_PATH = "Role Configuration -> Panel Access Roles"
 
 ADMIN_ROLES_PATH = "roles.admin_role_ids"
-MOD_ROLES_PATH = "roles.mod_role_ids"
 
 
 def _binding(name: str, default):
@@ -114,8 +113,7 @@ async def _audience_line(
         from .settings.bindings import config_get  # lazy: see module docstring
 
         admin_roles = _as_ids(await config_get(guild.id, ADMIN_ROLES_PATH, default=[]))
-        mod_roles = _as_ids(await config_get(guild.id, MOD_ROLES_PATH, default=[]))
-        delegated = bool(admin_roles or mod_roles)
+        delegated = bool(admin_roles)
 
         perms = getattr(viewer, "guild_permissions", None)
         if perms and perms.manage_guild:
@@ -147,7 +145,7 @@ async def _audience_line(
             f"**{role_access_path()}** so they can help set the server up."
         )
 
-    return f"Ask an admin or moderator to run {panel}."
+    return f"Ask an admin to run {panel}."
 
 
 async def setup_notice_text(
@@ -232,18 +230,15 @@ async def permission_notice_embed(
     guild: Optional[discord.Guild],
     *,
     action: str,
-    admin_only: bool = False,
 ) -> discord.Embed:
-    """Notice for a staff-only command run by someone without the tier.
+    """Notice for an admin-only command run by someone without panel access.
 
-    Beyond "you can't", this explains how the tier is granted, since on a fresh install
+    Beyond "you can't", this explains how access is granted, since on a fresh install
     the honest answer is "nobody has delegated it yet" rather than "you were denied".
     """
-    tier = (
-        "the configured **Panel Access** role" if admin_only
-        else "a configured **Panel Access** or **Mod Access** role"
-    )
-    parts = [f"You need **Administrator** or {tier} to {action}."]
+    parts = [
+        f"You need **Administrator** or the configured **Panel Access** role to {action}."
+    ]
 
     delegated = True
     try:
@@ -251,8 +246,7 @@ async def permission_notice_embed(
             from .settings.bindings import config_get  # lazy: see module docstring
 
             admin_roles = _as_ids(await config_get(guild.id, ADMIN_ROLES_PATH, default=[]))
-            mod_roles = _as_ids(await config_get(guild.id, MOD_ROLES_PATH, default=[]))
-            delegated = bool(admin_roles or mod_roles)
+            delegated = bool(admin_roles)
     except Exception as e:
         logger.warning(
             "Could not read panel roles for guild %s: %s", getattr(guild, "id", "?"), e

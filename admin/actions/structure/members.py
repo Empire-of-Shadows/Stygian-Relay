@@ -28,7 +28,7 @@ def member_action(
     key, *, label, run: Callable,
     confirm_text: Optional[Union[str, Callable]] = None,
     description="", placeholder="Select a member...",
-    success_text: Optional[Callable] = None, mod_allowed=False, premium_label=None,
+    success_text: Optional[Callable] = None, premium_label=None,
 ) -> PanelNode:
     """An ``action`` node presenting a member picker (UserSelect); on pick it optionally
     shows a Confirm/Cancel prompt, then runs ``run(guild_id, user_id) -> result``.
@@ -126,5 +126,5 @@ def member_action(
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )

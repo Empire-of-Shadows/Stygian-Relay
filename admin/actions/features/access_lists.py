@@ -21,7 +21,7 @@ from ..config.fields import get_config_list, set_config_list
 
 
 def _exclusive_leaf(key, path, other_path, *, label, description, channel_types,
-                    max_values, mod_allowed, premium_label) -> PanelNode:
+                    max_values, premium_label) -> PanelNode:
     async def _get(guild_id):
         return [int(x) for x in await get_config_list(guild_id, path)]
 
@@ -41,7 +41,7 @@ def _exclusive_leaf(key, path, other_path, *, label, description, channel_types,
     return PanelNode(
         key=key, label=label, kind="channel_select", description=description,
         channel_types=channel_types, get_values=_get, set_values=_set, clear_values=_clear,
-        min_values=0, max_values=max_values, mod_allowed=mod_allowed, premium_label=premium_label,
+        min_values=0, max_values=max_values, premium_label=premium_label,
     )
 
 
@@ -49,18 +49,18 @@ def access_list_pair(
     *, allow_key="allow", block_key="block", allow_path, block_path,
     allow_label="Allowed Channels", block_label="Blocked Channels",
     allow_description="", block_description="", channel_types=None, max_values=25,
-    mod_allowed=False, premium_label=None,
+    premium_label=None,
 ) -> dict[str, PanelNode]:
     """Return ``{allow_key: node, block_key: node}`` - two mutually-exclusive channel lists."""
     return {
         allow_key: _exclusive_leaf(
             allow_key, allow_path, block_path, label=allow_label,
             description=allow_description, channel_types=channel_types,
-            max_values=max_values, mod_allowed=mod_allowed, premium_label=premium_label,
+            max_values=max_values, premium_label=premium_label,
         ),
         block_key: _exclusive_leaf(
             block_key, block_path, allow_path, label=block_label,
             description=block_description, channel_types=channel_types,
-            max_values=max_values, mod_allowed=mod_allowed, premium_label=premium_label,
+            max_values=max_values, premium_label=premium_label,
         ),
     }

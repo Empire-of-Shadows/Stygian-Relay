@@ -5,7 +5,6 @@ export type PanelRole = "admin" | "none";
 export interface Me extends SessionUser {
   can_manage_any: boolean;
   can_access_admin_any: boolean;
-  can_access_mod_any: false;
   can_access_settings_any: boolean;
 }
 

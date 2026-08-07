@@ -11,8 +11,8 @@ via ``audit_log``. The panel binds its leaves to inline ``guild_manager`` access
 completeness; Relay's panel has no collection-reset/delete actions, so the ``db_*`` doers are
 inert stubs (the same pattern as TheHost).
 
-Relay has no ``panel_branding.py``/``role_auth.py``; the static text and tier set the engine
-reads are defined inline below (as in the reference template).
+Relay has no ``panel_branding.py``/``role_auth.py``; the static branding text and the tier
+resolver the engine reads are defined inline below (as in the reference template).
 """
 
 from __future__ import annotations
@@ -32,18 +32,20 @@ logger = logging.getLogger("AdminBindings")
 
 BOT_NAME = "Stygian-Relay"
 
-# Relay gates the panel on Administrator or the configured manager role (see
-# database/permissions.can_manage_guild_settings) - there is no mod tier.
-MOD_ALLOWED_CATEGORIES: set[str] = set()
+# The Relay panel is admin-only. resolve_panel_role below returns exactly
+# "admin" or "none", so neither per-node `PanelNode.mod_allowed` flags nor the
+# engine's legacy `MOD_ALLOWED_CATEGORIES` fallback binding are used by this bot
+# (auth.effective_mod_allowed imports that name optionally and falls back to an
+# empty set, which is what relay wants).
 
 SETUP_GUIDE_TEXT = (
     "**Getting started with Stygian-Relay**\n"
     "Relay mirrors messages from one channel to another, in this server or "
     "across servers. Work through the sections below to go live:\n"
     "\n"
-    "**1. Core** - Set a **Manager Role** so trusted members can change these "
-    "settings without full admin, and a **Log Channel** where the bot posts "
-    "activity and errors.\n"
+    "**1. Core** - Set a **Manager Role** to give trusted members the same full "
+    "panel access an admin has without granting them Manage Server, and a "
+    "**Log Channel** where the bot posts activity and errors.\n"
     "**2. Feature Toggles** - Turn on **Message Forwarding** (the master "
     "switch; while it is off, no rules fire). Optionally enable **Error "
     "Notifications** for in-channel alerts, and use the **Inbound Forward "
@@ -75,8 +77,13 @@ def _dig(settings: dict, path: str, default: Any = None) -> Any:
 # ── Tier resolution ──────────────────────────────────────────────────────────────
 
 async def resolve_panel_role(user: discord.Member, guild_id: int) -> str:
-    """Return "admin" | "none". Mirrors ``permissions.can_manage_guild_settings``:
-    Administrator (or Manage Server) or the configured ``manager_role_id`` ⇒ admin."""
+    """Return "admin" | "none" - the Relay panel has no Mod tier.
+
+    Mirrors ``permissions.can_manage_guild_settings``: Administrator (or Manage
+    Server) grants admin, and so does the configured ``manager_role_id``, which is
+    a full delegation of panel access (relay's equivalent of the fleet's Panel
+    Access Roles), not a limited tier. Anything else is "none".
+    """
     perms = getattr(user, "guild_permissions", None)
     if perms is not None and (perms.administrator or perms.manage_guild):
         return "admin"

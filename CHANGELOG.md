@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] - 2026-08-06
+
+### Changed
+- **The Manager Role is now described for what it actually does.** Nothing about who can get in
+  has changed: the `/admin` panel and the web dashboard are open to anyone with Manage Server or
+  Administrator, plus anyone holding the Manager Role you pick - and the Manager Role has always
+  given that person the whole panel, exactly the same as an admin. The setup guide used to call it
+  access "without full admin", which read as a limited, moderator-style tier that never existed.
+  The setup guide and the Manager Role description now say plainly that it hands out full panel
+  access without granting Manage Server, so you know what you are giving away before you set it.
+  There is no moderator tier on this bot, and the leftover moderator wiring behind the scenes has
+  been cleared out.
+
 ## [Unreleased] - 2026-08-05
 
 ### Added

@@ -54,7 +54,7 @@ async def export_documents(
 
 def export_action(key, *, collection, label, fmt="json", filename="export",
                   query: Optional[Callable] = None, fields=None, description="",
-                  mod_allowed=False, premium_label=None) -> PanelNode:
+                  premium_label=None) -> PanelNode:
     """An ``action`` node that exports ``collection`` (matching ``query``) ephemerally.
 
     The default query is ``{"guild_id": str(guild.id)}`` - IDs are stored as strings,
@@ -77,5 +77,5 @@ def export_action(key, *, collection, label, fmt="json", filename="export",
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )

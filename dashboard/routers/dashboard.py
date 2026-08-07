@@ -57,7 +57,6 @@ async def me(session: dict = Depends(get_current_user)):
         "discriminator": user.get("discriminator"),
         "can_manage_any": can_manage_any,
         "can_access_admin_any": can_access_admin_any,
-        "can_access_mod_any": False,  # relay has no mod tier
         "can_access_settings_any": can_access_admin_any,
     }
 

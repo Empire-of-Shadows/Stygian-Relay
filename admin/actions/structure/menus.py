@@ -25,7 +25,6 @@ def menu_group(
     locked_children: Optional[Callable] = None,
     lock_reason: str = "",
     premium_label: Optional[str] = None,
-    mod_allowed: bool = False,
 ) -> PanelNode:
     """A menu node holding child nodes. ``toggle_path`` wires a feature on/off toggle
     backed by that config bool."""
@@ -37,5 +36,5 @@ def menu_group(
         children=children, category_group=category_group,
         toggle_get=toggle_get, toggle_set=toggle_set,
         locked_children=locked_children, lock_reason=lock_reason,
-        premium_label=premium_label, mod_allowed=mod_allowed,
+        premium_label=premium_label,
     )

@@ -33,7 +33,7 @@ def modal_action(
     success_text: Optional[Callable] = None,
     permission_check: Optional[Callable] = None,
     validator: Optional[Callable] = None,
-    mod_allowed=False, premium_label=None,
+    premium_label=None,
 ) -> PanelNode:
     """An ``action`` node: shows an optional status line + a button that opens a one-field
     modal, then runs ``on_submit(guild, value) -> result``.
@@ -172,5 +172,5 @@ def modal_action(
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )

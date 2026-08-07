@@ -18,7 +18,7 @@ def paginated_list_node(
     key, *, collection, label, line_formatter, value_getter, option_label,
     description="", action_label="Delete", id_field="_id", page_size=10,
     query: Optional[Callable] = None, delete_query: Optional[Callable] = None,
-    confirm_line: Optional[Callable] = None, mod_allowed=False, premium_label=None,
+    confirm_line: Optional[Callable] = None, premium_label=None,
 ) -> PanelNode:
     """A paginated_list node browsing ``collection`` with a per-item action (default delete).
 
@@ -52,5 +52,5 @@ def paginated_list_node(
         list_item_value=value_getter, list_item_option_label=option_label,
         list_action_label=action_label, list_action=_action,
         list_action_confirm_line=confirm_line, list_page_size=page_size,
-        mod_allowed=mod_allowed, premium_label=premium_label,
+        premium_label=premium_label,
     )

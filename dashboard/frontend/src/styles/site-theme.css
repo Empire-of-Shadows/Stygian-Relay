@@ -1248,94 +1248,6 @@ tr:hover td {
   border-color: var(--success);
 }
 
-/* ── Mod page (under construction) ─────────────────────────────────── */
-
-.mod-construction__sigil {
-  position: relative;
-  z-index: 1;
-  width: 96px;
-  height: 96px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.mod-construction__sigil img {
-  width: 72px;
-  height: 72px;
-  filter: drop-shadow(0 8px 24px rgba(77, 14, 179, 0.55));
-  animation: mod-bob 3.5s ease-in-out infinite;
-}
-.mod-construction__ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 2px solid var(--brand-2);
-  opacity: 0.6;
-  animation: mod-ring 2.4s ease-out infinite;
-}
-
-.mod-construction__bar {
-  margin-top: 0.9rem;
-  width: 100%;
-  max-width: 320px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--glass-heavy);
-  overflow: hidden;
-}
-.mod-construction__bar > span {
-  display: block;
-  height: 100%;
-  width: 40%;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
-  animation: mod-sweep 1.8s ease-in-out infinite;
-}
-
-.mod-construction__teaser {
-  opacity: 0.92;
-}
-.mod-construction__float {
-  font-size: 20px;
-  animation: mod-bob 3.5s ease-in-out infinite;
-}
-.mod-construction__shimmer {
-  margin-top: 14px;
-  height: 8px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--glass) 0%, rgba(255, 255, 255, 0.14) 50%, var(--glass) 100%);
-  background-size: 200% 100%;
-  animation: mod-shimmer 1.6s linear infinite;
-}
-
-@keyframes mod-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
-}
-@keyframes mod-ring {
-  0% { transform: scale(0.85); opacity: 0.7; }
-  100% { transform: scale(1.25); opacity: 0; }
-}
-@keyframes mod-sweep {
-  0% { transform: translateX(-120%); }
-  100% { transform: translateX(320%); }
-}
-@keyframes mod-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mod-construction__sigil img,
-  .mod-construction__ring,
-  .mod-construction__bar > span,
-  .mod-construction__float,
-  .mod-construction__shimmer {
-    animation: none;
-  }
-  .mod-construction__bar > span { width: 100%; }
-}
-
 /* ── Admin "Guild Web" page ────────────────────────────────────────── */
 
 .guild-web-layout {
@@ -1408,9 +1320,7 @@ tr:hover td {
 .guild-web__node-bg { fill: var(--bg-2); }
 .guild-web__node-ring { stroke-width: 2.5; }
 .guild-web__node--admin .guild-web__node-ring { stroke: var(--brand-light); }
-.guild-web__node--mod .guild-web__node-ring { stroke: var(--warning); }
 .guild-web__node--admin { filter: drop-shadow(0 0 6px rgba(122, 61, 240, 0.35)); }
-.guild-web__node--mod { filter: drop-shadow(0 0 6px rgba(255, 184, 107, 0.30)); }
 .guild-web__node.is-setup .guild-web__node-ring { stroke-dasharray: 4 4; }
 .guild-web__node.is-setup { opacity: 0.8; }
 .guild-web__node.is-dim { opacity: 0.32; }

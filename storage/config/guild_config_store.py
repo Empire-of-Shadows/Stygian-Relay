@@ -31,10 +31,10 @@ from ..logging_compat import get_logger
 
 logger = get_logger("GuildConfigStore")
 
-# Canonical panel-role keys (the shape admin_engine's bindings read). Kept here so every
-# bot resolves admin/mod roles the same way regardless of its feature schema.
+# Canonical panel-role key (the shape admin_engine's bindings read). Kept here so every
+# bot resolves admin roles the same way regardless of its feature schema. Panel access is
+# admin-only fleet-wide; there is no mod-role list.
 _ADMIN_ROLES_PATH = "roles.admin_role_ids"
-_MOD_ROLES_PATH = "roles.mod_role_ids"
 
 
 class GuildConfigStore:
@@ -214,7 +214,7 @@ class GuildConfigStore:
 
     @staticmethod
     def _normalize_roles(doc: Dict[str, Any], path: str) -> List[int]:
-        """Fold ``roles.{admin,mod}_role_ids`` into an int list."""
+        """Fold ``roles.admin_role_ids`` into an int list."""
         ids = GuildConfigStore._dig(doc, path)
         return [int(r) for r in (ids or [])]
 
@@ -222,17 +222,13 @@ class GuildConfigStore:
         """Resolve the guild's admin panel-role ids (canonical shape)."""
         return self._normalize_roles(await self.get_settings(guild_id), _ADMIN_ROLES_PATH)
 
-    async def get_mod_role_ids(self, guild_id: Any) -> List[int]:
-        """Resolve the guild's mod panel-role ids (canonical shape)."""
-        return self._normalize_roles(await self.get_settings(guild_id), _MOD_ROLES_PATH)
-
-    async def add_role(self, guild_id: Any, kind: str, role_id: int) -> bool:
-        """Add a role id to the ``admin`` or ``mod`` canonical list (idempotent).
+    async def add_role(self, guild_id: Any, role_id: int) -> bool:
+        """Add a role id to the canonical admin panel-role list (idempotent).
 
         Atomic ``$addToSet`` instead of read-modify-write, so two concurrent adds
         can't read the same list and clobber each other (lost update). Role ids are
         stored in the canonical STRING form (readers coerce as needed)."""
-        path = _ADMIN_ROLES_PATH if kind == "admin" else _MOD_ROLES_PATH
+        path = _ADMIN_ROLES_PATH
         gid = self._gid(guild_id)
         try:
             await self._mgr.update_one(
@@ -243,12 +239,12 @@ class GuildConfigStore:
             logger.error(f"add_role failed for guild {gid}: {e}", exc_info=True)
             return False
 
-    async def remove_role(self, guild_id: Any, kind: str, role_id: int) -> bool:
-        """Remove a role id from the ``admin`` or ``mod`` canonical list.
+    async def remove_role(self, guild_id: Any, role_id: int) -> bool:
+        """Remove a role id from the canonical admin panel-role list.
 
         Atomic ``$pull`` instead of read-modify-write. Pulls BOTH the string and int
         forms so a not-yet-normalized legacy element is still removable."""
-        path = _ADMIN_ROLES_PATH if kind == "admin" else _MOD_ROLES_PATH
+        path = _ADMIN_ROLES_PATH
         gid = self._gid(guild_id)
         try:
             await self._mgr.update_one(

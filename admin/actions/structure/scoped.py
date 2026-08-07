@@ -121,7 +121,7 @@ def scoped_guild_action(
     after: Optional[Callable] = None,
     require=("guild_id",),
     description="", success_text: Optional[Callable] = None,
-    mod_allowed=False, premium_label=None,
+    premium_label=None,
 ) -> PanelNode:
     """Guild-scoped reset/delete: optional confirm/typed-confirm, then mutate ``specs`` over
     ``{"guild_id": gid}`` with ``before``/``after`` sub-action hooks.
@@ -175,7 +175,7 @@ def scoped_guild_action(
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )
 
 
@@ -188,7 +188,7 @@ def scoped_member_action(
     require=("guild_id", "user_id"),
     description="", placeholder="Select a member...",
     success_text: Optional[Callable] = None,
-    mod_allowed=False, premium_label=None,
+    premium_label=None,
 ) -> PanelNode:
     """Member-scoped reset/delete: pick a member, optional confirm/typed-confirm, then mutate
     ``specs`` over ``{"guild_id", "user_id"}`` with ``before``/``after`` sub-action hooks.
@@ -248,5 +248,5 @@ def scoped_member_action(
 
     return PanelNode(
         key=key, label=label, kind="action", description=description,
-        on_run=_on_run, mod_allowed=mod_allowed, premium_label=premium_label,
+        on_run=_on_run, premium_label=premium_label,
     )
