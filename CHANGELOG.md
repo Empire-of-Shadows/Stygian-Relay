@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased] - 2026-08-07
+
+### Added
+- **There is now an About page explaining the whole project.** The dashboard's login page and
+  the footer on every page link to a new About page for Empire of Shadows: what each of the six
+  bots does, how they fit together, and why the project is built as separate bots instead of one
+  big one. Handy if you have just found one of the bots and want to know what the rest of it is.
+
 ## [Unreleased] - 2026-08-06
 
 ### Changed

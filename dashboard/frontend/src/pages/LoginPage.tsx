@@ -32,6 +32,17 @@ export function LoginPage({ me }: { me: Me | null }) {
           , which covers every bot, dashboard, and tool in the ecosystem. Stygian Relay has its own{" "}
           <Link to="/privacy">privacy page</Link> for the detail specific to this bot.
         </p>
+        <p className="muted" style={{ fontSize: "0.85rem" }}>
+          New here?{" "}
+          <a
+            href="https://eosofficial.club/about"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Read what this project is about
+          </a>{" "}
+          - six bots, one ecosystem, and why it is built that way.
+        </p>
 
         <div className="login-divider">Explore the ecosystem</div>
 
