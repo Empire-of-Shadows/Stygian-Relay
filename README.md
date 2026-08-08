@@ -74,7 +74,6 @@ For Stygian Relay to forward messages correctly, the bot needs:
 | **Read Message History** | Retrieve messages from source channels |
 | **Attach Files** | Forward messages containing file attachments |
 | **Embed Links** | Display rich embeds in forwarded messages |
-| **Manage Webhooks** | *(Recommended)* Enables seamless forwarding with custom name and avatar |
 
 ---
 

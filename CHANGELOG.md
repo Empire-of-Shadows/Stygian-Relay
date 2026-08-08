@@ -2,6 +2,15 @@
 
 ## [Unreleased] - 2026-08-07
 
+### Changed
+- **The bot no longer asks for the Manage Webhooks permission.** The invite link and the setup
+  guide used to request Manage Webhooks for a planned option to forward messages under a custom
+  name and avatar. That option was never actually built - forwarded messages have always been
+  posted by the bot itself in the quoted style you see today - so the permission did nothing
+  except make the invite ask for more than the bot needs. New invites now request only the
+  permissions forwarding really uses. Servers that already invited the bot do not need to do
+  anything, though you can safely revoke Manage Webhooks from the bot's role if it has it.
+
 ### Added
 - **There is now an About page explaining the whole project.** The dashboard's login page and
   the footer on every page link to a new About page for Empire of Shadows: what each of the six

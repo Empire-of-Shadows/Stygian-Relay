@@ -168,8 +168,8 @@ async def bot_invite_url():
             _bot_id_cache["ts"] = now
 
     # Permissions: view_channels + send_messages + read_message_history +
-    # embed_links + attach_files + manage_webhooks
-    permissions = 1024 | 2048 | 65536 | 16384 | 32768 | 536870912
+    # embed_links + attach_files
+    permissions = 1024 | 2048 | 65536 | 16384 | 32768
     url = (
         f"https://discord.com/oauth2/authorize"
         f"?client_id={bot_id}"
