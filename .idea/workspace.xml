@@ -1,4 +1,146 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PropertiesComponent">{}</component>
+  <component name="ChangeListManager">
+    <list default="true" id="892271eb-51ff-4543-8164-ca2725867eea" name="Changes" comment="cleanup" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="223" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "EOSOClub"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/Empire-of-Shadows/Stygian-Relay.git",
+    "accountId": "531ee316-b2b0-43c1-9554-1e75479369a9"
+  }
+}]]></component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.0011857376574533" />
+      <entry key="MS500" value="1.2734972113453216" />
+      <entry key="S2" value="2.055512054031131" />
+      <entry key="S5" value="2.5246072079499577" />
+      <entry key="S10" value="2.7414873508729567" />
+      <entry key="S30" value="2.9086720503592147" />
+      <entry key="S60" value="2.9536549052401266" />
+      <entry key="M2" value="2.976654302675433" />
+      <entry key="M5" value="2.990619791904712" />
+      <entry key="M10" value="2.995302876413928" />
+      <entry key="M15" value="2.9968670220479017" />
+      <entry key="M30" value="2.9984327293264186" />
+      <entry key="H1" value="2.9992161691293386" />
+      <entry key="H2" value="2.9996080356675083" />
+      <entry key="H4" value="2.999804005607752" />
+      <entry key="D1" value="2.9999673325697573" />
+      <entry key="W1" value="2.9999953331826608" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="0.9603858954970435" />
+      <entry key="MS500" value="1.2621602723466498" />
+      <entry key="S2" value="2.050276345922455" />
+      <entry key="S5" value="2.52190569157509" />
+      <entry key="S10" value="2.739994376537367" />
+      <entry key="S30" value="2.908137658795606" />
+      <entry key="S60" value="2.953382755432831" />
+      <entry key="M2" value="2.976516960361102" />
+      <entry key="M5" value="2.9905645470244977" />
+      <entry key="M10" value="2.995275202330187" />
+      <entry key="M15" value="2.996848561158715" />
+      <entry key="M30" value="2.998423493125885" />
+      <entry key="H1" value="2.999211549588974" />
+      <entry key="H2" value="2.9996057255371626" />
+      <entry key="H4" value="2.9998028504525207" />
+      <entry key="D1" value="2.9999671400313765" />
+      <entry key="W1" value="2.9999953056768716" />
+    </decayedShown>
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "customColor": "",
+  "associatedIndex": 0
+}]]></component>
+  <component name="ProjectId" id="3Hes0h2hy5pFipUoAonWkngWnKz" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "main",
+    "nodejs_package_manager_path": "npm"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-c59985aa861c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.24374.152" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="892271eb-51ff-4543-8164-ca2725867eea" name="Changes" comment="" />
+      <created>1786239648115</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1786239648115</updated>
+    </task>
+    <task id="LOCAL-00001" summary="cleanup">
+      <option name="closed" value="true" />
+      <created>1786239666752</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1786239666752</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="cleanup" />
+    <option name="LAST_COMMIT_MESSAGE" value="cleanup" />
+  </component>
 </project>
