@@ -23,7 +23,9 @@ export function PremiumPage() {
     <div className="dash-page" style={{ maxWidth: 640, margin: "0 auto" }}>
       <div className="page-header">
         <div>
-          <Link to={`/guilds/${guildId}`} className="muted" style={{ fontSize: 13 }}>← Back</Link>
+          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
+            ← Server overview
+          </Link>
           <h1 style={{ marginTop: 4 }}>Premium</h1>
         </div>
       </div>

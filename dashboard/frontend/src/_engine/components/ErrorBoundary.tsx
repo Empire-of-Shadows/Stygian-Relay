@@ -37,7 +37,7 @@ export class ErrorBoundary extends Component<
         style={{ maxWidth: 520, margin: "4rem auto", padding: "2.5rem", textAlign: "center" }}
       >
         <h2 style={{ marginBottom: "0.75rem" }}>Something went wrong</h2>
-        <p className="muted" style={{ marginBottom: "1.25rem" }}>
+        <p className="eos-muted" style={{ marginBottom: "1.25rem" }}>
           This page hit an unexpected error. Reloading usually fixes it.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>

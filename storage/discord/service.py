@@ -37,10 +37,22 @@ class GuildSnapshotService:
     Args:
         db_manager: initialized DatabaseManager exposing ``get_collection_manager``.
         config: :class:`GuildSnapshotConfig` (timezone, permission sets, thresholds, keys).
+        member_exclude: optional ``(guild) -> iterable of user-id strings`` (async or sync)
+            naming members to leave OUT of every member snapshot. Default ``None`` means no
+            filtering at all, which is byte-for-byte the behavior before this existed. The
+            hook exists because members are extracted inside ``cache_members`` /
+            ``cache_all``, so a caller has no other seam at which to drop a row.
     """
 
-    def __init__(self, db_manager, *, config: Optional[GuildSnapshotConfig] = None):
+    def __init__(
+        self,
+        db_manager,
+        *,
+        config: Optional[GuildSnapshotConfig] = None,
+        member_exclude: Optional[Callable[[Any], Any]] = None,
+    ):
         self._config = config or GuildSnapshotConfig()
+        self._member_exclude = member_exclude
         self._store = SnapshotStore(
             db_manager.get_collection_manager,
             build_specs(self._config.keys),
@@ -75,6 +87,34 @@ class GuildSnapshotService:
             result = await result
         return result
 
+    async def _excluded_member_ids(self, guild) -> set:
+        """User-id strings the caller wants kept out of a member snapshot.
+
+        Empty when no ``member_exclude`` was supplied. A callable that raises is logged
+        and treated as "exclude nobody": a snapshot must never fail because the filter
+        could not answer, and a stale-but-complete snapshot beats no snapshot at all.
+        """
+        if self._member_exclude is None:
+            return set()
+        try:
+            result = self._member_exclude(guild)
+            if isinstance(result, Awaitable):
+                result = await result
+            return {str(value) for value in (result or ())}
+        except Exception as e:
+            logger.error(
+                f"member_exclude failed for guild {getattr(guild, 'id', '?')}: {e}"
+            )
+            return set()
+
+    async def _members_payload(self, guild) -> Any:
+        """Extract the members rows, minus anyone ``member_exclude`` named."""
+        rows = await self._extract("members", guild)
+        excluded = await self._excluded_member_ids(guild)
+        if not excluded or not rows:
+            return rows
+        return [row for row in rows if str(row.get("id")) not in excluded]
+
     @staticmethod
     def _sid(value: Any) -> str:
         """Snowflake -> canonical string form (the extractors store string IDs, so every
@@ -88,7 +128,10 @@ class GuildSnapshotService:
         async def builder() -> Dict[str, Any]:
             payloads: Dict[str, Any] = {}
             for object_type in self._extractors:
-                payloads[object_type] = await self._extract(object_type, guild)
+                if object_type == "members":
+                    payloads[object_type] = await self._members_payload(guild)
+                else:
+                    payloads[object_type] = await self._extract(object_type, guild)
             return payloads
 
         return await self._store.snapshot(self._sid(guild.id), builder=builder, force=force_refresh)
@@ -103,7 +146,7 @@ class GuildSnapshotService:
         return await self._store.upsert_many("roles", await self._extract("roles", guild))
 
     async def cache_members(self, guild) -> Dict[str, Any]:
-        return await self._store.upsert_many("members", await self._extract("members", guild))
+        return await self._store.upsert_many("members", await self._members_payload(guild))
 
     async def cache_guild_analytics(self, guild) -> bool:
         """Best-effort: logs and swallows so it never aborts ``cache_all``."""
@@ -226,7 +269,10 @@ class GuildSnapshotService:
 
 
 def create_guild_snapshot_service(
-    db_manager, *, config: Optional[GuildSnapshotConfig] = None
+    db_manager,
+    *,
+    config: Optional[GuildSnapshotConfig] = None,
+    member_exclude: Optional[Callable[[Any], Any]] = None,
 ) -> GuildSnapshotService:
     """Factory: build a :class:`GuildSnapshotService` from an initialized DatabaseManager."""
-    return GuildSnapshotService(db_manager, config=config)
+    return GuildSnapshotService(db_manager, config=config, member_exclude=member_exclude)

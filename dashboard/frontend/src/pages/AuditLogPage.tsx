@@ -43,7 +43,9 @@ export function AuditLogPage() {
     <div className="dash-page">
       <div className="page-header">
         <div>
-          <Link to={`/guilds/${guildId}`} className="muted" style={{ fontSize: 13 }}>← Back</Link>
+          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
+            ← Server overview
+          </Link>
           <h1 style={{ marginTop: 4 }}>Audit Log</h1>
         </div>
         <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ width: "auto" }}>

@@ -4,6 +4,7 @@
    Drift is enforced by:
      python EmpireSystems/tools/sync_dashboard_engine.py --check */
 import type { ReactNode } from "react";
+import "./styles/AppShell.css";
 import { EcosystemNav } from "./EcosystemNav";
 import { logoutUrl } from "../api/http";
 import type { SessionUser } from "../api/types";

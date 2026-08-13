@@ -1,6 +1,26 @@
-import type { SessionUser } from "../_engine/api/types";
+/**
+ * Relay's dashboard contract.
+ *
+ * The genuinely cross-bot shapes come from the shared dashboard engine and are
+ * composed here rather than duplicated. The pattern is superset-in-the-engine,
+ * narrow-in-the-bot: relay's backend always sends `panel_role` and always sends
+ * `parent_id` on a channel, so both are re-declared required below.
+ *
+ * Note the imports are separate from the re-exports on purpose - `export type
+ * { X } from ...` forwards a name without binding it locally, so the interfaces
+ * further down could not extend it.
+ */
+import type {
+  Channel as EngineChannel,
+  FeatureStatus,
+  Guild as EngineGuild,
+  PanelRole,
+  Role,
+  SessionUser,
+} from "../_engine/api/types";
 
-export type PanelRole = "admin" | "none";
+export type { FeatureStatus, PanelRole, Role };
+export type { FeatureState } from "../_engine/api/types";
 
 export interface Me extends SessionUser {
   can_manage_any: boolean;
@@ -8,29 +28,14 @@ export interface Me extends SessionUser {
   can_access_settings_any: boolean;
 }
 
-export interface Guild {
-  id: string;
-  name: string;
-  icon: string | null;
-  bot_in_guild: boolean;
-  has_config: boolean;
-  setup_required: boolean;
+/** Relay always resolves a tier for every guild it returns. */
+export interface Guild extends EngineGuild {
   panel_role: PanelRole;
 }
 
-export interface Channel {
-  id: string;
-  name: string;
-  type: number;
+/** Relay's channel listing always carries the category id. */
+export interface Channel extends EngineChannel {
   parent_id: string | null;
-  position: number;
-}
-
-export interface Role {
-  id: string;
-  name: string;
-  color: number;
-  position: number;
 }
 
 export interface AuthorFilters {
@@ -149,4 +154,99 @@ export interface AuditLogEntry {
 export interface AuditLogResponse {
   entries: AuditLogEntry[];
   next_cursor: string | null;
+}
+
+/* ── Guild overview (the dashboard home) ────────────────────────────────
+   Every section is independently nullable: the endpoint builds them
+   concurrently and returns null for any one that failed, so a single broken
+   collection cannot blank the page. `features` is the one exception - it is
+   derived from the config document and degrades to an empty list. */
+
+export interface TrafficDay {
+  date: string;
+  forwarded: number;
+  blocked: number;
+}
+
+export interface TrafficOverview {
+  days: number;
+  daily: TrafficDay[];
+  forwarded_30d: number;
+  blocked_30d: number;
+  lifetime: number;
+  today_forwarded: number;
+  daily_limit: number;
+  days_active: number;
+  avg_per_active_day: number;
+  peak: { date: string; forwarded: number } | null;
+  last_forward_at: string | null;
+}
+
+export interface OverviewRoute {
+  rule_id: string;
+  rule_name: string;
+  source_channel_id: string;
+  destination_channel_id: string;
+  destination_guild_id: string;
+  cross_guild: boolean;
+  is_active: boolean;
+  forwarded_30d: number;
+}
+
+export interface RulesOverview {
+  total: number;
+  active: number;
+  paused: number;
+  cross_guild: number;
+  max_rules: number;
+  idle_active: number;
+  newest_at: string | null;
+  routes: OverviewRoute[];
+}
+
+export interface DeliveryReason {
+  reason: string;
+  count: number;
+  last_date: string | null;
+}
+
+export interface DeliveryOverview {
+  blocked_30d: number;
+  undeliverable_30d: number;
+  reasons: DeliveryReason[];
+}
+
+export interface PlanOverview {
+  tier: string;
+  tiers: string[];
+  is_premium: boolean;
+  expires_at: string | null;
+  max_rules: number;
+  daily_limit: number;
+}
+
+export interface ConfigOverview {
+  has_config: boolean;
+  is_enabled: boolean;
+  forwarding_enabled: boolean;
+  notify_on_error: boolean;
+  log_channel_id: string | null;
+  manager_role_id: string | null;
+  inbound_allowed_guilds: string[];
+  last_change: {
+    category: string;
+    action: string;
+    actor_id: string;
+    at: string | null;
+  } | null;
+}
+
+export interface GuildOverview {
+  guild_id: string;
+  features: FeatureStatus[];
+  traffic: TrafficOverview | null;
+  rules: RulesOverview | null;
+  delivery: DeliveryOverview | null;
+  plan: PlanOverview | null;
+  config: ConfigOverview | null;
 }

@@ -3,6 +3,7 @@ import type {
   Channel,
   Guild,
   GuildConfig,
+  GuildOverview,
   Me,
   PremiumStatus,
   Role,
@@ -27,6 +28,8 @@ export const api = {
   botInviteUrl: () => apiFetch<{ url: string | null }>("/api/bot-invite-url"),
   channels: (gid: string) => apiFetch<Channel[]>(`/api/guilds/${gid}/channels`),
   roles: (gid: string) => apiFetch<Role[]>(`/api/guilds/${gid}/roles`),
+
+  overview: (gid: string) => apiFetch<GuildOverview>(`/api/guilds/${gid}/overview`),
 
   rules: (gid: string) => apiFetch<RulesResponse>(`/api/guilds/${gid}/rules`),
   createRule: (gid: string, body: Omit<Rule, "rule_id" | "schema_version" | "created_at" | "updated_at">) =>

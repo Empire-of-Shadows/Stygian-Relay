@@ -20,6 +20,7 @@ from dashboard._engine.auth.oauth import router as auth_router
 from dashboard.config import CORS_ORIGINS, IS_PRODUCTION
 from dashboard._engine.rate_limit import rate_limit_middleware
 from dashboard.routers.dashboard import router as dashboard_router
+from dashboard.routers.overview import router as overview_router
 from dashboard.routers.rules import router as rules_router
 from dashboard.routers.stats import router as stats_router
 from dashboard.routers.premium import router as premium_router
@@ -102,6 +103,7 @@ app.middleware("http")(activity_middleware)
 app.add_api_route("/auth/csrf", csrf_endpoint, methods=["GET"])
 app.include_router(auth_router, prefix="/auth")
 app.include_router(dashboard_router, prefix="/api")
+app.include_router(overview_router, prefix="/api")
 app.include_router(rules_router, prefix="/api")
 app.include_router(stats_router, prefix="/api")
 app.include_router(premium_router, prefix="/api")

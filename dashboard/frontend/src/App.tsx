@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
 import { api, UnauthorizedError } from "./api/client";
 import type { Me } from "./api/types";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
-import { GuildPage } from "./pages/GuildPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { RulesPage } from "./pages/RulesPage";
 import { RuleEditorPage } from "./pages/RuleEditorPage";
 import { StatsPage } from "./pages/StatsPage";
@@ -49,7 +49,7 @@ export default function App() {
     <>
       <AppChrome me={auth.me} />
       <main>
-        <div className="container">
+        <PageShell>
           <Routes>
             <Route path="/login" element={<LoginPage me={auth.me} />} />
 
@@ -59,8 +59,17 @@ export default function App() {
             />
 
             <Route
+              path="/settings"
+              element={<RequireAuth me={auth.me}><SettingsPage /></RequireAuth>}
+            />
+
+            {/* The old per-guild hub was a card grid of links to the five pages
+                below. The server overview now carries every one of those links
+                and says whether the relay is actually working, so this lands
+                there instead of repeating itself. */}
+            <Route
               path="/guilds/:guildId"
-              element={<RequireAuth me={auth.me}><GuildPage /></RequireAuth>}
+              element={<RequireAuth me={auth.me}><GuildRedirect /></RequireAuth>}
             />
             <Route
               path="/guilds/:guildId/rules"
@@ -92,13 +101,12 @@ export default function App() {
             <Route path="/privacy" element={<PrivacyPolicyPage />} />
 
             {/* Legacy alias */}
-            <Route path="/settings" element={<Navigate to="/me" replace />} />
             <Route path="/dashboard" element={<Navigate to="/me" replace />} />
 
             <Route path="/" element={<Navigate to={auth.me ? "/me" : "/login"} replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </div>
+        </PageShell>
       </main>
       <Footer />
     </>
@@ -109,6 +117,28 @@ function AppChrome({ me }: { me: Me | null }) {
   const { pathname } = useLocation();
   if (pathname === "/login") return null;
   return <Header me={me} />;
+}
+
+/**
+ * Routes that own their own width.
+ *
+ * The redesigned pages use the engine's `.page` column (capped and gutted by
+ * the shared stylesheet) and the servers scene runs edge to edge, so wrapping
+ * either of them in `.container` would double the gutter or box in the scene.
+ * Everything else still gets the container it has always had.
+ */
+const SELF_WIDTH = [/^\/me$/, /^\/settings$/, /^\/guilds\/[^/]+\/config$/];
+
+function PageShell({ children }: { children: ReactNode }) {
+  const { pathname } = useLocation();
+  if (SELF_WIDTH.some((pattern) => pattern.test(pathname))) return <>{children}</>;
+  return <div className="container">{children}</div>;
+}
+
+/** The per-guild hub is now the server overview, keyed by ?guild=. */
+function GuildRedirect() {
+  const { guildId } = useParams<{ guildId: string }>();
+  return <Navigate to={guildId ? `/me?guild=${guildId}` : "/me"} replace />;
 }
 
 function RequireAuth({ me, children }: { me: Me | null; children: React.ReactNode }) {

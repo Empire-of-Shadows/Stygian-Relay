@@ -1,0 +1,105 @@
+/* VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+   Edit the master at EmpireSystems/dashboard_engine/ and run:
+     python EmpireSystems/tools/sync_dashboard_engine.py
+   Drift is enforced by:
+     python EmpireSystems/tools/sync_dashboard_engine.py --check */
+/* Styling for the parts AppShell itself renders: the header bar, the nav-link
+   row, and the user-info + Log out block.
+
+   Ownership note. These rules used to live in each bot's own stylesheet even
+   though AppShell is engine-owned, which is why the same header defect existed
+   in all six dashboards at once. An engine component that renders a class must
+   ship the rule for it, so the class moved here with the component.
+
+   The brand slot (`.app-header h1` and friends) is deliberately NOT here - a bot
+   renders its own brand into that slot, so its styling stays bot-owned.
+
+   Requires eos-tokens.css to be loaded first.
+
+   Known remaining dependency: AppShell's Log out link uses `.btn`/`.btn-secondary`
+   and ErrorBoundary uses `.empty-state`. Those are fleet-wide button and empty
+   surfaces that every bot already defines; folding them into the engine is a
+   larger migration and has not been done. */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: linear-gradient(180deg, rgba(15, 15, 18, 0.85) 0%, rgba(15, 15, 18, 0.7) 100%);
+  backdrop-filter: var(--eos-blur-header);
+  -webkit-backdrop-filter: var(--eos-blur-header);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--eos-border-subtle);
+
+  /* Without these the bar had no way to give: on a narrow screen the brand, the
+     nav links, the ecosystem switcher and the user block overlapped each other
+     rather than wrapping. Column-gap keeps them apart on one line; row-gap only
+     applies once something has actually wrapped, so wide screens are unchanged. */
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.app-header .user-info,
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--eos-fg-muted);
+  font-size: var(--eos-fs-body);
+  min-width: 0;
+}
+
+.app-header .user-info img,
+.user-info > img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid var(--eos-glass-heavy);
+  flex-shrink: 0;
+}
+
+/* The name is the one part that may safely shrink - the avatar and the Log out
+   control stay whole. */
+.app-header .user-info > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.nav-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: var(--eos-radius-sm);
+  background: transparent;
+  color: var(--eos-fg-2);
+  border: 2px solid transparent;
+  font-weight: var(--eos-fw-semibold);
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.nav-button:hover {
+  color: var(--eos-fg-1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-button.active {
+  color: var(--eos-fg-1);
+  border-color: var(--eos-brand);
+  background: rgba(77, 14, 179, 0.15);
+}

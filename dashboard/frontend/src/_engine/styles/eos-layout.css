@@ -1,0 +1,527 @@
+/* VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+   Edit the master at EmpireSystems/dashboard_engine/ and run:
+     python EmpireSystems/tools/sync_dashboard_engine.py
+   Drift is enforced by:
+     python EmpireSystems/tools/sync_dashboard_engine.py --check */
+/* ══════════════════════════════════════════════════════════════════════
+   Empire of Shadows - Dashboard Engine layout layer
+
+   The shared structural stylesheet for every bot dashboard: the page
+   shell, the 12-column overview grid and its tiles, the signal strip,
+   chips, queues, meters, charts, the settings rail / form / context
+   layout, and the shared form controls (.eos-field, .eos-toggle,
+   .eos-muted) the engine's fields.tsx renders.
+
+   Requires eos-tokens.css to be loaded FIRST. Every colour, radius,
+   shadow and font here reads a canonical --eos-* custom property defined
+   there; nothing in this file defines a token of its own. The --dc-*
+   names are the Discord-preview palette and come from the same file.
+
+   This file is the MASTER. It is vendored into each bot dashboard by
+   tools/sync_dashboard_engine.py - edit it here, never a bot's copy.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Screen-reader-only text (AreaChart / BarChart summaries) ───────── */
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
+
+/* ── Shared form controls ──────────────────────────────────────────── */
+
+.eos-muted {
+  color: var(--eos-fg-muted);
+}
+
+.eos-field {
+  margin-bottom: 16px;
+  min-width: 0;
+}
+.eos-field > label:not(.eos-toggle) {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--eos-fg-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.eos-field input[type="text"],
+.eos-field input[type="number"],
+.eos-field select,
+.eos-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--eos-border-subtle);
+  background: rgba(20, 15, 38, 0.6);
+  color: var(--eos-fg-1);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.eos-field input:focus,
+.eos-field select:focus,
+.eos-field textarea:focus {
+  border-color: var(--eos-brand-light);
+  box-shadow: 0 0 0 3px rgba(125, 74, 255, 0.25);
+}
+.eos-field select option {
+  background: #1a1a1f;
+  color: var(--eos-fg-1);
+}
+.eos-field textarea {
+  resize: vertical;
+  min-height: 80px;
+  font-family: var(--eos-font-mono, ui-monospace, monospace);
+}
+
+/* Pill-switch toggle (matches TheHost pattern). */
+.eos-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+  color: var(--eos-fg-1);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+.eos-toggle input[type="checkbox"] {
+  appearance: none;
+  width: 38px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin: 0;
+}
+.eos-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.eos-toggle input[type="checkbox"]:checked {
+  background: var(--eos-brand);
+}
+.eos-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(16px);
+}
+.eos-toggle input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Overview layout (dashboard home + admin settings)
+
+   Two problems this section exists to fix:
+
+   1. Nothing capped the page width and .activity-grid was hard-coded to
+      repeat(2, 1fr). On a 2560px monitor that made every card ~1248px wide
+      to hold about 250px of content.
+   2. Every feature got an identical rectangle regardless of how much it had
+      to say, so cards holding two numbers were the same size as cards
+      holding a question, a chart and four figures.
+
+   The fix is a 12-column grid inside a capped column, where a tile declares
+   its own span. Anything that is only a number does not get a tile at all -
+   it goes in the signal strip.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.page {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+
+/* ── Command row: which server, and the numbers that are only numbers ── */
+
+.ov-command {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 0 16px;
+  flex-wrap: wrap;
+}
+
+.serverpick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--eos-glass);
+  border: 1px solid var(--eos-border-subtle);
+  border-radius: var(--eos-radius-sm);
+  padding: 7px 14px 7px 8px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  max-width: 100%;
+}
+.serverpick:hover { border-color: rgba(122, 61, 240, 0.45); }
+.serverpick__icon {
+  width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0;
+  background: linear-gradient(135deg, #2c0769, #7a3df0);
+  display: grid; place-items: center;
+  font-weight: 700; color: #fff; font-size: 13px; overflow: hidden;
+}
+.serverpick__icon img { width: 100%; height: 100%; object-fit: cover; }
+.serverpick__name { font-weight: 700; color: var(--eos-fg-1); font-size: 15px; display: block; }
+.serverpick__meta { font-size: 12px; color: var(--eos-fg-muted); display: block; }
+.serverpick__chev { color: var(--eos-fg-muted); font-size: 11px; margin-left: 4px; flex-shrink: 0; }
+
+/* Server list popover - replaces the old horizontally-scrolling pill bar,
+   which grew unusably long once a user was in more than a handful of guilds. */
+.serverlist {
+  position: absolute; z-index: 70; margin-top: 6px;
+  min-width: 260px; max-height: 340px; overflow-y: auto;
+  background: var(--eos-bg-0);
+  border: 1px solid var(--eos-border-subtle);
+  border-radius: var(--eos-radius-sm);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  padding: 5px;
+}
+.serverlist__item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 8px 10px; border-radius: 8px; border: 0; background: transparent;
+  font: inherit; font-size: 13.5px; color: var(--eos-fg-2); cursor: pointer; text-align: left;
+}
+.serverlist__item:hover { background: var(--eos-glass-heavy); color: var(--eos-fg-1); }
+.serverlist__item.is-active { background: rgba(77, 14, 179, 0.24); color: var(--eos-fg-1); }
+.serverlist__item img,
+.serverlist__item .serverpick__icon { width: 22px; height: 22px; border-radius: 6px; font-size: 10px; }
+.serverlist__tag { margin-left: auto; font-size: 10px; color: var(--eos-fg-muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.ov-signals { display: flex; margin-left: auto; flex-wrap: wrap; }
+.ov-signal { padding: 0 20px; border-left: 1px solid var(--eos-border-subtle); }
+.ov-signal:first-child { border-left: 0; padding-left: 0; }
+.ov-signal__v {
+  font-size: 21px; font-weight: 700; color: var(--eos-fg-1); line-height: 1.1;
+  font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 5px;
+}
+.ov-signal__l {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--eos-fg-muted); margin-top: 3px; font-weight: 600;
+}
+.ov-signal__d { font-size: 11px; font-weight: 600; }
+.ov-signal__d--up { color: var(--eos-success); }
+.ov-signal__d--down { color: var(--eos-danger); }
+
+/* ── The 12-column grid ────────────────────────────────────────────── */
+
+.ov-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+  padding-bottom: 36px;
+}
+.ov-grid > .s3  { grid-column: span 3; }
+.ov-grid > .s4  { grid-column: span 4; }
+.ov-grid > .s5  { grid-column: span 5; }
+.ov-grid > .s6  { grid-column: span 6; }
+.ov-grid > .s7  { grid-column: span 7; }
+.ov-grid > .s8  { grid-column: span 8; }
+.ov-grid > .s12 { grid-column: span 12; }
+
+@media (max-width: 1180px) {
+  .ov-grid > .s3, .ov-grid > .s4, .ov-grid > .s5 { grid-column: span 6; }
+  .ov-grid > .s7, .ov-grid > .s8 { grid-column: span 12; }
+}
+@media (max-width: 760px) {
+  /* Every span class is listed rather than using `.ov-grid > *`. A media query
+     adds no specificity, so the bare universal selector (0,1,0) loses to
+     `.ov-grid > .s4` (0,2,0) above and the phone collapse silently never
+     happened - s4/s5/s6 cards rendered at half a phone screen. */
+  .ov-grid > *,
+  .ov-grid > .s3, .ov-grid > .s4, .ov-grid > .s5,
+  .ov-grid > .s6, .ov-grid > .s7, .ov-grid > .s8,
+  .ov-grid > .s12 { grid-column: span 12; }
+  .ov-signals { margin-left: 0; width: 100%; }
+  .ov-signal:first-child { padding-left: 0; }
+  .page { padding: 0 16px; }
+}
+
+/* ── Tile ──────────────────────────────────────────────────────────── */
+
+.ov-card {
+  position: relative;
+  background: var(--eos-bg-card);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--eos-border-subtle);
+  border-radius: var(--eos-radius);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+/* The one tile that carries today's live state. Exactly one per page - a
+   page where everything is emphasised has nothing emphasised. */
+.ov-card--live {
+  background:
+    linear-gradient(135deg, rgba(77, 14, 179, 0.22) 0%, rgba(122, 61, 240, 0.09) 55%, rgba(255, 255, 255, 0.04) 100%),
+    rgba(255, 255, 255, 0.04);
+  border-color: rgba(122, 61, 240, 0.34);
+}
+.ov-card--quiet { background: transparent; border-style: dashed; }
+
+.ov-card__head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ov-card__title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--eos-fg-muted);
+}
+.ov-card__act { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+.ov-stat {
+  font-size: 34px; font-weight: 700; color: var(--eos-fg-1); line-height: 1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.015em;
+}
+.ov-stat--sm { font-size: 24px; }
+.ov-stat__sub { font-size: 15px; color: var(--eos-fg-muted); font-weight: 600; }
+.ov-stat-l {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--eos-fg-muted); margin-top: 5px; font-weight: 600;
+}
+.ov-statrow { display: flex; gap: 26px; flex-wrap: wrap; }
+.ov-cols { display: grid; gap: 16px; }
+.ov-cols--2 { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.ov-cols--3 { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+
+.ov-rule { height: 1px; background: var(--eos-border-subtle); }
+.ov-muted { color: var(--eos-fg-muted); font-size: 12px; }
+.ov-body { font-size: 13px; color: var(--eos-fg-2); }
+.ov-quote { font-size: 17px; color: var(--eos-fg-1); line-height: 1.4; font-weight: 600; }
+
+/* ── Chips ─────────────────────────────────────────────────────────── */
+
+.ov-chip {
+  font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: var(--eos-radius-pill);
+  border: 1px solid var(--eos-border-subtle); color: var(--eos-fg-muted);
+  background: var(--eos-glass); white-space: nowrap;
+}
+.ov-chip--live { color: var(--eos-fg-accent); border-color: rgba(169, 125, 255, .4); background: rgba(169, 125, 255, .12); }
+.ov-chip--good { color: var(--eos-success); border-color: rgba(61, 220, 151, .4); background: rgba(61, 220, 151, .11); }
+.ov-chip--warn { color: var(--eos-warning); border-color: rgba(255, 184, 107, .4); background: rgba(255, 184, 107, .11); }
+.ov-chip--bad  { color: var(--eos-danger);  border-color: rgba(255, 107, 107, .4); background: rgba(255, 107, 107, .11); }
+
+.ov-link {
+  font-size: 12px; font-weight: 600; color: var(--eos-fg-accent);
+  text-decoration: none; border-bottom: 1px solid transparent; background: none;
+  border-left: 0; border-right: 0; border-top: 0; padding: 0; cursor: pointer; font-family: inherit;
+}
+.ov-link:hover, .ov-link:focus-visible { border-bottom-color: currentColor; color: var(--eos-fg-accent); }
+
+/* ── "Is it working" strip ─────────────────────────────────────────── */
+
+.fstat { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: 10px; }
+.fstat__c {
+  position: relative; overflow: hidden; display: block; text-align: left;
+  border: 1px solid var(--eos-border-subtle); border-radius: var(--eos-radius-sm);
+  background: rgba(255, 255, 255, .028); padding: 11px 13px 12px 15px;
+  text-decoration: none; color: inherit; font: inherit; cursor: pointer;
+}
+.fstat__c::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: rgba(255, 255, 255, .18);
+}
+.fstat__c:hover { background: rgba(255, 255, 255, .06); border-color: rgba(255, 255, 255, .13); }
+.fstat__c--on::before   { background: var(--eos-success); }
+.fstat__c--warn::before { background: var(--eos-warning); }
+.fstat__n { font-size: 13px; font-weight: 600; color: var(--eos-fg-1); }
+.fstat__s { font-size: 11.5px; color: var(--eos-fg-muted); margin-top: 3px; }
+.fstat__s b { font-weight: 600; }
+.fstat__c--on   .fstat__s b { color: var(--eos-success); }
+.fstat__c--warn .fstat__s b { color: var(--eos-warning); }
+
+/* ── Queue rows ────────────────────────────────────────────────────── */
+
+.ov-queue { display: flex; flex-direction: column; gap: 2px; }
+.ov-qrow {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-radius: var(--eos-radius-sm); text-decoration: none; color: inherit;
+  border: 0; background: transparent; font: inherit; width: 100%; text-align: left;
+}
+a.ov-qrow:hover, button.ov-qrow:hover { background: var(--eos-glass-heavy); }
+.ov-qrow__dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.ov-qrow__txt {
+  font-size: 13px; color: var(--eos-fg-2); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;
+}
+.ov-qrow__meta { font-size: 11px; color: var(--eos-fg-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ── Meter + key/value rows ────────────────────────────────────────── */
+
+.ov-meter { height: 7px; border-radius: 4px; background: rgba(255, 255, 255, .07); overflow: hidden; }
+.ov-meter__fill { height: 100%; background: var(--eos-brand-gradient); }
+
+.ov-kv {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 12px; padding: 5px 0; border-bottom: 1px solid var(--eos-border-subtle);
+}
+.ov-kv:last-child { border-bottom: 0; }
+.ov-kv__k { color: var(--eos-fg-muted); }
+.ov-kv__v { color: var(--eos-fg-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── Charts ────────────────────────────────────────────────────────── */
+
+.chartbox { position: relative; min-width: 0; }
+.chartbox svg { display: block; width: 100%; overflow: visible; }
+.chart-tip {
+  position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+  background: var(--eos-bg-0); border: 1px solid rgba(255, 255, 255, .13);
+  border-radius: 8px; padding: 7px 10px; font-size: 12px; color: var(--eos-fg-1);
+  white-space: nowrap; box-shadow: 0 8px 20px rgba(0, 0, 0, .5); z-index: 5;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tip b { color: var(--eos-fg-accent); }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--eos-fg-muted); }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
+
+/* Categorical series colours. Three slots, validated against the dark chart
+   surface: lightness band, chroma floor, CVD separation, normal-vision floor
+   and contrast all pass. Do NOT substitute the semantic --success/--warning/
+   --danger here; those are reserved for state and always ship with a word. */
+.series-1 { color: #7d5ce0; }
+.series-2 { color: #bd8230; }
+.series-3 { color: #3095cc; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Admin settings - rail, form column, context column
+
+   Replaces a 9-tab strip over a full-bleed card. Five of those tabs held a
+   single field, which put a 220px select alone in a 2500px box.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.set-layout {
+  display: grid;
+  grid-template-columns: 212px minmax(0, 1fr) 300px;
+  gap: 22px;
+  padding-bottom: 40px;
+  align-items: start;
+}
+/* Below 1160px the context column wraps under the form (it stays visible), and
+   below 780px the rail stays a vertical list. Both are deliberate (ruled
+   2026-08-13): earlier hide-the-context and row-rail declarations here were dead
+   on cascade order against the base rules further down and never rendered in any
+   bot, so the live behavior was kept and the dead declarations removed. */
+@media (max-width: 1160px) {
+  .set-layout { grid-template-columns: 196px minmax(0, 1fr); }
+}
+@media (max-width: 780px) {
+  .set-layout { grid-template-columns: minmax(0, 1fr); }
+  .set-rail { overflow-x: auto; position: static; padding-bottom: 6px; }
+  .set-rail__grp { display: none; }
+}
+
+/* The search box and the rail are siblings inside one grid cell, so the STICKY
+   has to live on that wrapper. Putting it on .set-rail looks right and does
+   nothing: the wrapper is exactly the rail's own height, so there is no travel
+   for it to stick through. First child of the grid, because .set-main and
+   .set-ctx are the second and third. */
+.set-layout > div:first-child { position: sticky; top: 76px; }
+@media (max-width: 780px) { .set-layout > div:first-child { position: static; } }
+
+.set-rail { display: flex; flex-direction: column; gap: 1px; }
+.set-rail__grp {
+  font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--eos-fg-muted); padding: 14px 10px 6px;
+}
+.set-rail__item {
+  display: flex; align-items: center; gap: 9px; padding: 8px 10px;
+  border-radius: var(--eos-radius-sm); font: inherit; font-size: 13.5px; font-weight: 600;
+  color: var(--eos-fg-muted); text-decoration: none; white-space: nowrap;
+  background: transparent; border: 0; cursor: pointer; width: 100%; text-align: left;
+}
+.set-rail__item:hover { background: var(--eos-glass); color: var(--eos-fg-2); }
+.set-rail__item.is-active { background: rgba(77, 14, 179, .22); color: var(--eos-fg-1); }
+.set-rail__badge {
+  margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 6px;
+  border-radius: 999px; background: rgba(255, 255, 255, .09); color: var(--eos-fg-muted);
+}
+.set-rail__badge--warn { background: rgba(255, 184, 107, .16); color: var(--eos-warning); }
+.set-rail__badge--ok { background: rgba(61, 220, 151, .15); color: var(--eos-success); }
+.set-rail__empty { padding: 10px; font-size: 12px; color: var(--eos-fg-muted); }
+
+/* Search over the settings tree. Not one major bot dashboard has this, and a
+   settings page deep enough to need a grouped rail is exactly where typing the
+   name of a setting beats hunting for the category that owns it. */
+.set-search { position: relative; margin-bottom: 6px; }
+.set-search input {
+  width: 100%; font: inherit; font-size: 13px; padding: 8px 10px 8px 30px;
+  border-radius: var(--eos-radius-sm); border: 1px solid rgba(255, 255, 255, .13);
+  background: rgba(20, 15, 38, .55); color: var(--eos-fg-1);
+}
+.set-search input::placeholder { color: var(--eos-fg-muted); }
+.set-search input:focus { outline: none; border-color: var(--eos-brand-light); box-shadow: 0 0 0 3px var(--eos-brand-ring); }
+.set-search__i {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--eos-fg-muted); font-size: 12px; pointer-events: none;
+}
+
+.set-main { max-width: 760px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.set-head h1 {
+  font-family: var(--eos-font-display); font-size: 26px; font-weight: 700;
+  color: var(--eos-fg-1); letter-spacing: .02em; margin: 0;
+}
+.set-head p { font-size: 13.5px; color: var(--eos-fg-muted); margin-top: 5px; max-width: 62ch; }
+
+.fieldset {
+  background: var(--eos-bg-card); border: 1px solid var(--eos-border-subtle);
+  border-radius: var(--eos-radius); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 14px; min-width: 0;
+}
+.fieldset__h {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .09em; color: var(--eos-fg-muted);
+}
+.frow { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
+.frow--1 { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 620px) { .frow { grid-template-columns: minmax(0, 1fr); } }
+
+/* Inside a grid the gap already does the spacing, so drop the field's own
+   trailing margin or every row gains 16px it did not ask for. Unscoped is safe
+   here: .frow, .fieldset and .eos-field are all engine-owned class names, so
+   this can only ever match markup the engine rendered. */
+.frow > .eos-field,
+.fieldset > .eos-field { margin-bottom: 0; }
+
+/* A boolean gets a block of its own rather than a bare pill floating in a row.
+   :has() is progressive - without it the toggle simply renders unboxed, which
+   is what it did before. */
+.fieldset .eos-field:has(> label.eos-toggle) {
+  padding: 10px 12px;
+  border: 1px solid var(--eos-border-subtle);
+  border-radius: var(--eos-radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+.fieldset .eos-field:has(> label.eos-toggle) > .eos-muted { margin-top: 4px; }
+
+.savebar {
+  position: sticky; bottom: 0; z-index: 20;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; background: rgba(10, 10, 13, .94);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, .13); border-radius: var(--eos-radius); margin-top: 4px;
+}
+
+.set-ctx { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 12px; }

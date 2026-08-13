@@ -1,5 +1,46 @@
 # Changelog
 
+## [Unreleased] - 2026-08-13
+
+### Fixed
+- On phones, the server panel on the settings hub now shows its close button and its server
+  icon in full instead of cutting them off at the panel's rounded edge, and the close button
+  stays put while you scroll the panel.
+
+### Changed
+- **The dashboard now opens on a page that tells you whether the relay is actually working.**
+  Signing in used to give you a grid of server tiles leading to another grid of link tiles, and
+  neither of them said anything about what the bot was doing. Picking a server now lands you
+  straight on that server's page: a row of cards saying which parts are on, which need setting up
+  and which are off; how many messages have been forwarded over the last month, drawn as a chart;
+  how much of today's allowance is left and when the last message went through; your routes with
+  the channels they connect and how much each one carried; what was blocked and why; how the
+  server is set up; and what your plan allows. Switching servers is now a picker at the top of the
+  page instead of going back to a list.
+- **Settings have been rebuilt as one page with a proper menu.** The old settings page was four
+  boxes asking you to paste in ID numbers. It is now a list of areas down the side - Forwarding,
+  Cross-server, Activity log, Who can manage - with one area open at a time, a plain-English
+  explanation of what it does, and a panel on the right showing what that area is doing right now.
+  The log channel and the manager role are chosen from a dropdown of your server's real channels
+  and roles instead of being typed in as ID numbers, so a mistyped digit can no longer quietly
+  point the bot at nothing. Every setting that was there before is still there and still does the
+  same thing, and anything you had already set is kept.
+- **The Settings link in the top bar now goes somewhere.** It used to bounce you back to the
+  server list. It now opens a view of every server you manage as a connected web, where picking
+  one brings up its overview, rules, settings and analytics.
+
+### Added
+- **Error notices can now be switched on and off from the dashboard.** This is the short message
+  the bot posts in a channel when it has to stop forwarding because the daily limit was reached.
+  It was already available in the `/admin` panel in Discord; it is now on the dashboard's
+  Forwarding page too, so both places offer the same switches.
+
+### Fixed
+- **The dashboard no longer struggles on a phone.** Every page was checked at phone width and now
+  stacks into a single readable column with nothing running off the side of the screen. On a
+  narrow screen the server web's detail panel slides up from the bottom instead of being squeezed
+  into the side.
+
 ## [Unreleased] - 2026-08-07
 
 ### Changed
