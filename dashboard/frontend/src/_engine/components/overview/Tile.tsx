@@ -15,7 +15,9 @@ interface TileProps {
   chips?: ReactNode;
   /** Links or buttons pushed to the right of the head. */
   action?: ReactNode;
-  /** The one live tile on the page; use it once or it stops meaning anything. */
+  /** The one live tile in this composition; use it once per composition or it stops
+   *  meaning anything. A page that renders two compositions (member and server, say)
+   *  carries one live tile in each. */
   live?: boolean;
   /** Dashed, transparent treatment for a section with nothing in it. */
   quiet?: boolean;

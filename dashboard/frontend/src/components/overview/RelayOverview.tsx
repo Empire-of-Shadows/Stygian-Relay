@@ -8,6 +8,7 @@ import type {
   TrafficOverview,
 } from "../../api/types";
 import AreaChart from "../../_engine/components/charts/AreaChart";
+import BarChart from "../../_engine/components/charts/BarChart";
 import FeatureStrip, { featureCounts } from "../../_engine/components/overview/FeatureStrip";
 import {
   KeyValue,
@@ -159,6 +160,30 @@ function ForwardingTrend({
         unit="messages"
         emptyLabel="Nothing has been forwarded yet, so there is no trend to draw."
       />
+      {/* Blocked as a COMPANION rather than a second line on the same axes. A day with
+          three blocked messages next to three thousand forwarded ones would be an
+          invisible line on a shared scale, and giving it its own axis would make the
+          same three look like a crisis. Its own small chart, on its own scale, with the
+          count written above it, is the honest way to show both. Drawn only when there
+          is something to draw. */}
+      {traffic.blocked_30d > 0 && (
+        <>
+          <Rule />
+          <span className="ov-card__title">Blocked over the same days</span>
+          <BarChart
+            groups={traffic.daily.map((day) => formatDayLabel(day.date))}
+            series={[{
+              key: "blocked",
+              label: "Blocked",
+              values: traffic.daily.map((day) => day.blocked),
+            }]}
+            ariaLabel={`Messages blocked on each of the last ${traffic.days} days`}
+            unit="messages"
+            height={70}
+            emptyLabel="Nothing was blocked in this period."
+          />
+        </>
+      )}
       <Rule />
       <p className="ov-muted">
         {formatCount(traffic.lifetime)} forwarded since this server started using the relay.
@@ -310,6 +335,13 @@ function Routes({
             <Stat small value={rules.paused} label="Paused" />
             <Stat small value={rules.cross_guild} label="To another server" />
           </div>
+          {/* newest_at was computed by the overview service and never rendered. It is
+              the answer to "has anybody touched this recently", which is the first thing
+              worth knowing about a set of routes that is not behaving. */}
+          <KeyValue
+            k="Newest rule added"
+            v={rules.newest_at ? formatRelative(rules.newest_at) : "unknown"}
+          />
           {rules.idle_active > 0 && (
             <p className="ov-muted">
               {rules.idle_active} active {rules.idle_active === 1 ? "rule has" : "rules have"}{" "}

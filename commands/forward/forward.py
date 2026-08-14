@@ -6,6 +6,11 @@ from collections import Counter
 from discord.ext import commands
 from storage.bot_specific.relay import guild_manager
 from storage.bot_specific.relay.utils import normalize_channel_id
+from storage.settings.user_preferences import (
+    FLAG_RELAY_MESSAGES,
+    FLAG_SHOW_NAME,
+    opted_out_of,
+)
 import logging
 import random
 from datetime import datetime, timedelta, timezone
@@ -232,6 +237,18 @@ class Forwarding(commands.Cog):
             f"[{gid_str}] {len(matching_rules)} rule(s) matched for ch={message.channel.id} mid={message.id}"
         )
 
+        # Member opt-out: "do not relay my messages". Checked once a rule has actually
+        # matched, so a quiet server never pays for the lookup, and before the embed
+        # wait below so an opted-out member costs no sleep and no rate-limit token.
+        # str() because discord.py ids are ints and every stored id is a string.
+        # opted_out_of fails open - an unreadable preference store must not stop the
+        # fleet forwarding.
+        if await opted_out_of(message.author.id, FLAG_RELAY_MESSAGES):
+            logger.debug(
+                f"[{gid_str}] author={message.author.id} opted out of relaying; skip mid={message.id}"
+            )
+            return
+
         # Wait briefly for URL embeds to populate. Only matching rules pay this cost.
         if not message.embeds and self._contains_embeddable_url(message.content):
             for delay in (2, 3, 4):
@@ -370,7 +387,16 @@ class Forwarding(commands.Cog):
                 )
                 return False
 
-        await self.forward_message(settings.get("formatting", {}), message, destination_channel)
+        # Member opt-out: "do not show my name on forwarded copies". Resolved once here
+        # and carried down the whole send chain, so the fallback renderers below cannot
+        # reintroduce the name that the quoted header just left off. Overrides the rule's
+        # include_author - the member's choice beats the rule owner's formatting.
+        hide_author_name = await opted_out_of(message.author.id, FLAG_SHOW_NAME)
+
+        await self.forward_message(
+            settings.get("formatting", {}), message, destination_channel,
+            hide_author_name=hide_author_name,
+        )
         # Successful forward - clear failure counter so a recovered rule
         # doesn't carry stale strikes from before the fix.
         self._perm_fail.pop(rule_id, None)
@@ -563,16 +589,25 @@ class Forwarding(commands.Cog):
         return True
 
     async def forward_as_native_style(self, formatting: dict, message: discord.Message,
-                                      destination: discord.TextChannel):
+                                      destination: discord.TextChannel,
+                                      *, hide_author_name: bool = False):
         """
         Quoted-message style forwarding. Discord regenerates URL embeds in the
         quoted text, preserving video previews. Per-attachment failure reasons
         are surfaced to the user.
+
+        ``hide_author_name`` is the member's "do not show my name" choice. It only
+        suppresses the name; the link back to the original post is kept, because a copy
+        with no way back to its source is worse for everyone including the member. It
+        defaults to False so every existing call site behaves exactly as before.
         """
         quote_lines = []
 
         if formatting.get("include_author", True):
-            quote_lines.append(f"> -# **{message.author.display_name}** - ([original post]({message.jump_url}))")
+            if hide_author_name:
+                quote_lines.append(f"> -# ([original post]({message.jump_url}))")
+            else:
+                quote_lines.append(f"> -# **{message.author.display_name}** - ([original post]({message.jump_url}))")
 
         if message.content:
             for line in message.content.split('\n'):
@@ -663,7 +698,8 @@ class Forwarding(commands.Cog):
                 message=message,
                 content=quoted_content,
                 files=files_to_send,
-                formatting=formatting
+                formatting=formatting,
+                hide_author_name=hide_author_name,
             )
         finally:
             for file in files_to_send:
@@ -673,12 +709,18 @@ class Forwarding(commands.Cog):
                 except Exception as cleanup_error:
                     logger.debug(f"Error closing file handle: {cleanup_error}")
 
-    async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel):
-        await self.forward_as_native_style(formatting, message, destination)
+    async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel,
+                              *, hide_author_name: bool = False):
+        await self.forward_as_native_style(
+            formatting, message, destination, hide_author_name=hide_author_name
+        )
 
     async def _send_with_enhanced_handling(self, destination: discord.TextChannel, message: discord.Message,
                                            **send_kwargs):
         formatting = send_kwargs.pop('formatting', {})
+        # Popped for the same reason `formatting` is: everything left in send_kwargs is
+        # splatted straight into destination.send(), which would reject an unknown kwarg.
+        hide_author_name = send_kwargs.pop('hide_author_name', False)
         forward_embeds = formatting.get("forward_embeds", True)
 
         if message.channel.id == destination.id:
@@ -707,7 +749,9 @@ class Forwarding(commands.Cog):
                     await destination.send(**send_kwargs)
                 except discord.HTTPException as e2:
                     logger.error(f"Failed to send forwarded message {message.id} after attachment removal: {e2}")
-                    await self._send_minimal_version(destination, message, formatting)
+                    await self._send_minimal_version(
+                        destination, message, formatting, hide_author_name=hide_author_name
+                    )
 
             elif e.code == 50035:
                 # 50035 = Invalid Form Body; Discord's over-length content lands here
@@ -716,7 +760,10 @@ class Forwarding(commands.Cog):
                 # degrades gracefully if the cause was something else.
                 self._bump_metric(source_gid, METRIC_OVERSIZED_FALLBACK)
                 logger.error(f"Failed to send forwarded message: {e}")
-                await self._handle_oversized_message(destination, message, send_kwargs, formatting)
+                await self._handle_oversized_message(
+                    destination, message, send_kwargs, formatting,
+                    hide_author_name=hide_author_name,
+                )
 
             else:
                 logger.error(f"Failed to send forwarded message: {e}")
@@ -729,13 +776,17 @@ class Forwarding(commands.Cog):
                 )
 
     async def _handle_oversized_message(self, destination: discord.TextChannel, message: discord.Message,
-                                        send_kwargs: dict, formatting: dict):
+                                        send_kwargs: dict, formatting: dict,
+                                        *, hide_author_name: bool = False):
         content = send_kwargs.get('content', '')
         embeds = send_kwargs.get('embeds', []) if formatting.get("forward_embeds", True) else []
         files = send_kwargs.get('files', [])
 
         if content and len(content) > 2000:
-            await self._send_chunked_content(destination, message, content, embeds, files, formatting)
+            await self._send_chunked_content(
+                destination, message, content, embeds, files, formatting,
+                hide_author_name=hide_author_name,
+            )
             return
 
         if embeds and len(embeds) > 10:
@@ -746,10 +797,13 @@ class Forwarding(commands.Cog):
             await self._send_compressed_files(destination, message, content, embeds, files, formatting)
             return
 
-        await self._send_minimal_version(destination, message, formatting)
+        await self._send_minimal_version(
+            destination, message, formatting, hide_author_name=hide_author_name
+        )
 
     async def _send_chunked_content(self, destination: discord.TextChannel, message: discord.Message,
-                                    content: str, embeds: list, files: list, formatting: dict):
+                                    content: str, embeds: list, files: list, formatting: dict,
+                                    *, hide_author_name: bool = False):
         chunks = self._split_content(content, max_length=1900)
 
         first_chunk = chunks[0]
@@ -763,7 +817,9 @@ class Forwarding(commands.Cog):
                 files=files[:1] if files else []
             )
         except discord.HTTPException:
-            await self._send_ultra_minimal(destination, message, formatting)
+            await self._send_ultra_minimal(
+                destination, message, formatting, hide_author_name=hide_author_name
+            )
             return
 
         for i, chunk in enumerate(chunks[1:], 2):
@@ -834,8 +890,11 @@ class Forwarding(commands.Cog):
         )
 
     async def _send_minimal_version(self, destination: discord.TextChannel, message: discord.Message,
-                                    formatting: dict):
-        author_info = f"**From {message.author.display_name}**"
+                                    formatting: dict, *, hide_author_name: bool = False):
+        # The size-fallback renderers name the author unconditionally - include_author
+        # never reached them. A member who opted out of having their name shown must not
+        # have it reappear here just because their message was too big for the normal path.
+        author_info = "**Forwarded message**" if hide_author_name else f"**From {message.author.display_name}**"
         content_preview = message.content[:500] + "..." if len(message.content) > 500 else message.content
 
         stats = []
@@ -854,9 +913,12 @@ class Forwarding(commands.Cog):
         await destination.send(content=minimal_content)
 
     async def _send_ultra_minimal(self, destination: discord.TextChannel, message: discord.Message,
-                                  formatting: dict):
+                                  formatting: dict, *, hide_author_name: bool = False):
+        header = "📨 **Forwarded message**" if hide_author_name else (
+            f"📨 **Message from {message.author.display_name}**"
+        )
         ultra_minimal = (
-            f"📨 **Message from {message.author.display_name}**\n"
+            f"{header}\n"
             f"Content: {len(message.content)} chars"
             f"{f' | {len(message.attachments)} files' if message.attachments else ''}"
             f"{f' | {len(message.embeds)} embeds' if message.embeds else ''}\n"

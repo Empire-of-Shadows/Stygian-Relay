@@ -26,6 +26,7 @@ from dashboard.routers.stats import router as stats_router
 from dashboard.routers.premium import router as premium_router
 from dashboard.routers.audit_log import router as audit_log_router
 from dashboard.routers.settings import router as settings_router
+from dashboard.routers.user_data import router as user_data_router
 
 from storage.log import get_logger
 
@@ -109,6 +110,7 @@ app.include_router(stats_router, prefix="/api")
 app.include_router(premium_router, prefix="/api")
 app.include_router(audit_log_router, prefix="/api")
 app.include_router(settings_router, prefix="/api")
+app.include_router(user_data_router, prefix="/api")
 
 
 @app.get("/health")

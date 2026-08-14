@@ -274,8 +274,9 @@
   gap: 12px;
   min-width: 0;
 }
-/* The one tile that carries today's live state. Exactly one per page - a
-   page where everything is emphasised has nothing emphasised. */
+/* The one tile that carries today's live state. Exactly one per composition - a
+   page rendering two compositions (member and server, say) carries one in each, but
+   a composition where everything is emphasised has nothing emphasised. */
 .ov-card--live {
   background:
     linear-gradient(135deg, rgba(77, 14, 179, 0.22) 0%, rgba(122, 61, 240, 0.09) 55%, rgba(255, 255, 255, 0.04) 100%),

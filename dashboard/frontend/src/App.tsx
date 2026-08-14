@@ -15,6 +15,7 @@ import { AuditLogPage } from "./pages/AuditLogPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { TermsPage } from "./pages/TermsPage";
 import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
+import { PrivacyPage } from "./pages/PrivacyPage";
 
 interface AuthState {
   loading: boolean;
@@ -56,6 +57,13 @@ export default function App() {
             <Route
               path="/me"
               element={<RequireAuth me={auth.me}><DashboardPage me={auth.me} /></RequireAuth>}
+            />
+
+            {/* The member's own control panel. Signed-in only - it needs no permission
+                in any server, because it is about their account rather than a guild. */}
+            <Route
+              path="/me/privacy"
+              element={<RequireAuth me={auth.me}><PrivacyPage /></RequireAuth>}
             />
 
             <Route
@@ -127,7 +135,17 @@ function AppChrome({ me }: { me: Me | null }) {
  * either of them in `.container` would double the gutter or box in the scene.
  * Everything else still gets the container it has always had.
  */
-const SELF_WIDTH = [/^\/me$/, /^\/settings$/, /^\/guilds\/[^/]+\/config$/];
+const SELF_WIDTH = [
+  /^\/me$/,
+  /^\/me\/privacy$/,
+  /^\/settings$/,
+  /^\/guilds\/[^/]+\/config$/,
+  /^\/guilds\/[^/]+\/rules$/,
+  /^\/guilds\/[^/]+\/rules\/[^/]+$/,
+  /^\/guilds\/[^/]+\/stats$/,
+  /^\/guilds\/[^/]+\/premium$/,
+  /^\/guilds\/[^/]+\/audit-log$/,
+];
 
 function PageShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();

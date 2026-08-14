@@ -1,7 +1,12 @@
-// DRAFT legal copy - adapted from TheCodex's Terms for Stygian Relay's actual
-// service (cross-channel message forwarding). Review the wording before relying on
-// it as published terms; the effective date is a placeholder.
-const EFFECTIVE_DATE = "July 19, 2026";
+import { Link } from "react-router-dom";
+
+// Published terms, adapted from TheCodex's for Stygian Relay's actual service
+// (cross-channel message forwarding). Ruled published by the owner on 2026-08-13; the
+// DRAFT marker and its placeholder date are gone and the effective date is real. Section
+// 4 gained the member's own controls, which shipped the same day - a terms page that
+// makes a member responsible for forwarded content has to say what a member can do
+// about it.
+const EFFECTIVE_DATE = "August 13, 2026";
 
 export function TermsPage() {
   return (
@@ -69,6 +74,14 @@ export function TermsPage() {
             The bot reposts message content as configured; it does not review or moderate what is
             forwarded. Server administrators are responsible for ensuring their forwarding setup is
             appropriate for the members of the destination channel.
+          </p>
+          <p>
+            <strong>Members have their own say over this.</strong> Anyone signed in to the
+            dashboard can ask the bot not to relay their messages at all, or to leave their name
+            off forwarded copies, from the <Link to="/me/privacy">Privacy &amp; data</Link> page.
+            Those choices apply in every server the bot runs in and override a rule's own settings.
+            They do not affect copies that were already posted, which are ordinary Discord messages
+            in the destination channel and are that server's to remove.
           </p>
         </section>
 

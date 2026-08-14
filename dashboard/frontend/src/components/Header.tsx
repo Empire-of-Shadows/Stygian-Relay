@@ -21,6 +21,9 @@ export function Header({ me }: { me: Me | null }) {
       nav={me ? (
         <>
           <NavLink to="/me" end className={navClass}>Servers</NavLink>
+          {/* Not gated on any permission: relay copies an ordinary member's messages, so
+              the switches that stop it have to be reachable by an ordinary member. */}
+          <NavLink to="/me/privacy" className={navClass}>Privacy</NavLink>
           {me.can_access_settings_any && (
             <NavLink to="/settings" className={navClass}>Settings</NavLink>
           )}

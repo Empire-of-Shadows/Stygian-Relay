@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
-import type { Guild } from "../api/types";
+import type { Guild, GuildOverview } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import { GuildWebScene } from "../_engine/components/GuildWebScene";
+import { KeyValue } from "../_engine/components/overview/Tile";
+import { formatCount, formatRelative } from "../_engine/format";
 
 /**
  * The server picker, as the shared web-of-servers scene.
@@ -26,6 +28,11 @@ export function SettingsPage() {
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // guild id -> its overview, fetched only when a node is actually picked and kept after
+  // so re-picking the same node is instant. The panel is a shortcut menu; it must not
+  // cost one request per server just to draw the web.
+  const [overviews, setOverviews] = useState<Map<string, GuildOverview>>(new Map());
+  const [overviewFailed, setOverviewFailed] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   // The scene draws its tether to this element, so the panel has to be a real
   // node in the layout even while it is closed.
@@ -45,6 +52,21 @@ export function SettingsPage() {
     ready: webGuilds.filter((g) => g.bot_in_guild && !g.setup_required).length,
   }), [webGuilds]);
   const selected = webGuilds.find((g) => g.id === selectedId) ?? null;
+
+  // Lazy: one request the first time a server's node is picked, never on page load.
+  useEffect(() => {
+    if (!selected || !selected.bot_in_guild || selected.setup_required) return;
+    if (overviews.has(selected.id) || overviewFailed.has(selected.id)) return;
+    let cancelled = false;
+    api.overview(selected.id)
+      .then((o) => {
+        if (!cancelled) setOverviews((prev) => new Map(prev).set(selected.id, o));
+      })
+      .catch(() => {
+        if (!cancelled) setOverviewFailed((prev) => new Set(prev).add(selected.id));
+      });
+    return () => { cancelled = true; };
+  }, [selected, overviews, overviewFailed]);
 
   const message = error ? (
     <div className="alert danger">{error}</div>
@@ -108,6 +130,8 @@ export function SettingsPage() {
                 <ServerActionPanel
                   guild={selected}
                   inviteUrl={inviteUrl}
+                  overview={overviews.get(selected.id) ?? null}
+                  overviewFailed={overviewFailed.has(selected.id)}
                   onNavigate={(path) => navigate(path)}
                 />
               </>
@@ -122,13 +146,20 @@ export function SettingsPage() {
 function ServerActionPanel({
   guild,
   inviteUrl,
+  overview,
+  overviewFailed,
   onNavigate,
 }: {
   guild: Guild;
   inviteUrl: string | null;
+  /** Fetched on selection. Null while in flight or when the fetch failed. */
+  overview: GuildOverview | null;
+  overviewFailed: boolean;
   onNavigate: (path: string) => void;
 }) {
   const iconUrl = guildIconUrl(guild);
+  const traffic = overview?.traffic ?? null;
+  const rules = overview?.rules ?? null;
 
   return (
     <>
@@ -182,9 +213,67 @@ function ServerActionPanel({
             >
               Analytics
             </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => onNavigate(`/guilds/${guild.id}/premium`)}
+            >
+              Plan
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => onNavigate(`/guilds/${guild.id}/audit-log`)}
+            >
+              Change history
+            </button>
           </>
         )}
       </div>
+
+      {/* A few live figures, so picking a node says something about the server rather
+          than only offering places to go. Absent figures say so - a "0 forwarded" on a
+          server whose overview simply has not arrived would be a lie. */}
+      {guild.bot_in_guild && !guild.setup_required && (
+        <div style={{ marginTop: 12 }}>
+          {overviewFailed ? (
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              This server's figures could not be loaded.
+            </p>
+          ) : !overview ? (
+            <p className="muted" style={{ fontSize: 12, margin: 0 }}>
+              Loading this server's figures...
+            </p>
+          ) : (
+            <>
+              <KeyValue
+                k="Active rules"
+                v={rules ? `${rules.active} of ${rules.max_rules}` : "not loaded"}
+              />
+              <KeyValue
+                k="Forwarded, 30 days"
+                v={traffic ? formatCount(traffic.forwarded_30d) : "not loaded"}
+              />
+              <KeyValue
+                k="Today"
+                v={
+                  traffic
+                    ? `${formatCount(traffic.today_forwarded)} of ${formatCount(traffic.daily_limit)}`
+                    : "not loaded"
+                }
+              />
+              <KeyValue
+                k="Last forward"
+                v={
+                  traffic
+                    ? traffic.last_forward_at
+                      ? formatRelative(traffic.last_forward_at)
+                      : "never"
+                    : "not loaded"
+                }
+              />
+            </>
+          )}
+        </div>
+      )}
 
       {!guild.bot_in_guild && (
         <p className="guild-invite-hint" style={{ marginTop: 0 }}>

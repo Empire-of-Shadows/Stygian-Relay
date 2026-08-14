@@ -8,6 +8,24 @@
   stays put while you scroll the panel.
 
 ### Changed
+- **Changes made on the dashboard now show up in the change history.** Editing a server's
+  settings, or creating, editing, pausing or deleting a rule from the website, recorded
+  nothing at all - only the same actions done from the `/admin` panel in Discord were written
+  down. A server run entirely from the website had a change history that looked months out of
+  date. Both now record, with the name of the person who made the change, not just their ID.
+- **The change history is readable.** It used to be a table with a column of raw ID numbers and
+  a column of truncated code. Every entry is now a sentence saying who did what, and you can
+  filter by person as well as by area, with a panel summarising what has been changing.
+- **The privacy policy says what forwarding actually does.** It now states that a forwarded copy
+  republishes your display name and what you wrote into another channel, which can be in a
+  different server; that the relay keeps a reference to your original message - its ID and its
+  channel, not its text - for 90 days; and exactly what survives if the bot is removed from a
+  server, with the real retention periods, replacing a vague line about things possibly being
+  cleaned up.
+- **The terms of service are published** rather than draft, and now say what a member can do
+  about forwarded content rather than only what they are responsible for.
+- **The sign-in page explains what the bot does** before you sign in, with the real free-tier
+  limits, and links to the two ecosystem dashboards that were missing from the list.
 - **The dashboard now opens on a page that tells you whether the relay is actually working.**
   Signing in used to give you a grid of server tiles leading to another grid of link tiles, and
   neither of them said anything about what the bot was doing. Picking a server now lands you
@@ -30,6 +48,48 @@
   one brings up its overview, rules, settings and analytics.
 
 ### Added
+- **You can now tell Stygian Relay to leave your messages alone.** There is a new Privacy page
+  on the dashboard, open to anyone who signs in - you do not need to run a server or hold any
+  permission to use it. Two switches: one stops your messages being copied anywhere at all, and
+  one keeps your name off the copies while still letting them through. Both apply in every
+  server the bot is in, not just one, and take effect within about a minute. A member's choice
+  wins over a server's settings, so if a rule is set to show the author and you have asked us
+  not to, your name is left off. Copies that were already posted stay where they are - those
+  are ordinary Discord messages in someone else's channel now, and the bot cannot delete them,
+  which the page says plainly rather than pretending otherwise.
+- **You can see where your own messages go.** Signing in now shows you, for each of your
+  servers, which channels are being copied into which - including when a copy leaves for a
+  different server, and which server that is - and whether each of those routes actually
+  carries your messages or skips you. This used to be invisible unless you ran the server.
+  Members with no permissions used to get a completely blank dashboard; they now get this.
+- **You can download or delete what the relay holds about you.** The same Privacy page has an
+  export button and a delete button, either for one server or all of them. The download is
+  small, and the page explains why instead of leaving you wondering: the relay forwards
+  messages, it does not keep them. Deleting takes your name out of every forwarding rule, and
+  the page warns you before you confirm that this changes what those servers relay - a rule
+  that was blocking you stops blocking you.
+- **Server admins can see how many people have opted out.** The rules page shows a count, and
+  only a count - never who. It is there so a forwarded conversation with gaps in it has an
+  explanation other than "the bot is broken".
+- **The rules page shows what each rule is actually doing.** Instead of a table of ID numbers,
+  each rule is now a card showing the two channels it connects, whether it leaves the server,
+  how many messages it carried in the last month, when it was created and when it was last
+  edited, with a dot for whether it is running. Deleting a rule now asks you properly, in a
+  dialog that explains what happens, rather than the browser's bare pop-up.
+- **The rule editor now covers everything a rule can do.** Which kinds of message get copied,
+  words a message must or must not contain, how long a message may be, whether matching cares
+  about capital letters or whole words, whether the copy shows the author, and whether
+  attachments and embeds come with it. All of this could previously only be changed from the
+  `/admin` panel in Discord. Channels and roles are chosen from your server's real lists, and a
+  panel on the right says in plain words what the rule you are editing will do.
+- **The analytics page gained four things:** which channels the messages land in (not just
+  which they come from), which day of the week is busiest, how many copies leave your server
+  versus stay in it, and a sentence explaining why the forwarded total can be bigger than the
+  number of messages people actually posted.
+- **The plan page now tells you whether you need to upgrade.** It shows your rules and today's
+  messages against your actual limits, a free-versus-premium comparison using the real numbers
+  the bot enforces, and how many messages the daily cap has actually cost you in the last
+  month.
 - **Error notices can now be switched on and off from the dashboard.** This is the short message
   the bot posts in a channel when it has to stop forwarding because the daily limit was reached.
   It was already available in the `/admin` panel in Discord; it is now on the dashboard's

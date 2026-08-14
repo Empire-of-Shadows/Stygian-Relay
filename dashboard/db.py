@@ -99,3 +99,14 @@ def denial_counters():
 def bot_settings():
     """discord_forwarding_bot.bot_settings - global bot configuration."""
     return relay_client()["discord_forwarding_bot"]["bot_settings"]
+
+
+def user_preferences():
+    """discord_forwarding_bot.user_preferences - one doc per member's privacy choices.
+
+    Shape: ``{user_id: str, features: {all, relay_messages, show_name}, created_at,
+    updated_at}``. The bot reads the same documents through the shared
+    ``UserPreferenceCache`` (``storage/settings/user_preferences.py``) and owns the unique
+    index on ``user_id``; the dashboard is the only writer.
+    """
+    return relay_client()["discord_forwarding_bot"]["user_preferences"]

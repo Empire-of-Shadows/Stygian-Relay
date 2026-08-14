@@ -7,10 +7,12 @@ map (``db_manager.<registry_key>``) from the registry at construction, so no ``D
 mixin (or ``database_properties.py``) is needed.
 
 All collections live in the single ``discord_forwarding_bot`` database (name preserved so
-existing data is reused - no migration). Indexes are intentionally omitted: relay's index shapes
-are created by ``GuildManager.initialize_default_settings()`` / ``_ensure_indexes()`` (the
-historical source of truth, including the TTL indexes); re-declaring them here would risk
-duplicate-name conflicts. Registering the collections still gives the engine awareness + access.
+existing data is reused - no migration). Indexes are intentionally omitted for the historical
+collections: their index shapes are created by ``GuildManager.initialize_default_settings()`` /
+``_ensure_indexes()`` (the historical source of truth, including the TTL indexes), and
+re-declaring them here would risk duplicate-name conflicts. Registering the collections still
+gives the engine awareness + access. ``user_preferences`` is the one exception - it is new, no
+GuildManager routine touches it, so it declares its own index below and the engine builds it.
 
 Relay's domain layer (``storage/bot_specific/relay/{guild,audit}``) was carried over from the
 retired bespoke ``database/`` package and expresses its queries against a motor-style collection
@@ -27,7 +29,7 @@ Template: ``EmpireSystems/Settings/storage/collections_reference.py``.
 
 from __future__ import annotations
 
-from pymongo import AsyncMongoClient
+from pymongo import AsyncMongoClient, IndexModel
 from pymongo.asynchronous.collection import AsyncCollection
 
 from storage.core.collection_config import CollectionConfig
@@ -59,12 +61,30 @@ _RELAY_COLLECTIONS = [
     "setup_sessions",
 ]
 
+# Per-member privacy choices (the dashboard's /me/privacy page and the two forwarding
+# gates in commands/forward/forward.py). Unlike every collection above, no GuildManager
+# routine creates its index, so this one IS declared here - the engine builds it on
+# startup. One document per user, account-wide (there is no guild dimension: a member who
+# asks not to be relayed means it everywhere relay runs).
+USER_PREFERENCES = "user_preferences"
+
 # registry_key -> CollectionConfig. Relay's registry keys and Mongo collection names are
 # identical, so the auto-derived accessors reproduce the old typed access byte-for-byte.
 COLLECTIONS: dict[str, CollectionConfig] = {
     name: CollectionConfig(name=name, database=RELAY_DB, connection="primary", indexes=[])
     for name in _RELAY_COLLECTIONS
 }
+
+COLLECTIONS[USER_PREFERENCES] = CollectionConfig(
+    name=USER_PREFERENCES,
+    database=RELAY_DB,
+    connection="primary",
+    # user_id is stored as a STRING, like every other id in this database. The lookup is
+    # on the hot forwarding path (once per author per cache TTL), so it is indexed, and
+    # unique because a second document for the same member would make the answer depend
+    # on which one Mongo returned first.
+    indexes=[IndexModel([("user_id", 1)], unique=True, name="user_id_unique")],
+)
 
 
 class DatabaseManager(DatabaseManagerBase):

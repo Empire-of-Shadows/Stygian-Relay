@@ -13,6 +13,7 @@ import {
   ToggleField,
 } from "../_engine/components/settings/fields";
 import ContextColumn from "../components/settings/ContextColumn";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 /*
  * Server settings.
@@ -214,6 +215,9 @@ export function ConfigPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "danger"; text: string } | null>(null);
   const [query, setQuery] = useState("");
+  // The rail entry a click is trying to move to while the current one has unsaved edits.
+  // Held rather than navigated to immediately, so the dialog can offer to stay.
+  const [pendingSlug, setPendingSlug] = useState<Slug | null>(null);
 
   const slug = parseSlug(searchParams.get("s"));
 
@@ -303,6 +307,23 @@ export function ConfigPage() {
     );
   };
 
+  /**
+   * Switching rail entries with unsaved edits in the current one.
+   *
+   * The edits are NOT lost either way - the draft for every entry lives in one state
+   * object and survives the switch, which is why the dialog offers "leave them" rather
+   * than "discard". It exists because a rail entry showing "Unsaved" that you navigated
+   * away from is easy to forget about, and this is the moment to notice.
+   */
+  const requestGoTo = (next: Slug) => {
+    if (next === slug) return;
+    if (activeDirty) {
+      setPendingSlug(next);
+      return;
+    }
+    goTo(next);
+  };
+
   /** Build the wire patch for one rail entry - only the fields that changed. */
   const patchFor = (item: RailItem): Partial<GuildConfig> => {
     const patch: Partial<GuildConfig> = {};
@@ -376,7 +397,15 @@ export function ConfigPage() {
       </div>
 
       {message && (
-        <div className={`alert ${message.kind}`} role="status">{message.text}</div>
+        // A failed save is announced as an alert, not a status: a screen reader must
+        // interrupt for "your change was not saved", where "Saved forwarding" can wait
+        // for a natural pause.
+        <div
+          className={`alert ${message.kind}`}
+          role={message.kind === "danger" ? "alert" : "status"}
+        >
+          {message.text}
+        </div>
       )}
 
       <div className="set-layout">
@@ -404,14 +433,14 @@ export function ConfigPage() {
                   {items.map((item) => {
                     const badge = isDirty(item)
                       ? { text: "Unsaved", tone: "warn" }
-                      : railBadge(item.slug, draft);
+                      : railBadge(item.slug, draft, overview);
                     return (
                       <button
                         key={item.slug}
                         type="button"
                         className={"set-rail__item" + (item.slug === slug ? " is-active" : "")}
                         aria-current={item.slug === slug ? "page" : undefined}
-                        onClick={() => goTo(item.slug)}
+                        onClick={() => requestGoTo(item.slug)}
                       >
                         <span>{item.label}</span>
                         <span
@@ -544,6 +573,22 @@ export function ConfigPage() {
           />
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={pendingSlug !== null}
+        title={`Leave ${active.title.toLowerCase()} with unsaved changes?`}
+        message={
+          "Your edits are kept while you are on this page, so you can come back and save " +
+          "them. They are only lost if you reload or close the tab without saving."
+        }
+        confirmLabel="Switch anyway"
+        cancelLabel="Stay and save"
+        onConfirm={() => {
+          if (pendingSlug) goTo(pendingSlug);
+          setPendingSlug(null);
+        }}
+        onCancel={() => setPendingSlug(null)}
+      />
     </div>
   );
 }
@@ -552,12 +597,28 @@ export function ConfigPage() {
  * What the rail badge says about an area.
  *
  * "Set up" is the load-bearing one: switched on but missing the thing it cannot
- * run without, which is the state that looks fine and silently does nothing.
+ * run without, which is the state that looks fine and silently does nothing. Forwarding
+ * switched on with no active rule is exactly that state - the master switch reads "On",
+ * the server reports itself healthy, and not one message is being copied anywhere.
+ *
+ * The rule count comes from the overview the page already loads for its context column,
+ * so this costs no extra request. When the overview did not load, the badge falls back to
+ * the plain On/Off it always showed rather than guessing.
  */
-function railBadge(slug: Slug, draft: Draft): { text: string; tone: string } {
+function railBadge(
+  slug: Slug,
+  draft: Draft,
+  overview: GuildOverview | null,
+): { text: string; tone: string } {
   switch (slug) {
-    case "forwarding":
-      return draft.is_enabled ? { text: "On", tone: "ok" } : { text: "Off", tone: "" };
+    case "forwarding": {
+      if (!draft.is_enabled) return { text: "Off", tone: "" };
+      const active = overview?.rules?.active;
+      if (typeof active === "number" && active === 0) {
+        return { text: "Set up", tone: "warn" };
+      }
+      return { text: "On", tone: "ok" };
+    }
     case "cross_server": {
       const count = parseGuildIds(draft.inbound_text).length;
       return count > 0 ? { text: String(count), tone: "ok" } : { text: "None", tone: "" };

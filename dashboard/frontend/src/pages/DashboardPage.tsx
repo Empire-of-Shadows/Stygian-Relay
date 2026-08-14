@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, UnauthorizedError } from "../api/client";
-import type { Channel, Guild, GuildOverview, Me } from "../api/types";
+import type { Channel, Guild, GuildOverview, Me, RelayViewResponse } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
+import MemberRelayView from "../components/overview/MemberRelayView";
 import RelayOverview from "../components/overview/RelayOverview";
 import ServerPicker, { pickerMeta } from "../_engine/components/overview/ServerPicker";
 import SignalStrip, { type Signal } from "../_engine/components/overview/SignalStrip";
@@ -20,6 +21,13 @@ import { formatCount } from "../_engine/format";
  * This replaced a grid of server cards that led to a hub of five link cards.
  * The cards said nothing about whether the relay was actually forwarding, which
  * is the only question an admin opens this page with.
+ *
+ * MEMBER FIRST (owner ruling 2026-08-13). Everyone who signs in gets the "where do my
+ * messages go" pane, including an admin - an admin is a member of their own server before
+ * they are its administrator, and relay copies their messages too. The server overview
+ * sits below it under its own heading, and only for someone who can actually manage the
+ * server. Before this, a member with no permissions got a completely empty page, because
+ * the guild listing dropped them outright.
  */
 export function DashboardPage({ me }: { me: Me | null }) {
   const [guilds, setGuilds] = useState<Guild[] | null>(null);
@@ -33,6 +41,9 @@ export function DashboardPage({ me }: { me: Me | null }) {
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [channels, setChannels] = useState<Map<string, string>>(new Map());
+
+  const [memberView, setMemberView] = useState<RelayViewResponse | null>(null);
+  const [memberViewLoading, setMemberViewLoading] = useState(false);
 
   // The ?guild= the page was opened with. A shared link always beats the
   // default-to-your-first-server behaviour below.
@@ -57,7 +68,13 @@ export function DashboardPage({ me }: { me: Me | null }) {
         if (!alive) return;
         setGuilds(list);
         if (!openedWith.current) {
-          const first = list.find((g) => g.bot_in_guild && !g.setup_required) ?? list[0];
+          // Land on a server the user actually manages, since that is the page with the
+          // most on it. A member-only list falls through to the first ready server, and
+          // then to the first server of any kind, so there is always a selection.
+          const first =
+            list.find((g) => g.panel_role === "admin" && g.bot_in_guild && !g.setup_required) ??
+            list.find((g) => g.bot_in_guild && !g.setup_required) ??
+            list[0];
           if (first) selectGuild(first.id, true);
         }
       })
@@ -82,8 +99,13 @@ export function DashboardPage({ me }: { me: Me | null }) {
     [guilds, selectedGuildId],
   );
 
-  const canShowOverview =
+  /** Relay is present and set up here - the precondition for anything below. */
+  const relayPresent =
     selectedGuild !== null && selectedGuild.bot_in_guild && !selectedGuild.setup_required;
+
+  /** ...and the user can manage it, which is what the server overview needs. Asking for
+   *  the overview without this earns a 403, since every guild route is admin-only. */
+  const canShowOverview = relayPresent && selectedGuild?.panel_role === "admin";
 
   useEffect(() => {
     if (!canShowOverview || !selectedGuild) {
@@ -122,6 +144,23 @@ export function DashboardPage({ me }: { me: Me | null }) {
       .catch(() => { /* fall back to raw ids */ });
     return () => { cancelled = true; };
   }, [canShowOverview, selectedGuild]);
+
+  // The member pane. Fetched for anyone relay is present for, admin or not, and never
+  // allowed to take the page down with it: it is additive, so a failure leaves the server
+  // overview rendering alone rather than showing an error for a section nobody asked for.
+  useEffect(() => {
+    if (!relayPresent || !selectedGuild) {
+      setMemberView(null);
+      return;
+    }
+    let cancelled = false;
+    setMemberViewLoading(true);
+    api.relayView(selectedGuild.id)
+      .then((data) => { if (!cancelled) setMemberView(data); })
+      .catch(() => { if (!cancelled) setMemberView(null); })
+      .finally(() => { if (!cancelled) setMemberViewLoading(false); });
+    return () => { cancelled = true; };
+  }, [relayPresent, selectedGuild]);
 
   const channelName = (id: string): string => {
     if (!id) return "unknown channel";
@@ -167,8 +206,8 @@ export function DashboardPage({ me }: { me: Me | null }) {
               <span className="ov-card__title">No servers</span>
             </div>
             <p className="ov-body">
-              Hey, {displayName}. No servers to show yet - the relay appears here once you have
-              Manage Server permission in a server it has been added to.
+              Hey, {displayName}. No servers to show yet - a server appears here once you are
+              in one that Stygian Relay has been added to.
             </p>
             {inviteUrl && (
               <div className="admin-actions">
@@ -197,7 +236,7 @@ export function DashboardPage({ me }: { me: Me | null }) {
           onSelect={(id) => selectGuild(id, true)}
           meta={pickerMeta(selectedGuild, guilds.length, "Stygian Relay")}
         />
-        <SignalStrip signals={signalsFor(overview)} />
+        <SignalStrip signals={signalsFor(overview, memberView)} />
       </div>
 
       {selectedGuild === null && (
@@ -242,6 +281,33 @@ export function DashboardPage({ me }: { me: Me | null }) {
         </div>
       )}
 
+      {/* Member first: this is everyone's pane, admins included. An admin sees it above
+          the server sections under codex's headings; a member sees it as the whole page,
+          with no heading over it because there is nothing to distinguish it from. */}
+      {relayPresent && memberViewLoading && !memberView && (
+        <div className="ov-grid" role="status" aria-busy="true">
+          <div className="skeleton-card s12" />
+          <span className="visually-hidden">Loading where your messages go</span>
+        </div>
+      )}
+
+      {relayPresent && memberView && (
+        <>
+          {canShowOverview && (
+            <h2 className="section-title" style={{ margin: "4px 0 12px" }}>
+              Your messages
+            </h2>
+          )}
+          <MemberRelayView view={memberView} />
+        </>
+      )}
+
+      {canShowOverview && (overview || overviewLoading || overviewError) && (
+        <h2 className="section-title" style={{ margin: "28px 0 12px" }}>
+          Server overview
+        </h2>
+      )}
+
       {canShowOverview && overviewLoading && !overview && (
         <div className="ov-grid" role="status" aria-busy="true">
           <div className="skeleton-card s12" />
@@ -282,14 +348,32 @@ export function DashboardPage({ me }: { me: Me | null }) {
           <Link className="ov-link" to={`/guilds/${overview.guild_id}/audit-log`}>Audit log</Link>
         </p>
       )}
+
+      {relayPresent && !canShowOverview && (
+        <p className="ov-muted" style={{ paddingBottom: 32 }}>
+          You are a member of this server rather than one of its managers, so the server's
+          own settings and figures are not shown here.{" "}
+          <Link className="ov-link" to="/me/privacy">Your privacy choices</Link> control
+          whether your messages are relayed at all.
+        </p>
+      )}
     </div>
   );
 }
 
 /* ── The command-row numbers ───────────────────────────────────────── */
 
-function signalsFor(overview: GuildOverview | null): Signal[] {
-  if (!overview) return [];
+/**
+ * A manager gets the server's figures; a member gets their own.
+ *
+ * A member has no access to forwarded totals or the daily cap, so the strip must not sit
+ * empty for them - it reports the two things they can be told, from the member view.
+ */
+function signalsFor(
+  overview: GuildOverview | null,
+  memberView: RelayViewResponse | null,
+): Signal[] {
+  if (!overview) return memberSignals(memberView);
   const traffic = overview.traffic;
   const rules = overview.rules;
 
@@ -313,6 +397,26 @@ function signalsFor(overview: GuildOverview | null): Signal[] {
       key: "blocked",
       value: traffic ? formatCount(traffic.blocked_30d) : "-",
       label: "Blocked - 30 days",
+    },
+  ];
+}
+
+function memberSignals(view: RelayViewResponse | null): Signal[] {
+  if (!view) return [];
+  const routes = view.guilds.reduce((sum, g) => sum + g.routes.length, 0);
+  const carrying = view.guilds.reduce((sum, g) => sum + g.carrying_you, 0);
+  return [
+    {
+      key: "carrying",
+      value: view.privacy.relaying_paused ? "0" : formatCount(carrying),
+      label: view.privacy.relaying_paused
+        ? "Carry your messages - you paused relaying"
+        : "Routes carrying your messages",
+    },
+    {
+      key: "routes",
+      value: formatCount(routes),
+      label: "Active routes here",
     },
   ];
 }

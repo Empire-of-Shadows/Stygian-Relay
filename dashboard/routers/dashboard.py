@@ -134,7 +134,13 @@ async def guilds(session: dict = Depends(get_current_user)):
         perms = int(guild.get("permissions", 0))
         has_manage = (perms & MANAGE_GUILD_PERMISSION) == MANAGE_GUILD_PERMISSION
         panel_role = panel_roles.get(gid, "none")
-        if not has_manage and panel_role == "none":
+        in_bot_guild = gid in bot_guild_ids
+        # Members are kept, with panel_role "none" - the dashboard home now has a member
+        # pane (which routes carry your messages), so dropping them left an ordinary
+        # member with an empty page. They are only kept where the bot is actually
+        # present; a server relay is not in has nothing to tell a member. Callers that
+        # are admin-only, like the settings web scene, filter on panel_role themselves.
+        if not has_manage and panel_role == "none" and not in_bot_guild:
             continue
         out.append({
             "id": gid,
@@ -179,9 +185,15 @@ async def bot_invite_url():
     return {"url": url}
 
 
-@router.get("/guilds/{guild_id}/channels")
-async def guild_channels(guild_id: str, session: dict = Depends(get_current_user)):
-    await require_panel_access(session, guild_id)
+async def fetch_guild_channels(guild_id: str) -> list[dict]:
+    """The guild's channel listing, from the shared 60-second cache.
+
+    Extracted from ``guild_channels`` unchanged so a route that must NOT be gated on
+    panel access (the member relay view) can resolve channel NAMES server-side without
+    re-implementing the fetch, the 429 retry or the cache. It carries no authorization of
+    its own - every caller does its own gating first, and a member-facing caller must
+    return names only, never the whole listing.
+    """
     now = time.monotonic()
     cached = _channels_cache.get(guild_id)
     if cached and now - cached["ts"] < _RESOURCE_CACHE_TTL:
@@ -206,6 +218,12 @@ async def guild_channels(guild_id: str, session: dict = Depends(get_current_user
     channels.sort(key=lambda c: (c["type"] != 4, c["position"]))
     _channels_cache[guild_id] = {"data": channels, "ts": now}
     return channels
+
+
+@router.get("/guilds/{guild_id}/channels")
+async def guild_channels(guild_id: str, session: dict = Depends(get_current_user)):
+    await require_panel_access(session, guild_id)
+    return await fetch_guild_channels(guild_id)
 
 
 @router.get("/guilds/{guild_id}/roles")

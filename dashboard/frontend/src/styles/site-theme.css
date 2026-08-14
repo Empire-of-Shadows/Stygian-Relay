@@ -1556,3 +1556,64 @@ tr:hover td {
 .route-count { font-size: 22px; font-weight: 700; color: var(--text-1); font-variant-numeric: tabular-nums; line-height: 1; }
 .route-count-label { font-size: 11px; color: var(--muted); }
 .route-share { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--eos-fg-accent); font-variant-numeric: tabular-nums; }
+
+/* ── Confirm dialog (ported from TheCodex discord-theme.css) ────────────────
+   Relay had no dialog at all and used the browser's confirm(). These four rules
+   are the fleet's shared shape; keep them byte-compatible with TheCodex so a
+   dialog looks the same on whichever dashboard a member happens to open. */
+
+.confirm-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; backdrop-filter: blur(4px);
+}
+.confirm-dialog {
+  background: var(--eos-bg-card, #1f1b2e);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px; padding: 24px; max-width: 440px; width: calc(100% - 32px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.confirm-title { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+.confirm-message { margin: 0 0 20px; color: var(--eos-fg-2, #b8b3c8); line-height: 1.5; }
+.confirm-actions { display: flex; gap: 12px; justify-content: flex-end; }
+
+/* ── Member relay view + route detail rows ──────────────────────────────────
+   The member pane on /me answers "where do my messages go". It is a list of
+   source-to-destination pairs with a carried/not-carried marker, so it reuses
+   the engine's queue row rather than inventing a card. These are the two bits
+   the queue row does not provide: the arrow between two channel chips wrapping
+   cleanly on a phone, and the dot that says whether a route carries you. */
+
+.mroute { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-bottom: 1px solid var(--border-subtle); }
+.mroute:last-child { border-bottom: 0; }
+.mroute__path { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+.mroute__note { font-size: 12px; color: var(--muted); }
+.mroute__mark {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.mroute__mark--yes { color: var(--success); }
+.mroute__mark--no { color: var(--muted); }
+.mroute__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+/* ── Keyword chips (rule editor) ────────────────────────────────────────────
+   A keyword list is a set, not a sentence, so it is entered as chips with an
+   explicit remove rather than a comma-separated text box where a stray comma
+   silently splits a phrase in two. */
+
+.kwlist { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.kwchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 6px 3px 9px; border-radius: 999px;
+  background: var(--glass-heavy); border: 1px solid var(--card-border);
+  font-size: 12px; color: var(--text-1); max-width: 100%;
+}
+.kwchip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kwchip button {
+  appearance: none; border: 0; background: transparent; color: var(--muted);
+  font: inherit; font-size: 14px; line-height: 1; cursor: pointer; padding: 0 2px;
+  border-radius: 50%; flex-shrink: 0;
+}
+.kwchip button:hover { color: var(--danger); }
+.kwadd { display: flex; gap: 8px; align-items: flex-start; }
+.kwadd input { flex: 1; min-width: 0; }

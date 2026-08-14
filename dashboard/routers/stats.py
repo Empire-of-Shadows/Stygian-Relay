@@ -86,6 +86,16 @@ async def guild_stats(
                     {"$sort": {"count": -1}},
                     {"$limit": 10},
                 ],
+                # Where the traffic LANDS, which the source breakdown cannot answer:
+                # one busy source channel fanning out to five destinations reads as a
+                # single bar on the source chart while five channels are actually
+                # filling up. Same shape and limit as per_source, on the same single
+                # pass over message_logs, so it costs nothing extra to fetch.
+                "per_destination": [
+                    {"$group": {"_id": "$destination_channel_id", "count": {"$sum": 1}}},
+                    {"$sort": {"count": -1}},
+                    {"$limit": 10},
+                ],
                 "total": [{"$count": "n"}],
                 # Distinct source messages, counted by grouping first so we never
                 # build a giant $addToSet array in a single document.
@@ -200,6 +210,11 @@ async def guild_stats(
         for row in facet.get("per_source", [])
     ]
 
+    per_destination = [
+        {"channel_id": str(row["_id"] or ""), "forwarded": int(row["count"])}
+        for row in facet.get("per_destination", [])
+    ]
+
     blocked_reasons = sorted(
         ({"reason": k, "count": v} for k, v in blocked_by_reason.items()),
         key=lambda x: x["count"],
@@ -227,5 +242,6 @@ async def guild_stats(
         "hourly": hourly,
         "per_rule": per_rule,
         "per_source": per_source,
+        "per_destination": per_destination,
         "blocked_by_reason": blocked_reasons,
     }

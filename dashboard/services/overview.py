@@ -21,7 +21,13 @@ Data sources, and the bot-side writers that fill them:
                          TTL (``GuildManager.record_denial``)
   - ``daily_counters``   per-(guild, UTC day) forwarded quota counter, 3-day TTL
   - ``premium_state``    derived premium status (``PremiumManager``)
-  - ``audit_logs``       admin action trail (panel + dashboard writes)
+  - ``audit_logs``       admin action trail. Two writers, both live as of 2026-08-13:
+                         the bot's ``AuditLog`` (the ``/admin`` panel, premium events)
+                         and the dashboard's own ``dashboard/services/audit.py`` (config
+                         saves and every rule create / edit / pause / delete). Before
+                         that date the dashboard wrote NONE of its own changes, so
+                         ``last_change`` on a server managed entirely from the web could
+                         be arbitrarily stale - this comment claimed otherwise.
 
 ``daily_counters`` is deliberately NOT the source of the trend: it only keeps
 about three days, so a 30-day series drawn from it would be mostly holes.

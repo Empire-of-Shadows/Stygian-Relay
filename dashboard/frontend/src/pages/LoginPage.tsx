@@ -63,9 +63,53 @@ export function LoginPage({ me }: { me: Me | null }) {
             <span className="tile-title">Ecom</span>
             <span className="tile-desc">Leveling, embers, and economy for the Ecom bot.</span>
           </a>
+          <a className="tile-button" href="https://reminder.eosofficial.club" target="_blank" rel="noopener noreferrer">
+            <span className="tile-title">Imperial Reminder</span>
+            <span className="tile-desc">Bump reminders that keep a server listed.</span>
+          </a>
+          <a className="tile-button" href="https://decree.eosofficial.club" target="_blank" rel="noopener noreferrer">
+            <span className="tile-title">The Decree</span>
+            <span className="tile-desc">Scheduled quotes and announcements on a timer.</span>
+          </a>
         </div>
       </div>
-      <div className="login-below" />
+
+      {/*
+        What the bot actually does, below the fold.
+        This strip was an empty reserved div. Every figure in it is the real free-tier
+        limit the backend enforces (dashboard/services/premium.py::get_guild_limits), not
+        a marketing number, so it cannot promise something a new server does not get. It
+        is static on purpose: nobody is signed in here, so there is nothing live to read.
+      */}
+      <div className="login-below">
+        <div className="login-divider">What Stygian Relay does</div>
+        <div className="login-tiles">
+          <div className="tile-button" style={{ cursor: "default" }}>
+            <span className="tile-title">Copies a channel into another channel</span>
+            <span className="tile-desc">
+              Pick a channel to watch and a channel to copy into. Every message posted in
+              the first is reposted in the second, as a quote with a link back to the
+              original.
+            </span>
+          </div>
+          <div className="tile-button" style={{ cursor: "default" }}>
+            <span className="tile-title">Three routes free, 100 messages a day</span>
+            <span className="tile-desc">
+              A free server can run three rules at once and forward up to 100 messages a
+              day. Premium raises that to twenty rules and 5,000 messages, and is bought
+              through Discord.
+            </span>
+          </div>
+          <div className="tile-button" style={{ cursor: "default" }}>
+            <span className="tile-title">Filters, and a say for members</span>
+            <span className="tile-desc">
+              Each rule can require or block words, set a length range, and pick which
+              roles it copies. Any member can ask relay to leave their messages out
+              entirely, or to keep their name off the copies.
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

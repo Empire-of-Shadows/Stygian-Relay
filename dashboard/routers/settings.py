@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from dashboard import db
 from dashboard.auth.dependencies import get_current_user, require_panel_access
+from dashboard.services import audit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["settings"])
@@ -122,5 +123,18 @@ async def update_config(
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Guild configuration not found.")
+
+    # Recorded after the write, and only once it matched, so the history never claims a
+    # change that did not happen. The field NAMES are stored, not their values: a log
+    # channel or a manager role is a snowflake nobody can read back, and the current
+    # value is one click away on the settings page. `set_fields` is used rather than the
+    # request body so the mirrored `features.forwarding_enabled` write shows up too.
+    await audit.record(
+        session,
+        category="settings",
+        guild_id=gid,
+        action="update_config",
+        payload={"fields": sorted(set_fields.keys())},
+    )
 
     return {"ok": True}

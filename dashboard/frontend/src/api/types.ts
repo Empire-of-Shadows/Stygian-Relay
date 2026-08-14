@@ -45,8 +45,67 @@ export interface AuthorFilters {
   deny_role_ids: string[];
 }
 
+/** Which kinds of message a rule copies. All false forwards nothing at all. */
+export interface MessageTypes {
+  text: boolean;
+  media: boolean;
+  links: boolean;
+  embeds: boolean;
+  files: boolean;
+  stickers: boolean;
+}
+
+/** Keyword and length gates, applied to message content before forwarding. */
+export interface RuleFilters {
+  require_keywords: string[];
+  block_keywords: string[];
+  min_length: number;
+  max_length: number;
+}
+
+/**
+ * How a forwarded copy is written.
+ *
+ * `add_prefix`, `add_suffix` and `forward_style` are stored on the rule but are NOT read
+ * by the forwarding runtime today - it always renders the quoted style and never applies
+ * a prefix or suffix. The editor says so on the page rather than presenting them as if
+ * they changed the forwarded message. See dashboard/routers/rules.py::FormattingModel.
+ */
+export interface RuleFormatting {
+  include_author: boolean;
+  add_prefix: string;
+  add_suffix: string;
+  forward_attachments: boolean;
+  forward_embeds: boolean;
+  forward_style: string;
+}
+
+/** How keyword matching is performed. */
+export interface AdvancedOptions {
+  case_sensitive: boolean;
+  whole_word_only: boolean;
+}
+
 export interface RuleSettings {
   author_filters: AuthorFilters;
+  message_types: MessageTypes;
+  filters: RuleFilters;
+  formatting: RuleFormatting;
+  advanced_options: AdvancedOptions;
+}
+
+/** The body of a rule create or update. Every settings section is optional. */
+export interface RuleWriteBody {
+  rule_name?: string;
+  source_channel_id?: string;
+  destination_channel_id?: string;
+  destination_guild_id?: string;
+  is_active?: boolean;
+  author_filters?: AuthorFilters;
+  message_types?: MessageTypes;
+  filters?: RuleFilters;
+  formatting?: RuleFormatting;
+  advanced_options?: AdvancedOptions;
 }
 
 export interface Rule {
@@ -65,6 +124,12 @@ export interface Rule {
 export interface RulesResponse {
   rules: Rule[];
   count: number;
+  /**
+   * How many accounts have asked relay not to relay their messages. A COUNT only, never
+   * names (owner ruling). It is account-wide rather than scoped to this server, and the
+   * rules page says so - see dashboard/services/user_data.py::count_relay_opt_outs.
+   */
+  opted_out_members?: number;
 }
 
 export interface DailyCount {
@@ -88,6 +153,9 @@ export interface PerSourceStat {
   channel_id: string;
   forwarded: number;
 }
+
+/** Where the traffic landed. Same shape as PerSourceStat, different question. */
+export type PerDestinationStat = PerSourceStat;
 
 export interface BlockedReason {
   reason: string;
@@ -117,6 +185,7 @@ export interface StatsResponse {
   hourly: number[];
   per_rule: PerRuleStat[];
   per_source: PerSourceStat[];
+  per_destination: PerDestinationStat[];
   blocked_by_reason: BlockedReason[];
 }
 
@@ -249,4 +318,64 @@ export interface GuildOverview {
   delivery: DeliveryOverview | null;
   plan: PlanOverview | null;
   config: ConfigOverview | null;
+}
+
+/* ── The member's own data (privacy page + member pane) ─────────────────── */
+
+/**
+ * The member's privacy choices.
+ *
+ * A `true` value means OPTED OUT of that thing - `show_name: true` is "do not show my
+ * name". `all` is the master switch and covers both. Same polarity as the bot's
+ * UserPreferenceCache, which is what lets `all` gate both without a special case.
+ */
+export interface PrivacyFeatures {
+  all: boolean;
+  relay_messages: boolean;
+  show_name: boolean;
+}
+
+/** A server the member can scope an export or an erasure to. */
+export interface ScopeGuild {
+  id: string;
+  name: string | null;
+  icon: string | null;
+}
+
+export interface DeleteUserDataResponse {
+  user_id: string;
+  guild_id: string | null;
+  deleted: Record<string, number>;
+}
+
+/** One active route, as a member is allowed to see it. */
+export interface MemberRoute {
+  rule_id: string;
+  source_channel_id: string;
+  source_channel_name: string | null;
+  destination_channel_id: string;
+  /** Null for a cross-server destination - that guild's channels are not fetched. */
+  destination_channel_name: string | null;
+  cross_server: boolean;
+  destination_guild_id: string | null;
+  destination_guild_name: string | null;
+  /** Whether this route would carry THIS member's messages. */
+  carries_you: boolean;
+}
+
+export interface MemberGuildView {
+  guild_id: string;
+  guild_name: string | null;
+  forwarding_enabled: boolean;
+  has_config: boolean;
+  routes: MemberRoute[];
+  carrying_you: number;
+}
+
+export interface RelayViewResponse {
+  guilds: MemberGuildView[];
+  privacy: {
+    relaying_paused: boolean;
+    name_hidden: boolean;
+  };
 }

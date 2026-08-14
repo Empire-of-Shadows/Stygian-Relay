@@ -1,33 +1,39 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Channel, StatsResponse, PerRuleStat, PerSourceStat, BlockedReason } from "../api/types";
+import type { Channel, StatsResponse, PerRuleStat, PerSourceStat } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
+import SignalStrip, { type Signal } from "../_engine/components/overview/SignalStrip";
+import { KeyValue, Rule as Divider, Stat, Tile } from "../_engine/components/overview/Tile";
+import { formatCount } from "../_engine/format";
+import { reasonColor, reasonHelp, reasonLabel } from "../components/overview/format";
+
+/*
+ * Forwarding analytics.
+ *
+ * SHELL MIGRATION, not a rewrite. The page's own drawings are the good part and are kept
+ * exactly: the two-series trend chart with its hover crosshair, the 24-hour bars, the
+ * horizontal share bars, and the route cards. What changed is the frame around them - the
+ * bespoke `.bento` grid and `.stats-tiles` strip became the engine's `.page` column,
+ * `.ov-grid` and SignalStrip, so this page sits in the same layout as the home page
+ * instead of its own.
+ *
+ * Two side cards were replaced rather than restyled: UsageCard and BlockedCard were
+ * card-shaped restatements of things the Tile idiom says better, and their blocked-reason
+ * wording was a second, differently-worded copy of the overview's. That copy is gone -
+ * both pages now read the one map in components/overview/format.ts.
+ *
+ * Four things were ADDED, all from data the endpoint already returned or now returns in
+ * the same single pass: where traffic lands (per_destination), blocked over time drawn
+ * from daily[].blocked, which day of the week is busiest, and the split between routes
+ * that stay in this server and routes that leave it.
+ *
+ * Every figure here is real. Where a series has no history the chart says so in a
+ * sentence rather than drawing a flat line at zero.
+ */
 
 const RANGES = [7, 30, 90] as const;
-
-const REASON_META: Record<string, { label: string; desc: string; color: string }> = {
-  daily_limit_hit: {
-    label: "Daily limit reached",
-    desc: "Messages skipped after the server hit its daily forward cap.",
-    color: "var(--warning)",
-  },
-  rate_limited: {
-    label: "Rate limited",
-    desc: "Bursts throttled to keep forwarding smooth.",
-    color: "var(--warning)",
-  },
-  perm_failure: {
-    label: "Misconfigured rule",
-    desc: "Destination channel missing, or the bot lacks permission there.",
-    color: "var(--danger)",
-  },
-};
-
-function reasonMeta(reason: string) {
-  return REASON_META[reason] ?? { label: reason, desc: "", color: "var(--muted)" };
-}
 
 function fmt(n: number): string {
   return n.toLocaleString();
@@ -40,18 +46,22 @@ function shortDate(iso: string): string {
   return dt.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
-// ── Summary tile ──────────────────────────────────────────────────────────
-function Tile({ value, label, sub, accent }: { value: string; label: string; sub?: string; accent?: boolean }) {
-  return (
-    <div className={`empire-stat${accent ? " empire-stat--accent" : ""}`}>
-      <div className="empire-stat__value">{value}</div>
-      <div className="empire-stat__label">{label}</div>
-      {sub && <div className="empire-stat__sub">{sub}</div>}
-    </div>
-  );
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Day-of-week index for a YYYY-MM-DD key, read as a UTC calendar day. */
+function weekdayOf(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
-// ── Daily forwarded trend (single-series area + hover crosshair) ───────────
+// ── Daily trend (two series: forwarded area + blocked companion) ───────────
+/**
+ * Kept from the previous page, with the blocked series added as a companion line.
+ *
+ * The blocked line is drawn on the SAME scale as forwarded on purpose. A second axis
+ * would make three blocked messages look like a crisis next to three thousand forwarded
+ * ones; on one scale the reader can see it is a rounding error, which is the truth.
+ */
 function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
   const [hover, setHover] = useState<number | null>(null);
   const n = daily.length;
@@ -60,12 +70,14 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
   const padTop = 10;
   const padBottom = 22;
   const innerH = H - padTop - padBottom;
-  const max = Math.max(1, ...daily.map((d) => d.forwarded));
+  const max = Math.max(1, ...daily.map((d) => Math.max(d.forwarded, d.blocked)));
+  const anyBlocked = daily.some((d) => d.blocked > 0);
 
   const x = (i: number) => (n <= 1 ? W / 2 : (i * W) / (n - 1));
   const y = (v: number) => padTop + innerH * (1 - v / max);
 
   const linePts = daily.map((d, i) => `${x(i)},${y(d.forwarded)}`).join(" ");
+  const blockedPts = daily.map((d, i) => `${x(i)},${y(d.blocked)}`).join(" ");
   const areaPath = `M0,${padTop + innerH} L${daily.map((d, i) => `${x(i)},${y(d.forwarded)}`).join(" L")} L${W},${padTop + innerH} Z`;
 
   const active = hover ?? (n > 0 ? n - 1 : 0);
@@ -73,18 +85,23 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
   const tickIdx = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
 
   return (
-    <div className="card">
+    <>
       <div className="chart-head">
-        <h3>Forwarded over time</h3>
         {cur && (
           <div className="chart-caption">
             <b>{shortDate(cur.date)}</b> &middot; <b>{fmt(cur.forwarded)}</b> forwarded
             {cur.blocked > 0 && <> &middot; {fmt(cur.blocked)} blocked</>}
           </div>
         )}
+        {anyBlocked && (
+          <div className="chart-legend">
+            <span><i style={{ background: "var(--brand-2)" }} />Forwarded</span>
+            <span><i style={{ background: "var(--warning)" }} />Blocked</span>
+          </div>
+        )}
       </div>
       <div className="chart-wrap">
-        <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Forwarded messages per day">
+        <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Forwarded and blocked messages per day">
           <defs>
             <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--brand-2)" stopOpacity="0.45" />
@@ -95,6 +112,18 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
           <line className="grid-line" x1="0" y1={padTop + innerH / 2} x2={W} y2={padTop + innerH / 2} />
           <path d={areaPath} fill="url(#trendFill)" />
           <polyline points={linePts} fill="none" stroke="var(--brand-2)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          {anyBlocked && (
+            <polyline
+              points={blockedPts}
+              fill="none"
+              stroke="var(--warning)"
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
           {hover !== null && cur && (
             <>
               <line className="grid-line" x1={x(active)} y1={padTop} x2={x(active)} y2={padTop + innerH} stroke="var(--brand-2)" strokeOpacity="0.5" />
@@ -114,7 +143,7 @@ function TrendChart({ daily }: { daily: StatsResponse["daily"] }) {
           ))}
         </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -126,10 +155,14 @@ function HoursChart({ hourly }: { hourly: number[] }) {
   const peakHour = hourly.indexOf(Math.max(...hourly));
   const cur = hover ?? (total > 0 ? peakHour : null);
 
+  if (total === 0) {
+    return <p className="ov-muted">Nothing has been forwarded in this period, so there is no busiest hour yet.</p>;
+  }
+
   return (
-    <div className="card">
+    <>
       <div className="chart-head">
-        <h3>Busiest hours <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>(UTC)</span></h3>
+        <span className="ov-muted">Times are UTC</span>
         {cur !== null && (
           <div className="chart-caption">
             <b>{String(cur).padStart(2, "0")}:00</b> &middot; <b>{fmt(hourly[cur])}</b> forwarded
@@ -143,7 +176,7 @@ function HoursChart({ hourly }: { hourly: number[] }) {
             className="hour-bar"
             onMouseEnter={() => setHover(h)}
             style={{ height: `${(v / max) * 100}%`, opacity: 0.35 + 0.65 * (v / max) }}
-            title={`${String(h).padStart(2, "0")}:00 · ${fmt(v)}`}
+            title={`${String(h).padStart(2, "0")}:00 - ${fmt(v)}`}
           />
         ))}
       </div>
@@ -152,11 +185,11 @@ function HoursChart({ hourly }: { hourly: number[] }) {
           <span key={h} style={{ textAlign: "center" }}>{h % 6 === 0 ? h : ""}</span>
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
-// ── Generic horizontal share bars (used for busiest source channels) ───────
+// ── Generic horizontal share bars ─────────────────────────────────────────
 type ShareItem = { key: string; name: string; meta?: string; value: number; muted?: boolean };
 function ShareBars({ items }: { items: ShareItem[] }) {
   const max = Math.max(1, ...items.map((i) => i.value));
@@ -199,12 +232,8 @@ function RouteCards({
         const statusLabel = r.deleted ? "No longer exists" : r.is_active ? "Active" : "Paused";
         const crossGuild = !r.deleted && r.destination_guild_id !== "" && r.destination_guild_id !== guildId;
         const share = total > 0 ? Math.round((r.forwarded / total) * 100) : 0;
-        return (
-          <div
-            key={r.rule_id}
-            className={`route-card${r.deleted || !r.is_active ? " route-card--muted" : ""}`}
-            style={{ "--share": `${share}%` } as CSSProperties}
-          >
+        const card = (
+          <>
             <div className="route-card__top">
               <span className="route-rank">#{i + 1}</span>
               <span className="route-name" title={r.deleted ? "Deleted rule" : r.rule_name}>
@@ -217,9 +246,9 @@ function RouteCards({
             ) : (
               <div className="route-path">
                 <span className="chan-chip" title={channelName(r.source_channel_id)}>{channelName(r.source_channel_id)}</span>
-                <span className="route-arrow" aria-label="forwards to">▶</span>
+                <span className="route-arrow" aria-label="forwards to">-&gt;</span>
                 <span className="chan-chip" title={channelName(r.destination_channel_id)}>{channelName(r.destination_channel_id)}</span>
-                {crossGuild && <span className="route-xguild" title="Forwards to another server">↗ server</span>}
+                {crossGuild && <span className="route-xguild" title="Forwards to another server">another server</span>}
               </div>
             )}
             <div className="route-card__foot">
@@ -227,58 +256,28 @@ function RouteCards({
               <span className="route-count-label">forwarded</span>
               {share > 0 && <span className="route-share">{share}%</span>}
             </div>
-          </div>
+          </>
         );
-      })}
-    </div>
-  );
-}
 
-// ── Today's usage gauge (compact side-rail card) ───────────────────────────
-function UsageCard({ today, limit, premium }: { today: number; limit: number; premium: boolean }) {
-  const pct = Math.min(100, (today / Math.max(1, limit)) * 100);
-  const atCap = today >= limit;
-  return (
-    <div className="card">
-      <div className="chart-head">
-        <h3>Today's usage</h3>
-        {premium && <span className="badge success">Premium</span>}
-      </div>
-      <div className="usage-bar">
-        <span style={{
-          width: `${pct.toFixed(1)}%`,
-          background: atCap
-            ? "linear-gradient(135deg, var(--warning), #e8913a)"
-            : "linear-gradient(135deg, var(--brand), var(--brand-2))",
-        }} />
-      </div>
-      <div className="chart-caption" style={{ marginTop: 8 }}>
-        <b>{fmt(today)}</b> / {fmt(limit)} {atCap ? "· cap reached" : `· ${Math.round(pct)}% of cap`}
-      </div>
-    </div>
-  );
-}
-
-// ── Blocked-by-reason breakdown (compact side-rail card) ───────────────────
-function BlockedCard({ reasons, totalBlocked }: { reasons: BlockedReason[]; totalBlocked: number }) {
-  return (
-    <div className="card share-list">
-      <h3 style={{ margin: 0, fontSize: 15 }}>Why messages were blocked</h3>
-      {reasons.map((b) => {
-        const meta = reasonMeta(b.reason);
-        const pct = totalBlocked > 0 ? (b.count / totalBlocked) * 100 : 0;
-        return (
-          <div key={b.reason} className="reason-row">
-            <div className="reason-row__head">
-              <span className="reason-row__dot" style={{ background: meta.color }} />
-              <span className="reason-row__name">{meta.label}</span>
-              <span className="reason-row__val">{fmt(b.count)}</span>
-            </div>
-            {meta.desc && <div className="reason-row__desc">{meta.desc}</div>}
-            <div className="share-track">
-              <div className="share-fill" style={{ width: `${pct}%`, background: meta.color }} />
-            </div>
+        // A deleted rule has no editor to open, so it stays a plain card. A live one
+        // links to its editor - the question "why is this route quiet" is answered there.
+        return r.deleted ? (
+          <div
+            key={r.rule_id}
+            className="route-card route-card--muted"
+            style={{ "--share": `${share}%` } as CSSProperties}
+          >
+            {card}
           </div>
+        ) : (
+          <Link
+            key={r.rule_id}
+            to={`/guilds/${guildId}/rules/${r.rule_id}`}
+            className={`route-card${r.is_active ? "" : " route-card--muted"}`}
+            style={{ "--share": `${share}%`, textDecoration: "none", color: "inherit" } as CSSProperties}
+          >
+            {card}
+          </Link>
         );
       })}
     </div>
@@ -330,27 +329,74 @@ export function StatsPage() {
       name: channelName(s.channel_id),
       value: s.forwarded,
     })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [stats, channels],
   );
+
+  const destinationItems: ShareItem[] = useMemo(
+    () => (stats?.per_destination ?? []).map((s) => ({
+      key: s.channel_id,
+      name: channelName(s.channel_id),
+      value: s.forwarded,
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [stats, channels],
+  );
+
+  /** Forwarded totals per day of the week, summed over the window. */
+  const weekday = useMemo(() => {
+    const totals = new Array(7).fill(0) as number[];
+    for (const day of stats?.daily ?? []) totals[weekdayOf(day.date)] += day.forwarded;
+    return totals;
+  }, [stats]);
+
+  /**
+   * Routes that stay inside this server versus routes that leave it.
+   *
+   * Computed here rather than server-side: per_rule already carries the destination
+   * server for every rule with traffic, so the split is arithmetic on data already
+   * fetched. A deleted rule has no destination server recorded any more and is counted
+   * as neither, which is why the two figures can sum to less than the total.
+   */
+  const split = useMemo(() => {
+    let internal = 0;
+    let external = 0;
+    let unknown = 0;
+    for (const r of stats?.per_rule ?? []) {
+      if (r.deleted || !r.destination_guild_id) unknown += r.forwarded;
+      else if (r.destination_guild_id === guildId) internal += r.forwarded;
+      else external += r.forwarded;
+    }
+    return { internal, external, unknown };
+  }, [stats, guildId]);
 
   if (!guildId) return null;
 
   const t = stats?.totals;
   const hasActivity = !!t && (t.forwarded > 0 || t.blocked > 0);
   const hasBlocked = !!stats && stats.blocked_by_reason.length > 0;
+  const weekdayTotal = weekday.reduce((a, b) => a + b, 0);
+  const busiestDay = weekdayTotal > 0 ? weekday.indexOf(Math.max(...weekday)) : null;
+
+  const signals: Signal[] = !t ? [] : [
+    { key: "lifetime", value: formatCount(t.lifetime), label: "Forwarded all time" },
+    { key: "window", value: formatCount(t.forwarded), label: `Forwarded - ${days} days` },
+    {
+      key: "today",
+      value: formatCount(t.today_forwarded),
+      label: `Today - of ${formatCount(stats!.daily_limit)}`,
+    },
+    { key: "blocked", value: formatCount(t.blocked), label: `Blocked - ${days} days` },
+  ];
 
   return (
-    <div className="dash-page">
-      <div className="page-header">
+    <div className="page">
+      <div className="page-header" style={{ paddingTop: 16 }}>
         <div>
           <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
-            ← Server overview
+            &larr; Server overview
           </Link>
-          <h1 style={{ marginTop: 4 }}>Forwarding Analytics</h1>
-          <p className="muted" style={{ marginTop: 4 }}>
-            Last {days} days
-            {stats && <> &middot; updated {new Date(stats.generated_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</>}
-          </p>
+          <h1 style={{ marginTop: 4 }}>Forwarding analytics</h1>
         </div>
         <div className="seg" role="group" aria-label="Time range">
           {RANGES.map((r) => (
@@ -361,60 +407,239 @@ export function StatsPage() {
         </div>
       </div>
 
-      <Alert kind="danger">{error}</Alert>
-      {loading && !stats && <div className="loading">Loading analytics…</div>}
-
-      {stats && t && (
-        <>
-          <div className="stats-tiles">
-            <Tile accent value={fmt(t.lifetime)} label="All-time" sub="messages forwarded" />
-            <Tile value={fmt(t.forwarded)} label="Forwarded" sub={`last ${days} days`} />
-            <Tile
-              value={`${fmt(t.today_forwarded)} / ${fmt(stats.daily_limit)}`}
-              label="Today"
-              sub={t.today_forwarded >= stats.daily_limit ? "daily cap reached" : `${Math.round((t.today_forwarded / Math.max(1, stats.daily_limit)) * 100)}% of cap`}
-            />
-            <Tile value={fmt(t.daily_average)} label="Avg / day" />
-            <Tile value={t.peak ? fmt(t.peak.forwarded) : "0"} label="Peak day" sub={t.peak ? shortDate(t.peak.date) : undefined} />
-            <Tile value={t.fanout_ratio ? `${t.fanout_ratio}×` : "-"} label="Fan-out" sub={`${fmt(t.unique_sources)} source msgs`} />
-            <Tile value={fmt(t.blocked)} label="Blocked" sub={stats.blocked_by_reason.length ? `${stats.blocked_by_reason.length} reasons` : "none"} />
-          </div>
-
-          {!hasActivity && (
-            <div className="empty-state" style={{ padding: "40px 24px" }}>
-              No forwarding activity in this period yet. Once your rules start relaying messages, analytics will appear here.
-            </div>
-          )}
-
-          {hasActivity && (
+      <div className="ov-command">
+        <span className="ov-muted">
+          Last {days} days
+          {stats && (
             <>
-              <div className="bento bento--2-1">
-                <TrendChart daily={stats.daily} />
-                <div className="bento-stack">
-                  <UsageCard today={t.today_forwarded} limit={stats.daily_limit} premium={stats.is_premium} />
-                  {hasBlocked && <BlockedCard reasons={stats.blocked_by_reason} totalBlocked={t.blocked} />}
-                </div>
-              </div>
-
-              <div className={sourceItems.length > 0 ? "bento bento--2-1" : "bento"}>
-                <HoursChart hourly={stats.hourly} />
-                {sourceItems.length > 0 && (
-                  <div className="card">
-                    <div className="chart-head"><h3>Busiest source channels</h3></div>
-                    <ShareBars items={sourceItems} />
-                  </div>
-                )}
-              </div>
-
-              {stats.per_rule.length > 0 && (
-                <div className="section">
-                  <h2>Top rules</h2>
-                  <RouteCards rules={stats.per_rule} total={t.forwarded} guildId={guildId} channelName={channelName} />
-                </div>
-              )}
+              {" - updated "}
+              {new Date(stats.generated_at).toLocaleTimeString(undefined, {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
             </>
           )}
-        </>
+        </span>
+        <SignalStrip signals={signals} />
+      </div>
+
+      {error && <Alert kind="danger">{error}</Alert>}
+
+      {loading && !stats && (
+        <div className="ov-grid" role="status" aria-busy="true">
+          <div className="skeleton-card s8" />
+          <div className="skeleton-card s4" />
+          <div className="skeleton-card s6" />
+          <div className="skeleton-card s6" />
+          <span className="visually-hidden">Loading analytics</span>
+        </div>
+      )}
+
+      {stats && t && !hasActivity && (
+        <div className="ov-grid">
+          <Tile span={12} title="Nothing to chart yet" quiet>
+            <p className="ov-body">
+              No messages have been forwarded or blocked in the last {days} days, so there
+              is nothing to draw. Once your rules start copying messages, the charts appear
+              here on their own.
+            </p>
+            <div className="admin-actions">
+              <Link className="btn btn-secondary" to={`/guilds/${guildId}/rules`}>
+                Check your rules
+              </Link>
+            </div>
+          </Tile>
+        </div>
+      )}
+
+      {stats && t && hasActivity && (
+        <div className="ov-grid">
+          <Tile
+            span={8}
+            title={`Forwarded over time, ${days} days`}
+            live
+            chips={
+              t.blocked > 0 ? (
+                <span className="ov-chip ov-chip--warn">{formatCount(t.blocked)} blocked</span>
+              ) : (
+                <span className="ov-chip ov-chip--good">Nothing blocked</span>
+              )
+            }
+          >
+            <div className="ov-statrow">
+              <Stat small value={fmt(t.daily_average)} label="Average per day" />
+              <Stat
+                small
+                value={t.peak ? fmt(t.peak.forwarded) : "0"}
+                label={t.peak ? `Best day, ${shortDate(t.peak.date)}` : "Best day"}
+              />
+              <Stat small value={formatCount(t.active_rules)} label="Active rules" />
+            </div>
+            <TrendChart daily={stats.daily} />
+          </Tile>
+
+          <Tile span={4} title="Today against the cap">
+            <Stat
+              value={formatCount(t.today_forwarded)}
+              sub={`/${formatCount(stats.daily_limit)}`}
+              label="Forwarded today"
+            />
+            <div className="ov-meter">
+              <div
+                className="ov-meter__fill"
+                style={{
+                  width: `${Math.min(100, (t.today_forwarded / Math.max(1, stats.daily_limit)) * 100)}%`,
+                }}
+              />
+            </div>
+            <p className="ov-muted">
+              {t.today_forwarded >= stats.daily_limit
+                ? "The cap has been reached. Nothing more is forwarded until midnight UTC."
+                : `${Math.round((t.today_forwarded / Math.max(1, stats.daily_limit)) * 100)}% of today's allowance used.`}
+            </p>
+            <Divider />
+            <KeyValue k="Plan" v={stats.is_premium ? "Premium" : "Free"} />
+            <KeyValue k="All time" v={formatCount(t.lifetime)} />
+            <Link className="ov-link" to={`/guilds/${guildId}/premium`}>
+              Plan details
+            </Link>
+          </Tile>
+
+          <Tile span={7} title="Busiest hours">
+            <HoursChart hourly={stats.hourly} />
+          </Tile>
+
+          <Tile span={5} title="Busiest days of the week">
+            {weekdayTotal === 0 ? (
+              <p className="ov-muted">
+                Nothing forwarded in this period, so there is no busiest day yet.
+              </p>
+            ) : (
+              <>
+                <ShareBars
+                  items={WEEKDAYS.map((label, i) => ({
+                    key: label,
+                    name: label,
+                    value: weekday[i],
+                    muted: i !== busiestDay,
+                  }))}
+                />
+                <p className="ov-muted">
+                  Summed over the whole {days}-day window, by UTC calendar day.
+                </p>
+              </>
+            )}
+          </Tile>
+
+          {sourceItems.length > 0 && (
+            <Tile span={6} title="Where messages come from">
+              <ShareBars items={sourceItems} />
+              <p className="ov-muted">
+                The channels your rules are watching, by how much each one produced.
+              </p>
+            </Tile>
+          )}
+
+          {destinationItems.length > 0 && (
+            <Tile span={6} title="Where messages land">
+              <ShareBars items={destinationItems} />
+              <p className="ov-muted">
+                A busy source that fans out to several destinations looks like one bar on
+                the left and several here - this is the side that shows which channels are
+                actually filling up.
+              </p>
+            </Tile>
+          )}
+
+          <Tile span={6} title="Fan-out">
+            <div className="ov-statrow">
+              <Stat
+                value={t.fanout_ratio ? `${t.fanout_ratio}x` : "-"}
+                label="Copies per original message"
+              />
+              <Stat small value={formatCount(t.unique_sources)} label="Original messages" />
+              <Stat small value={formatCount(t.forwarded)} label="Copies made" />
+            </div>
+            <Divider />
+            <p className="ov-body">
+              {t.unique_sources === 0
+                ? "No original messages have been copied in this period."
+                : t.fanout_ratio > 1.05
+                  ? `${formatCount(t.unique_sources)} original message${t.unique_sources === 1 ? "" : "s"} produced ${formatCount(t.forwarded)} cop${t.forwarded === 1 ? "y" : "ies"}, because more than one rule watches the same channel. That is why the forwarded total can be larger than the number of messages people actually posted.`
+                  : "Each original message produced about one copy, so no channel is being watched by more than one rule."}
+            </p>
+            <Divider />
+            <span className="ov-card__title">Staying here, or leaving</span>
+            <KeyValue k="Copied within this server" v={formatCount(split.internal)} />
+            <KeyValue k="Copied into another server" v={formatCount(split.external)} />
+            {split.unknown > 0 && (
+              <KeyValue k="From rules since deleted" v={formatCount(split.unknown)} />
+            )}
+            <p className="ov-muted">
+              {split.external === 0
+                ? "Nothing leaves this server. Every copy stays in a channel here."
+                : `${Math.round((split.external / Math.max(1, split.internal + split.external)) * 100)}% of copies are posted into a different server, where different people can read them.`}
+            </p>
+          </Tile>
+
+          <Tile
+            span={6}
+            title="Why messages were blocked"
+            chips={
+              !hasBlocked ? <span className="ov-chip ov-chip--good">Nothing blocked</span> : null
+            }
+          >
+            {!hasBlocked ? (
+              <p className="ov-body">
+                Every message a rule matched in the last {days} days went through.
+              </p>
+            ) : (
+              <div className="share-list">
+                {stats.blocked_by_reason.map((b) => {
+                  const pct = t.blocked > 0 ? (b.count / t.blocked) * 100 : 0;
+                  return (
+                    <div key={b.reason} className="reason-row">
+                      <div className="reason-row__head">
+                        <span className="reason-row__dot" style={{ background: reasonColor(b.reason) }} />
+                        <span className="reason-row__name">{reasonLabel(b.reason)}</span>
+                        <span className="reason-row__val">{fmt(b.count)}</span>
+                      </div>
+                      {reasonHelp(b.reason) && (
+                        <div className="reason-row__desc">{reasonHelp(b.reason)}</div>
+                      )}
+                      <div className="share-track">
+                        <div className="share-fill" style={{ width: `${pct}%`, background: reasonColor(b.reason) }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Tile>
+
+          {stats.per_rule.length > 0 && (
+            <Tile
+              span={12}
+              title="Which rules carried the traffic"
+              action={
+                <Link className="ov-link" to={`/guilds/${guildId}/rules`}>
+                  Manage rules
+                </Link>
+              }
+            >
+              <RouteCards
+                rules={stats.per_rule}
+                total={t.forwarded}
+                guildId={guildId}
+                channelName={channelName}
+              />
+              <p className="ov-muted">
+                Pick a rule to open its settings. A rule listed as no longer existing still
+                has messages in the history it forwarded before it was deleted.
+              </p>
+            </Tile>
+          )}
+        </div>
       )}
     </div>
   );
