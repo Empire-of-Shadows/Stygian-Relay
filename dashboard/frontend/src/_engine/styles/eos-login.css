@@ -1,0 +1,253 @@
+/* VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+   Edit the master at EmpireSystems/dashboard_engine/ and run:
+     python EmpireSystems/tools/sync_dashboard_engine.py
+   Drift is enforced by:
+     python EmpireSystems/tools/sync_dashboard_engine.py --check */
+/* ══════════════════════════════════════════════════════════════════════
+   Empire of Shadows - Dashboard Engine login layer
+
+   The signed-out front door: the hero panel, its call to action, the
+   "or" divider, the destination tiles, the stat line, and the reserved
+   space below for whatever else a bot wants to say to a visitor.
+
+   OPT-IN. Nothing in the engine imports this file. A dashboard adopts it
+   by importing it from main.tsx AFTER eos-tokens.css:
+
+       import "./_engine/styles/eos-tokens.css";
+       import "./_engine/styles/eos-layout.css";
+       import "./_engine/styles/eos-login.css";
+       import "./styles/<bot>-theme.css";
+
+   and then deleting its own copy of these rules. Until a bot does that,
+   its login page is untouched.
+
+   Requires eos-tokens.css to be loaded FIRST. Every colour and radius
+   here reads a canonical --eos-* custom property defined there; nothing
+   in this file defines a token of its own.
+
+   This file is the MASTER. It is vendored into each bot dashboard by
+   tools/sync_dashboard_engine.py - edit it here, never a bot's copy.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── Hero ──────────────────────────────────────────────────────────────
+   Open-bottom panel: visual structure on top, dissolving into the page
+   below so ecosystem content can flow naturally beneath the CTA + tiles. */
+
+.login-hero {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  margin: 4rem auto 0;
+  padding: 3rem 2rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+  border-top: 1px solid var(--eos-border-subtle);
+  border-radius: 18px 18px 0 0;
+  background:
+    radial-gradient(700px 300px at 50% -10%, rgba(125, 74, 255, 0.22), transparent 65%),
+    radial-gradient(500px 250px at 20% 30%, rgba(80, 200, 255, 0.08), transparent 70%),
+    radial-gradient(500px 250px at 80% 60%, rgba(125, 74, 255, 0.10), transparent 70%);
+  background-size: 200% 200%, 200% 200%, 200% 200%;
+  background-position: 50% 0%, 0% 50%, 100% 50%;
+  animation: hero-drift 28s ease-in-out infinite alternate;
+}
+
+@keyframes hero-drift {
+  0% {
+    background-position: 50% 0%, 0% 50%, 100% 50%;
+  }
+  100% {
+    background-position: 50% 100%, 100% 50%, 0% 50%;
+  }
+}
+
+/* A 28-second drift behind a page someone is only passing through is
+   exactly the motion this setting exists to switch off. */
+@media (prefers-reduced-motion: reduce) {
+  .login-hero {
+    animation: none;
+  }
+}
+
+.login-hero .login-mark {
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 6px 18px rgba(77, 14, 179, 0.45));
+}
+
+.login-hero h1 {
+  margin: 0;
+  font-family: var(--eos-font-display);
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: var(--eos-fw-bold);
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, var(--eos-fg-1), var(--eos-fg-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.login-hero .tagline {
+  margin: 0;
+  color: var(--eos-fg-2);
+  font-size: 1rem;
+  max-width: 38ch;
+  line-height: 1.5;
+}
+
+/* ── Call to action ────────────────────────────────────────────────────
+   A pill, deliberately unlike the flat `.btn` family: this is the one
+   thing on the page a visitor is meant to press. */
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.1rem;
+  border-radius: var(--eos-radius-pill);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--eos-brand-gradient);
+  color: #fff;
+  font-weight: var(--eos-fw-semibold);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.15s ease, filter 0.2s ease, box-shadow 0.2s ease;
+  font-size: 0.95rem;
+}
+.cta:hover {
+  transform: translateY(-1px);
+  filter: saturate(115%);
+  box-shadow: 0 0 0 3px var(--eos-brand-ring);
+}
+.login-hero .cta {
+  margin-top: 0.25rem;
+  padding: 0.8rem 1.6rem;
+  font-size: 1rem;
+}
+
+/* Sign-in legal line. Small, muted prose, so the link inside needs both a
+   lifted colour and an underline - hue alone is not enough at 0.85rem. */
+.login-hero .muted {
+  color: var(--eos-fg-muted);
+}
+.login-hero .muted a {
+  color: var(--eos-link);
+  font-weight: var(--eos-fw-semibold);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--eos-link) 50%, transparent);
+  text-underline-offset: 3px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+.login-hero .muted a:hover,
+.login-hero .muted a:focus-visible {
+  color: var(--eos-link-hover);
+  text-decoration-color: currentColor;
+}
+
+/* ── Page frame ────────────────────────────────────────────────────────
+   `flex: 1` is what keeps the footer at the bottom on a short login page;
+   without it the footer floats up under the hero. */
+
+.login-main {
+  flex: 1;
+  padding: clamp(1.5rem, 3vw, 2.5rem) 0 4rem;
+}
+
+/* Reserved space below the hero for further ecosystem sections. */
+.login-below {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+/* ── Divider ───────────────────────────────────────────────────────── */
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 360px;
+  gap: 0.75rem;
+  color: var(--eos-fg-muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 0.5rem;
+}
+.login-divider::before,
+.login-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--eos-border-subtle);
+}
+
+/* ── Destination tiles ─────────────────────────────────────────────── */
+
+.login-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 560px;
+}
+@media (max-width: 520px) {
+  .login-tiles {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tile-button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--eos-radius);
+  border: 1px solid var(--eos-border-subtle);
+  background: var(--eos-bg-card);
+  color: var(--eos-fg-1);
+  text-align: left;
+  text-decoration: none;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.tile-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(125, 74, 255, 0.45);
+  background: rgba(125, 74, 255, 0.08);
+  box-shadow: 0 0 0 3px var(--eos-brand-ring);
+  color: var(--eos-fg-1);
+}
+.tile-button .tile-title {
+  font-weight: var(--eos-fw-semibold);
+  font-size: 0.98rem;
+}
+.tile-button .tile-desc {
+  font-size: 0.82rem;
+  color: var(--eos-fg-muted);
+  line-height: 1.35;
+}
+
+/* ── Stat line ─────────────────────────────────────────────────────── */
+
+.login-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem 1.25rem;
+  margin-top: 0.5rem;
+  color: var(--eos-fg-muted);
+  font-size: 0.85rem;
+}
+.login-stats .stat-num {
+  font-weight: var(--eos-fw-bold);
+  font-size: 1rem;
+  color: var(--eos-fg-1);
+  margin-right: 0.35rem;
+}
+.login-stats .stat-sep {
+  opacity: 0.4;
+}

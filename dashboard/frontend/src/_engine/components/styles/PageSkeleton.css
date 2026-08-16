@@ -1,0 +1,55 @@
+/* VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+   Edit the master at EmpireSystems/dashboard_engine/ and run:
+     python EmpireSystems/tools/sync_dashboard_engine.py
+   Drift is enforced by:
+     python EmpireSystems/tools/sync_dashboard_engine.py --check */
+/* Styling for the parts PageSkeleton itself renders: the placeholder bar, the
+   card grid, and the shimmer that says the wait is still going.
+
+   `.visually-hidden` is deliberately NOT here - eos-layout.css owns it, and it
+   is shared with the chart summaries.
+
+   Requires eos-tokens.css to be loaded first. */
+
+.page-skeleton {
+  padding: 32px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.skeleton-bar {
+  background: linear-gradient(90deg, var(--eos-bg-card) 0%, rgba(255, 255, 255, 0.06) 50%, var(--eos-bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 8px;
+  height: 24px;
+  width: 60%;
+}
+.skeleton-bar--lg { height: 48px; width: 40%; }
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.skeleton-card {
+  background: linear-gradient(90deg, var(--eos-bg-card) 0%, rgba(255, 255, 255, 0.06) 50%, var(--eos-bg-card) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--eos-radius);
+  min-height: 140px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* A loading placeholder that never stops moving is exactly the kind of motion
+   this setting exists to switch off; the placeholder still reads as one. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar,
+  .skeleton-card { animation: none; }
+}

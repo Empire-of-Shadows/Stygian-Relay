@@ -1,0 +1,67 @@
+/* VENDORED from dashboard_engine/ - DO NOT EDIT HERE.
+   Edit the master at EmpireSystems/dashboard_engine/ and run:
+     python EmpireSystems/tools/sync_dashboard_engine.py
+   Drift is enforced by:
+     python EmpireSystems/tools/sync_dashboard_engine.py --check */
+/* Styling for the parts ConfirmDialog itself renders: the backdrop, the
+   dialog surface, its title/message and the action row.
+
+   Ownership note. These rules used to live in each bot's own stylesheet even
+   though the dialog was copied between dashboards, which is how the two copies
+   drifted (one grew backdrop padding and a wrapping action row, the other did
+   not). An engine component that renders a class must ship the rule for it, so
+   the class moved here with the component.
+
+   The typed-confirmation input is deliberately NOT here - it renders inside an
+   `.eos-field`, which eos-layout.css owns, so it matches every other input in
+   the dashboard for free. The buttons are `.btn`/`.btn-*` for the same reason.
+
+   Requires eos-tokens.css to be loaded first. */
+
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  /* Padding on the backdrop rather than a width calc on the dialog: it keeps
+     the dialog off the screen edge on a phone without the dialog having to
+     know how much room it was given. */
+  padding: 16px;
+}
+
+.confirm-dialog {
+  background: var(--eos-bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--eos-radius);
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: var(--eos-fw-semibold);
+  color: var(--eos-fg-1);
+}
+
+.confirm-message {
+  margin: 0 0 20px;
+  color: var(--eos-fg-2);
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  /* Two long labels ("Cancel" plus "Delete everything") overflowed the dialog
+     on a narrow screen rather than stacking. */
+  flex-wrap: wrap;
+}
