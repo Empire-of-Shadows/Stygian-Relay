@@ -72,6 +72,7 @@ from .views.panel_engine import (
     build_paginated_list_view,
     build_confirm_view,
     build_grouped_region_view,
+    validate_panel,
     _PanelDualInputModal,
     _child_summary,
     _option_label,
@@ -106,6 +107,10 @@ class AdminCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         """Initialize the cog and the in-memory autosave cooldown registry."""
+        # Fail at load time, naming every offender, if the panel config
+        # carries authored text Discord would reject at render time - the
+        # text gets rewritten in source, never truncated at runtime.
+        validate_panel(MAIN_PANEL)
         self.bot = bot
         self._autosave_cooldowns: dict[tuple, float] = {}
         logger.info("AdminCog initialized")

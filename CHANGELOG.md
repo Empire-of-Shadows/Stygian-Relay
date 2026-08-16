@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] - 2026-08-15
+
+### Fixed
+- **The admin panel no longer fails to open a menu when a summary line gets long.** If a
+  dropdown entry's summary grew past what Discord allows - for example a setting listing
+  many roles or channels - the whole screen failed with an error instead of showing. Long summaries now switch to a
+  compact form such as "12 roles assigned" - the full list still appears in the text right
+  above - and the menu always opens.
+
 ## [Unreleased] - 2026-08-13
 
 ### Fixed

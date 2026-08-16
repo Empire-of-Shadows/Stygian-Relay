@@ -4,14 +4,14 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="892271eb-51ff-4543-8164-ca2725867eea" name="Changes" comment="cleanup" />
+    <list default="true" id="892271eb-51ff-4543-8164-ca2725867eea" name="Changes" comment="Dashboard Redesign" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="245" />
+    <option name="cachedIndexableFilesCount" value="253" />
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -128,6 +128,7 @@
       <option name="presentableId" value="Default" />
       <updated>1786239648115</updated>
       <workItem from="1786651800691" duration="29000" />
+      <workItem from="1786678044675" duration="34000" />
     </task>
     <task id="LOCAL-00001" summary="cleanup">
       <option name="closed" value="true" />
@@ -145,7 +146,15 @@
       <option name="project" value="LOCAL" />
       <updated>1786651816340</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="Dashboard Redesign">
+      <option name="closed" value="true" />
+      <created>1786678063686</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1786678063686</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -153,6 +162,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="cleanup" />
-    <option name="LAST_COMMIT_MESSAGE" value="cleanup" />
+    <MESSAGE value="Dashboard Redesign" />
+    <option name="LAST_COMMIT_MESSAGE" value="Dashboard Redesign" />
   </component>
 </project>

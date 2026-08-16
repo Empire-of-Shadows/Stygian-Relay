@@ -16,10 +16,10 @@
 
    Requires eos-tokens.css to be loaded first.
 
-   Known remaining dependency: AppShell's Log out link uses `.btn`/`.btn-secondary`
-   and ErrorBoundary uses `.empty-state`. Those are fleet-wide button and empty
-   surfaces that every bot already defines; folding them into the engine is a
-   larger migration and has not been done. */
+   AppShell's Log out link uses `.btn`/`.btn-secondary` and ErrorBoundary uses
+   `.empty-state`. The engine now ships a FALLBACK for both in eos-layout.css,
+   so a dashboard that defines neither still renders them properly. A bot theme
+   loads after eos-layout.css and may override any of it. */
 
 .app-header {
   position: sticky;

@@ -54,8 +54,8 @@ def panel_roles_pair(
     admin_path: str = "roles.admin_role_ids",
     admin_label: str = "Panel Access Roles",
     admin_description: str = (
-        "Grants full admin panel access (same as Manage Server). Members holding any of "
-        "these roles can open the admin panel."
+        "Grants full admin panel access (same as Manage Server) to members "
+        "holding any of these roles."
     ),
     max_values: int = 10,
     pre_check: Optional[Callable] = manage_guild_pre_check,

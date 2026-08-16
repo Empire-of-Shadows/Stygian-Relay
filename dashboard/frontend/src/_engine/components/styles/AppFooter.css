@@ -15,6 +15,12 @@
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
+/* The brand line sat unstyled and inherited the footer's muted grey, which
+   made the bot name read as body text. Lift it one step like the links. */
+.site-footer__brand {
+  color: var(--eos-fg-2);
+}
+
 .site-footer__links {
   display: inline-flex;
   align-items: center;

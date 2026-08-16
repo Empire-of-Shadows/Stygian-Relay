@@ -40,6 +40,13 @@ class PanelNode:
                       | "paginated_list" | "grouped_paginated_select" | "action"
         description:  Short description shown in the parent dropdown and as
                       instruction text on the select view.
+        blurb:        Optional one-line stand-in for `description` on the
+                      DASHBOARD dropdown only. Top-level descriptions render
+                      verbatim as option descriptions, which Discord caps at
+                      100 chars; when a top-level node's body text is
+                      legitimately longer, set a blurb that fits instead of
+                      gutting the description. validate_panel enforces that
+                      whichever of the two the dropdown uses is within the cap.
 
         children:     (menu only) Ordered dict of child_key -> PanelNode.
         get_values:   async (guild_id) -> list  -returns the current selection.
@@ -62,6 +69,7 @@ class PanelNode:
     label: str
     kind: str  # "menu" | "role_select" | "channel_select" | "option_select" | "modal_input" | "dual_modal_input" | "file_upload" | "dict_editor" | "paginated_list" | "grouped_paginated_select" | "action"
     description: str = ""
+    blurb: Optional[str] = None
 
     # menu nodes only
     children: dict[str, "PanelNode"] = field(default_factory=dict)
@@ -315,6 +323,88 @@ def _option_label(node: PanelNode, value: str) -> str:
     return value
 
 
+# Discord's hard cap on a select option's label and description. Exceeding it
+# is not cosmetic: Discord rejects the whole message with a 50035 Invalid Form
+# Body, so nothing over this length may ever reach a SelectOption. Authored
+# text is validated against it at startup (validate_panel) so violations get
+# REWRITTEN in source; dynamic summaries are rewritten to a compact form at
+# render time (_option_summary). Nothing is clipped mid-string.
+OPTION_TEXT_LIMIT = 100
+
+
+def validate_panel(root: PanelNode) -> None:
+    """Reject authored panel text that Discord would refuse at render time.
+
+    Called from AdminCog.__init__ so a bot whose panel config carries an
+    over-limit string fails loudly at startup, naming every offender - the
+    text must be rewritten to fit, never silently truncated. Only static,
+    authored fields are checked; dynamic summaries stay within limits via
+    _option_summary's compact rewrites.
+
+    Checks:
+    * every node's label and premium_label (rendered as a select option label
+      in the dashboard and group menus; 4 chars of headroom are reserved for
+      the lock/premium emoji prefixes added at render time);
+    * every node's blurb (its whole purpose is fitting the option cap);
+    * the ROOT'S DIRECT CHILDREN's dashboard dropdown text - the blurb, or the
+      description when no blurb is set (deeper descriptions are menu body text
+      with no such cap: give an over-long top-level node a blurb rather than
+      gutting its body text);
+    * every option_select entry's label (same emoji headroom) and description.
+    """
+    problems: list[str] = []
+    label_limit = OPTION_TEXT_LIMIT - 4
+
+    def _check(text, where: str, limit: int) -> None:
+        if text and len(text) > limit:
+            problems.append(f"{where} is {len(text)} chars (limit {limit})")
+
+    def _walk(node: PanelNode, path: str, is_top_level: bool) -> None:
+        _check(node.label, f"{path}: label", label_limit)
+        _check(getattr(node, "premium_label", None), f"{path}: premium_label", label_limit)
+        _check(node.blurb, f"{path}: blurb", OPTION_TEXT_LIMIT)
+        if is_top_level and not node.blurb:
+            _check(
+                node.description,
+                f"{path}: description (dashboard select option; set a blurb "
+                "or shorten it)",
+                OPTION_TEXT_LIMIT,
+            )
+        for opt in (node.options or []):
+            _check(opt[1], f"{path}: option {opt[0]!r} label", label_limit)
+            if len(opt) > 2:
+                _check(opt[2], f"{path}: option {opt[0]!r} description", OPTION_TEXT_LIMIT)
+        for key, child in (node.children or {}).items():
+            _walk(child, f"{path}.{key}", False)
+
+    for key, child in (root.children or {}).items():
+        _walk(child, key, True)
+
+    if problems:
+        raise ValueError(
+            "Panel config contains text Discord will reject; rewrite it to fit:\n- "
+            + "\n- ".join(problems)
+        )
+
+
+def _option_summary(node: PanelNode, values: list, guild: discord.Guild | None) -> str:
+    """A child summary safe to use as a select-option description.
+
+    The full summary (which may join arbitrary role/channel names) already
+    appears in the menu body above the dropdown, so when it exceeds Discord's
+    cap the dropdown line is REWRITTEN to a progressively more compact form
+    rather than clipped: full summary -> guild-independent count form
+    ("3 role(s) assigned") -> a generic pointer at the body text.
+    """
+    full = _child_summary(node, values, guild)
+    if len(full) <= OPTION_TEXT_LIMIT:
+        return full
+    compact = _child_summary(node, values, None)
+    if len(compact) <= OPTION_TEXT_LIMIT:
+        return compact
+    return "Configured - see the summary above"
+
+
 def _child_summary(node: PanelNode, values: list, guild: discord.Guild | None = None) -> str:
     """Return a short human-readable summary of a child node's current value."""
     # A node with a summary_builder had its text precomputed in _gather_summaries
@@ -496,7 +586,7 @@ def build_menu_view(
                     description=(
                         "Locked - configure prerequisite first"
                         if key in _locked
-                        else _child_summary(child, summary_map.get(key, []), guild)
+                        else _option_summary(child, summary_map.get(key, []), guild)
                     ),
                 ))
             select = discord.ui.Select(
@@ -1127,11 +1217,9 @@ def build_overview_view(
                 description="(divider - not selectable)",
             ))
         child_label = _effective_label(child, is_premium)
-        desc = child.description or None
-        if desc and len(desc) > 100:
-            # Truncate on a word boundary with an ellipsis rather than
-            # hard-slicing mid-word (Discord caps option descriptions at 100).
-            desc = desc[:97].rsplit(" ", 1)[0] + "..."
+        # Rendered verbatim: validate_panel guarantees at startup that the
+        # blurb (or, absent one, the description) fits Discord's option cap.
+        desc = child.blurb or child.description or None
         options.append(discord.SelectOption(
             label=f"\U0001f512 {child_label}" if key in _locked else child_label,
             value=key,

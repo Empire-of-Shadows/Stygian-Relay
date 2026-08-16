@@ -128,6 +128,79 @@
   cursor: not-allowed;
 }
 
+/* ── Button + empty-surface FALLBACKS ──────────────────────────────────
+
+   AppShell renders `.btn`/`.btn-secondary` for its Log out link, ErrorBoundary
+   renders `.empty-state` and `.btn`/`.btn-primary` for its reload fallback, and
+   ConfirmDialog renders `.btn-danger` - but every bot has always defined these
+   itself, so the engine shipped components whose surfaces it did not own. These
+   are the floor, not the design: every bot loads its own theme AFTER this file
+   (verified across all six main.tsx files), so any bot rule of equal
+   specificity still wins, and adopting nothing changes nothing. Values are the
+   common ground between the two reference themes, expressed in tokens.
+   ────────────────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: var(--eos-radius-sm);
+  border: none;
+  font-size: var(--eos-fs-body);
+  font-weight: var(--eos-fw-medium);
+  cursor: pointer;
+  transition: all var(--eos-dur-med) var(--eos-ease);
+  color: #fff;
+  text-decoration: none;
+  gap: 6px;
+}
+.btn:hover { transform: translateY(-1px); filter: saturate(110%); }
+.btn:active { transform: translateY(0); }
+
+.btn-primary {
+  background: var(--eos-brand-gradient);
+  border: none;
+  color: #fff;
+  box-shadow: var(--eos-shadow-sm);
+}
+.btn-primary:hover { box-shadow: var(--eos-shadow-md); }
+
+.btn-secondary {
+  background: var(--eos-glass-heavy);
+  color: var(--eos-fg-2);
+  border: 1px solid var(--eos-border-subtle);
+}
+.btn-secondary:hover { background: rgba(255, 255, 255, 0.12); }
+
+.btn-danger {
+  background: var(--eos-danger);
+  border: none;
+  color: #fff;
+}
+.btn-danger:hover { box-shadow: var(--eos-shadow-danger); }
+
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+/* Dashed rather than solid: an empty surface should not read as a card that
+   happens to have nothing in it. */
+.empty-state {
+  background: var(--eos-bg-card);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: var(--eos-radius);
+  color: var(--eos-fg-2);
+  text-align: center;
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    Overview layout (dashboard home + admin settings)
 
@@ -312,6 +385,22 @@
 .ov-body { font-size: 13px; color: var(--eos-fg-2); }
 .ov-quote { font-size: 17px; color: var(--eos-fg-1); line-height: 1.4; font-weight: 600; }
 
+/* Optional glyph ahead of the tile title - sized and coloured to sit with the
+   title rather than compete with it. */
+.ov-card__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 14px; line-height: 1; color: var(--eos-fg-muted);
+}
+
+/* Optional colour rail down the left edge, fed by the --tile-accent property
+   Tile sets inline. Inset top and bottom so it stays clear of the card's own
+   rounded corners instead of poking past them. */
+.ov-card--accent::before {
+  content: ''; position: absolute; left: 0; top: 12px; bottom: 12px;
+  width: 3px; border-radius: var(--eos-radius-pill);
+  background: var(--tile-accent, var(--eos-brand-light));
+}
+
 /* ── Chips ─────────────────────────────────────────────────────────── */
 
 .ov-chip {
@@ -323,6 +412,18 @@
 .ov-chip--good { color: var(--eos-success); border-color: rgba(61, 220, 151, .4); background: rgba(61, 220, 151, .11); }
 .ov-chip--warn { color: var(--eos-warning); border-color: rgba(255, 184, 107, .4); background: rgba(255, 184, 107, .11); }
 .ov-chip--bad  { color: var(--eos-danger);  border-color: rgba(255, 107, 107, .4); background: rgba(255, 107, 107, .11); }
+
+/* A chip used as a FILTER control. `.ov-chip` above is a static label, so the
+   interactive form needs the button reset plus a visible pressed state -
+   `aria-pressed` carries the state to a screen reader either way, and this is
+   what carries it to everyone else. */
+.ov-chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+button.ov-chip { font-family: inherit; cursor: pointer; }
+button.ov-chip:hover { color: var(--eos-fg-2); border-color: var(--eos-brand-ring); }
+button.ov-chip[aria-pressed="true"] {
+  color: var(--eos-fg-1); border-color: var(--eos-brand-ring);
+  background: rgba(122, 61, 240, 0.22);
+}
 
 .ov-link {
   font-size: 12px; font-weight: 600; color: var(--eos-fg-accent);
@@ -459,6 +560,12 @@ a.ov-qrow:hover, button.ov-qrow:hover { background: var(--eos-glass-heavy); }
   margin-left: auto; font-size: 10px; font-weight: 700; padding: 1px 6px;
   border-radius: 999px; background: rgba(255, 255, 255, .09); color: var(--eos-fg-muted);
 }
+/* Two badges in one rail item: an "Unsaved" marker plus the section's state
+   badge. `margin-left: auto` above is what pushes a lone badge to the right
+   edge, but two auto margins SPLIT the free space rather than stacking, which
+   leaves the pair drifting apart. The second one gives its up so the first
+   still pushes both to the edge. */
+.set-rail__badge + .set-rail__badge { margin-left: 0; }
 .set-rail__badge--warn { background: rgba(255, 184, 107, .16); color: var(--eos-warning); }
 .set-rail__badge--ok { background: rgba(61, 220, 151, .15); color: var(--eos-success); }
 .set-rail__empty { padding: 10px; font-size: 12px; color: var(--eos-fg-muted); }

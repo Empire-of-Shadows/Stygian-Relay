@@ -3,7 +3,7 @@
      python EmpireSystems/tools/sync_dashboard_engine.py
    Drift is enforced by:
      python EmpireSystems/tools/sync_dashboard_engine.py --check */
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 type Span = 3 | 4 | 5 | 6 | 7 | 8 | 12;
 
@@ -11,6 +11,12 @@ interface TileProps {
   /** Columns out of twelve. The class has to sit on the direct grid child. */
   span: Span;
   title: string;
+  /** A glyph rendered in the head, ahead of the title. */
+  icon?: ReactNode;
+  /** Any CSS colour. Draws a rail down the left edge in that colour - use it to
+   *  tie a tile to something the page already colours (a series, a state), never
+   *  as decoration. */
+  accent?: string;
   /** Chips rendered inline after the title. */
   chips?: ReactNode;
   /** Links or buttons pushed to the right of the head. */
@@ -24,14 +30,19 @@ interface TileProps {
   children: ReactNode;
 }
 
-export function Tile({ span, title, chips, action, live, quiet, children }: TileProps) {
+export function Tile({ span, title, icon, accent, chips, action, live, quiet, children }: TileProps) {
   const classes = ["ov-card"];
   if (live) classes.push("ov-card--live");
   if (quiet) classes.push("ov-card--quiet");
+  if (accent) classes.push("ov-card--accent");
   classes.push(`s${span}`);
+  // The colour travels as a custom property so the rail itself stays one rule in
+  // eos-layout.css. Nothing is emitted at all when no accent was asked for.
+  const style = accent ? ({ "--tile-accent": accent } as CSSProperties) : undefined;
   return (
-    <section className={classes.join(" ")}>
+    <section className={classes.join(" ")} style={style}>
       <div className="ov-card__head">
+        {icon ? <span className="ov-card__icon">{icon}</span> : null}
         <span className="ov-card__title">{title}</span>
         {chips}
         {action ? <div className="ov-card__act">{action}</div> : null}
