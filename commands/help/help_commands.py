@@ -127,11 +127,29 @@ class HelpCommands(commands.Cog):
         self.bot = bot
         logger.info("HelpCommands cog initialized")
 
+    @staticmethod
+    async def _is_admin(interaction: discord.Interaction) -> bool:
+        """Does this member get the admin help page?
+
+        Uses the same answer as the /admin panel, so a holder of the configured
+        Manager Role - who can open and use the whole panel - is not told the
+        admin commands do not exist. Manage Server alone still qualifies, and
+        stays the fallback if the settings lookup cannot be reached.
+        """
+        try:
+            from admin.settings.bindings import resolve_panel_role
+
+            return await resolve_panel_role(interaction.user, interaction.guild_id) == "admin"
+        except Exception as e:                       # noqa: BLE001 - help must still render
+            logger.warning("Panel-role lookup failed, falling back to Manage Server: %s", e)
+            perms = getattr(interaction.user, "guild_permissions", None)
+            return bool(perms and perms.manage_guild)
+
     @app_commands.command(name="help", description="\N{BOOKS} View bot commands and documentation")
     @app_commands.guild_only()
     async def help(self, interaction: discord.Interaction):
         try:
-            is_admin = interaction.user.guild_permissions.manage_guild
+            is_admin = await self._is_admin(interaction)
             view = RelayHelpView(self.bot, is_admin)
             await interaction.response.send_message(
                 view=view, files=view.files, ephemeral=True

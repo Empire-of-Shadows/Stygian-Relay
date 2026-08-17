@@ -2,7 +2,20 @@
 
 ## [Unreleased] - 2026-08-15
 
+### Changed
+- **The bot now asks Discord for far less information about your server.** It used to receive a
+  broad default feed of events - reactions, typing, voice activity, invites, scheduled events and
+  more - none of which it ever used. It now receives only what forwarding actually needs: your
+  server's channels and roles, and the messages in them. It also no longer asks for the server
+  member list, which is a permission Discord treats as sensitive.
+
 ### Fixed
+- **The "Join the server" link on forwarded messages worked again.** The invite in the small
+  footer line added to messages forwarded from free servers had expired, so anyone who clicked it
+  got an error. It now points at the permanent invite.
+- **Help now shows the admin section to everyone who can actually use it.** A member given the
+  Manager Role could open and use the entire `/admin` panel, but `/help` still hid the admin page
+  from them unless they also had Manage Server.
 - **The admin panel no longer fails to open a menu when a summary line gets long.** If a
   dropdown entry's summary grew past what Discord allows - for example a setting listing
   many roles or channels - the whole screen failed with an error instead of showing. Long summaries now switch to a

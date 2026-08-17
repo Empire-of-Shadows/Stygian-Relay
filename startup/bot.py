@@ -17,11 +17,30 @@ def set_error_notifier(notifier):
     error_notifier = notifier
 
 
-# Define intents required by the bot
-intents = discord.Intents.default()
-intents.message_content = True
-intents.members = True
+# Define intents required by the bot.
+#
+# Built up from none() rather than default(), so relay asks for exactly what it
+# consumes and nothing else. Intents.default() dragged in roughly sixteen
+# gateway bits with no listener behind them (moderation, expressions,
+# integrations, webhooks, invites, voice states, reactions, typing, all three DM
+# intents, scheduled events, automod, polls).
+#
+#   guilds          - on_guild_join/remove, on_guild_role_delete,
+#                     on_guild_channel_delete, and the guild/channel cache every
+#                     rule resolves against.
+#   guild_messages  - on_message, which is the whole product.
+#   message_content - privileged and load-bearing: forwarding a message means
+#                     reading it.
+#
+# The members intent is deliberately NOT requested. Its one consumer was the
+# rule wizard's cross-guild filter, which now settles a cache miss over REST
+# (see admin/settings/forwarding_actions.py::_shares_guild). Entitlement and
+# interaction events are delivered regardless of intents, so premium is
+# unaffected.
+intents = discord.Intents.none()
 intents.guilds = True
+intents.guild_messages = True
+intents.message_content = True
 
 bot = commands.AutoShardedBot(
     command_prefix=commands.when_mentioned,

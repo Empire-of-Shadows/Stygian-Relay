@@ -233,3 +233,6 @@ logs/
 
 # Node / frontend build (dashboard SPA)
 node_modules/
+
+# TypeScript incremental build info (regenerated; never committed)
+tsconfig.tsbuildinfo

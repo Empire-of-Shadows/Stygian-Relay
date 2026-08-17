@@ -165,6 +165,27 @@ class AddRuleFlow:
 
     # -- Step 2: destination server ------------------------------------------
 
+    @staticmethod
+    async def _shares_guild(g: discord.Guild, user_id: int) -> bool:
+        """Is ``user_id`` a member of ``g``?
+
+        Relay does not request the privileged members intent, so the member
+        cache is empty for everyone but the bot itself and whoever has spoken
+        recently. A cache hit is authoritative; a miss has to be settled over
+        REST rather than read as "not a member", which would silently hide
+        legitimate destination servers from the rule wizard.
+        """
+        if g.get_member(user_id) is not None:
+            return True
+        try:
+            await g.fetch_member(user_id)
+            return True
+        except discord.NotFound:
+            return False
+        except discord.HTTPException as e:
+            logger.debug("fetch_member failed for guild %s: %s", g.id, e)
+            return False
+
     async def _candidate_guilds(self, user_id: int) -> list[discord.Guild]:
         """This server first, then every other guild the bot AND the acting admin
         share whose inbound allowlist opts this server in (so cross-server forwards
@@ -173,7 +194,7 @@ class AddRuleFlow:
         for g in self.bot.guilds:
             if g.id == self.guild.id:
                 continue
-            if g.get_member(user_id) is None:
+            if not await self._shares_guild(g, user_id):
                 continue
             try:
                 if not await guild_manager.is_inbound_allowed(str(g.id), self.guild.id):

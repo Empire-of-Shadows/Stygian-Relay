@@ -688,7 +688,10 @@ class Forwarding(commands.Cog):
         source_gid = message.guild.id if message.guild else destination.guild.id
         is_premium = await guild_manager.is_premium_guild(str(source_gid))
         if not is_premium and await self._should_show_branding(source_gid):
-            server_invite_link = "https://discord.gg/NaK74Wf7vE"
+            # Canonical no-expiry support invite, same one the site and the
+            # other bots use. The previous link here had expired, so the
+            # branding line on every free forward pointed nowhere.
+            server_invite_link = "https://discord.gg/xx86YEhaYF"
             quoted_content += f"\n-# Powered by Empire of Shadows\n-# Gaming Community • <{server_invite_link}>"
             await guild_manager.touch_runtime_state(str(source_gid), "branding")
 
