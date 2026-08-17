@@ -239,29 +239,13 @@ main {
   }
 }
 
-/* Buttons - flat .btn / .btn-* match TheCodex; .cta keeps the pill for the hero. */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  border: none;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  color: white;
-  text-decoration: none;
-  gap: 6px;
-}
-.btn:hover {
-  transform: translateY(-1px);
-  filter: saturate(110%);
-}
-.btn:active {
-  transform: translateY(0);
-}
+/* Buttons - the flat .btn / .btn-* vocabulary is owned by the ENGINE
+   (_engine/styles/eos-layout.css), which loads before this file. The copies
+   that used to sit here redeclared it at equal specificity later in the
+   cascade, so the bot copy silently won and an engine-side button change would
+   have done nothing here. Removed 2026-08-17 after checking every declaration
+   resolved identically. What stays is relay's own: the .cta hero pill and the
+   ghost/danger/small/success/link modifiers. */
 
 .cta {
   display: inline-flex;
@@ -288,7 +272,9 @@ main {
   color: var(--text-2);
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-.btn.ghost:hover {
+/* `:not(:disabled)` is required - see the engine's buttons note in
+   _engine/styles/eos-layout.css. A disabled <button> still matches :hover. */
+.btn.ghost:hover:not(:disabled) {
   color: var(--text-1);
   border-color: var(--brand-2);
   box-shadow: none;
@@ -720,40 +706,20 @@ tr:hover td {
   margin: 0 auto;
 }
 
-/* Semantic button variants - parity with TheCodex .btn-* surface.
-   Cohabit with the existing .btn / .cta pill style above; both valid. */
-.btn-primary {
-  background: linear-gradient(135deg, var(--brand), var(--brand-2));
-  box-shadow: 0 2px 12px rgba(77, 14, 179, 0.3);
-  border: none;
-  color: white;
-}
-.btn-primary:hover {
-  box-shadow: 0 4px 18px rgba(77, 14, 179, 0.45);
-}
-.btn-secondary {
-  background: var(--glass-heavy);
-  color: var(--text-2);
-  border: 1px solid var(--card-border);
-}
-.btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
+/* Semantic button variants. .btn-primary / -secondary / -danger and the shared
+   :disabled group are the engine's - see the buttons note above. What is left
+   here is the two variants the engine has no rule for. */
 .btn-success {
   background: var(--success);
   color: #0f0f12;
   border: none;
 }
-.btn-success:hover {
+/* `:not(:disabled)` is required, not decorative - see the engine's buttons note
+   in _engine/styles/eos-layout.css. A disabled <button> still matches :hover,
+   and this file loads after the engine, so without the guard a switched-off
+   success button glowed under the pointer as though it were live. */
+.btn-success:hover:not(:disabled) {
   box-shadow: 0 4px 14px rgba(61, 220, 151, 0.3);
-}
-.btn-danger {
-  background: var(--danger);
-  border: none;
-  color: white;
-}
-.btn-danger:hover {
-  box-shadow: 0 4px 14px rgba(255, 107, 107, 0.3);
 }
 .btn-link {
   background: transparent;
@@ -761,21 +727,10 @@ tr:hover td {
   padding: 0;
   border: none;
 }
-.btn-link:hover {
+.btn-link:hover:not(:disabled) {
   transform: none;
   filter: none;
   text-decoration: underline;
-}
-.btn:disabled,
-.btn-primary:disabled,
-.btn-secondary:disabled,
-.btn-success:disabled,
-.btn-danger:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  filter: none;
-  box-shadow: none;
 }
 
 /* Page atoms shared with TheCodex aesthetic. */
@@ -1284,13 +1239,8 @@ tr:hover td {
   .skeleton-bar, .skeleton-card { animation: none; }
 }
 
-.empty-state {
-  background: var(--bg-card);
-  border: 1px dashed rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  color: var(--text-2);
-  text-align: center;
-}
+/* .empty-state is owned by the engine (eos-layout.css) - the copy that used to
+   sit here resolved to the same five declarations. Removed 2026-08-17. */
 
 .guild-icon-fallback {
   display: flex; align-items: center; justify-content: center;

@@ -128,16 +128,34 @@
   cursor: not-allowed;
 }
 
-/* ── Button + empty-surface FALLBACKS ──────────────────────────────────
+/* ── Buttons + empty surface - THE ENGINE OWNS THESE ───────────────────
 
    AppShell renders `.btn`/`.btn-secondary` for its Log out link, ErrorBoundary
    renders `.empty-state` and `.btn`/`.btn-primary` for its reload fallback, and
-   ConfirmDialog renders `.btn-danger` - but every bot has always defined these
-   itself, so the engine shipped components whose surfaces it did not own. These
-   are the floor, not the design: every bot loads its own theme AFTER this file
-   (verified across all six main.tsx files), so any bot rule of equal
-   specificity still wins, and adopting nothing changes nothing. Values are the
-   common ground between the two reference themes, expressed in tokens.
+   ConfirmDialog renders `.btn-danger`. These rules are what all six bots
+   actually paint - change one here and it moves fleet-wide.
+
+   That was NOT true until 2026-08-17. These shipped as a "floor" while every
+   bot redeclared the same rules in its own theme, which every main.tsx loads
+   AFTER this file - equal specificity, later in the cascade, so the bot copy
+   won and an engine-side edit here silently did nothing anywhere. The
+   duplicates were removed from all six themes after checking, declaration by
+   declaration with every var() resolved, that they were identical, and proving
+   it in Chrome with a computed-style diff.
+
+   Two rules of the road, both learned from that pass:
+   - A bot may still override any of these - that is legitimate, and two do
+     (ecom adds `.empty-state` padding, ImperialReminder a brighter danger
+     hover). What is not legitimate is restating a rule unchanged, which
+     re-breaks engine ownership without looking like it changes anything.
+   - **A bot hover rule on a button MUST carry `:not(:disabled)`.** A disabled
+     <button> still matches `:hover`, and a bot theme is declared after this
+     file, so an unguarded `.btn-success:hover` or `.btn.ghost:hover` lights up
+     a switched-off control under the pointer. A fleet audit on 2026-08-17
+     found this in all six bots at once - including in this file, on
+     `.btn-secondary:hover`, where the `:disabled` group could not reach it
+     because the group cannot neutralise `background`. Guard the hover; do not
+     try to undo it afterwards.
    ────────────────────────────────────────────────────────────────────── */
 
 .btn {
@@ -155,8 +173,15 @@
   text-decoration: none;
   gap: 6px;
 }
-.btn:hover { transform: translateY(-1px); filter: saturate(110%); }
-.btn:active { transform: translateY(0); }
+/* Every hover rule is guarded with `:not(:disabled)`. A disabled <button> still
+   matches `:hover` in every browser, so an unguarded rule makes a switched-off
+   control light up under the pointer as though it were live. The `:disabled`
+   group below cannot fix that on its own - it can only neutralise properties it
+   names, and it cannot name `background` because each variant supplies its own.
+   Guard the hover, do not try to undo it. `:not(:disabled)` also matches <a>,
+   which cannot be disabled, so link-styled buttons still hover normally. */
+.btn:hover:not(:disabled) { transform: translateY(-1px); filter: saturate(110%); }
+.btn:active:not(:disabled) { transform: translateY(0); }
 
 .btn-primary {
   background: var(--eos-brand-gradient);
@@ -164,22 +189,24 @@
   color: #fff;
   box-shadow: var(--eos-shadow-sm);
 }
-.btn-primary:hover { box-shadow: var(--eos-shadow-md); }
+.btn-primary:hover:not(:disabled) { box-shadow: var(--eos-shadow-md); }
 
 .btn-secondary {
   background: var(--eos-glass-heavy);
   color: var(--eos-fg-2);
   border: 1px solid var(--eos-border-subtle);
 }
-.btn-secondary:hover { background: rgba(255, 255, 255, 0.12); }
+.btn-secondary:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
 
 .btn-danger {
   background: var(--eos-danger);
   border: none;
   color: #fff;
 }
-.btn-danger:hover { box-shadow: var(--eos-shadow-danger); }
+.btn-danger:hover:not(:disabled) { box-shadow: var(--eos-shadow-danger); }
 
+/* Kept as the safety net for the properties it CAN neutralise, so a bot rule
+   that forgets the guard still cannot make a disabled button move or glow. */
 .btn:disabled,
 .btn-primary:disabled,
 .btn-secondary:disabled,
