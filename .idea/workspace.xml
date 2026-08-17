@@ -4,7 +4,13 @@
     <option name="autoReloadType" value="ALL" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="892271eb-51ff-4543-8164-ca2725867eea" name="Changes" comment="Dashboard Redesign" />
+    <list default="true" id="892271eb-51ff-4543-8164-ca2725867eea" name="Changes" comment="Dashboard Redesign">
+      <change beforePath="$PROJECT_DIR$/CHANGELOG.md" beforeDir="false" afterPath="$PROJECT_DIR$/CHANGELOG.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/admin/settings/forwarding_actions.py" beforeDir="false" afterPath="$PROJECT_DIR$/admin/settings/forwarding_actions.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/commands/forward/forward.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands/forward/forward.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/commands/help/help_commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands/help/help_commands.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/startup/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/startup/bot.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -100,19 +106,23 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "main",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm"
   }
-}</component>
+}]]></component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -129,6 +139,7 @@
       <updated>1786239648115</updated>
       <workItem from="1786651800691" duration="29000" />
       <workItem from="1786678044675" duration="34000" />
+      <workItem from="1786846291225" duration="1861000" />
     </task>
     <task id="LOCAL-00001" summary="cleanup">
       <option name="closed" value="true" />
@@ -154,7 +165,39 @@
       <option name="project" value="LOCAL" />
       <updated>1786678063686</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="Dashboard Redesign">
+      <option name="closed" value="true" />
+      <created>1786846299914</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1786846299914</updated>
+    </task>
+    <task id="LOCAL-00005" summary="Dashboard Redesign">
+      <option name="closed" value="true" />
+      <created>1786846313523</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1786846313523</updated>
+    </task>
+    <task id="LOCAL-00006" summary="Dashboard Redesign">
+      <option name="closed" value="true" />
+      <created>1786846326425</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1786846326425</updated>
+    </task>
+    <task id="LOCAL-00007" summary="Dashboard Redesign">
+      <option name="closed" value="true" />
+      <created>1786846398100</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1786846398100</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

@@ -173,7 +173,22 @@ class GuildSnapshotService:
         )
 
     async def get_guild_statistics(self, guild_id: int) -> Dict[str, Any]:
-        """Counts + channel-type breakdown + the latest analytics doc (sorted by date desc)."""
+        """Counts + channel-type breakdown + the latest analytics doc (sorted by date desc).
+
+        ``latest_analytics`` and ``analytics_date`` are ALWAYS present, and are ``None``
+        when no analytics rollup has been stored for this guild. They used to be omitted
+        entirely in that case, which made two very different situations look identical to
+        a caller: "we snapshotted this guild and it has no analytics yet" and "nothing in
+        this bot ever writes analytics at all".
+
+        That distinction matters because the analytics rollup is OPT-IN. ``cache_all``
+        covers it, but a bot that snapshots with the granular ``cache_members`` /
+        ``cache_roles`` / ``cache_channels`` / ``cache_guild_info`` calls never touches it
+        - so a bot can be diligently snapshotting and still have this key permanently
+        empty. ``analytics_available`` says which case you are in without the caller
+        having to know any of that: call ``cache_guild_analytics(guild)`` (or
+        ``cache_all``) if it is False and you wanted the data.
+        """
         try:
             gid = self._sid(guild_id)
             stats: Dict[str, Any] = {
@@ -196,9 +211,11 @@ class GuildSnapshotService:
             latest = await self._store.get_many(
                 "analytics", {"guild_id": gid}, sort=[("date", -1)], limit=1
             )
-            if latest:
-                stats["latest_analytics"] = latest[0]
-                stats["analytics_date"] = latest[0].get("date")
+            # Always set, so "no analytics" is a value the caller can see rather than a
+            # missing key it has to guess the meaning of.
+            stats["analytics_available"] = bool(latest)
+            stats["latest_analytics"] = latest[0] if latest else None
+            stats["analytics_date"] = latest[0].get("date") if latest else None
             return stats
         except Exception as e:
             logger.error(f"Error getting guild statistics for {guild_id}: {e}")
