@@ -33,10 +33,10 @@ logger = logging.getLogger("AdminBindings")
 BOT_NAME = "Stygian-Relay"
 
 # The Relay panel is admin-only. resolve_panel_role below returns exactly
-# "admin" or "none", so neither per-node `PanelNode.mod_allowed` flags nor the
-# engine's legacy `MOD_ALLOWED_CATEGORIES` fallback binding are used by this bot
-# (auth.effective_mod_allowed imports that name optionally and falls back to an
-# empty set, which is what relay wants).
+# "admin" or "none". The engine's mod machinery (`PanelNode.mod_allowed`, the
+# `MOD_ALLOWED_CATEGORIES` fallback binding, `auth.effective_mod_allowed`) was
+# REMOVED fleet-wide on 2026-08-06 - those names no longer exist anywhere, so do
+# not go looking for them.
 
 SETUP_GUIDE_TEXT = (
     "**Getting started with Stygian-Relay**\n"

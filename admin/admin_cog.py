@@ -232,7 +232,6 @@ class AdminCog(commands.Cog):
 
         # Shared session for synced timeout across both messages
         session = PanelSession(interaction)
-        session.panel_role = panel_role  # resolved tier, carried to nav/save handlers
 
         async def on_toggle_guide(toggle_interaction: discord.Interaction):
             if not self._check_cooldown(admin_id, "setup_guide_toggle", guild.id):
