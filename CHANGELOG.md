@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] - 2026-08-17 (rule summary honesty)
+
+### Fixed
+- **The rule summary no longer claims a prefix, suffix or style is being applied when it is not.**
+  When you set up a forwarding rule, the summary listed things like "Prefix: hello" and
+  "Style: Component v2" as though your forwarded copies were being changed that way. They were
+  not - relay saves those three settings but always posts copies in its normal quoted style. The
+  summary now says they are saved but not applied yet, so what you see matches what actually
+  happens. The dashboard's rule editor already said this; the Discord setup screen did not.
+
+## [Unreleased] - 2026-08-17 (where your messages go)
+
+### Fixed
+- **A route that blocks you no longer says it carries your messages.** Your privacy page works
+  out which routes copy your messages by checking your roles. When that check could not be
+  completed - a brief Discord problem, usually - the page treated it as "you have no roles",
+  which meant a rule set up to exclude a role stopped recognising you and the page told you your
+  messages were being copied when they were not. It now says "could not check" for those routes
+  instead of guessing, tells you why, and the count at the top no longer includes them as
+  answered either way. Routes that filter by name rather than by role were never affected and
+  still give you a straight answer.
+
+## [Unreleased] - 2026-08-17 (dashboard charts and sign-in)
+
+### Fixed
+- **Dates under the bar charts no longer overlap.** On a narrow screen, or when a chart covered a
+  lot of days, the labels along the bottom could print on top of one another and become
+  unreadable. The chart now shows as many labels as genuinely fit the space, and always keeps the
+  first and the last so you can see the range at a glance.
+- **A brief Discord outage no longer keeps you locked out of the dashboard for a full minute.**
+  When Discord could not be reached to confirm your roles, the dashboard remembered that failure
+  for 60 seconds, so you stayed shut out even after Discord had come back. It now tries again
+  within about 10 seconds.
+- **The same applies to a server admin.** The check that confirms you manage this server had the
+  same problem and it locked out harder: one failed reply shut every admin of that server out for
+  a full minute. It now retries after about ten seconds.
+- **The dashboard no longer creeps up in memory the longer it runs.** Two internal lookup caches
+  never cleared out entries that had gone stale.
+
 ## [Unreleased] - 2026-08-17
 
 ### Fixed

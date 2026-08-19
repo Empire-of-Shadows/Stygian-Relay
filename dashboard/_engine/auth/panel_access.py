@@ -8,7 +8,8 @@
 Bot-agnostic machinery each dashboard's ``auth/panel_role.py`` seam builds its own tier
 policy on top of. Provides the LIVE guild-permission check (``has_manage_guild`` via the bot
 token, computing ADMINISTRATOR / MANAGE_GUILD from role permissions), the member-role fetch
-(``member_role_ids``), a session-snapshot hint (``session_has_manage_guild``), plus the
+(``member_role_ids``, and ``member_roles_lookup`` when the caller needs to know whether the
+answer is trustworthy), a session-snapshot hint (``session_has_manage_guild``), plus the
 internal token-bucket rate limiter and TTL caches that keep the bot-token fetches within
 Discord's limits. Panel access is ADMIN-ONLY fleet-wide - a seam resolves either "admin"
 or "none" - so only the role data source is per-bot.
@@ -19,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import Literal
 
 import httpx
@@ -35,13 +37,50 @@ logger = logging.getLogger("dashboard.auth.panel_access")
 PanelRole = Literal["admin", "none"]
 
 _MEMBER_CACHE_TTL = 60.0
-_MEMBER_NEGATIVE_TTL = 60.0
+# Deliberately shorter than the full TTL: an unexpected status is a symptom of
+# something transient, so it should clear long before a real answer would. It
+# was 60.0, which made the backdating trick at the failure branch subtract zero
+# and cache the failure for the full minute - the opposite of what it says.
+_MEMBER_NEGATIVE_TTL = 10.0
 
+# Roles only, keyed by (guild_id, user_id). The value shape is load-bearing
+# beyond this module: EcomRebuild's seam writes into this dict directly, so the
+# lookup OUTCOME is kept in the parallel map below rather than widening this
+# tuple. A key present here with no outcome entry was written by that seam,
+# which only ever caches a successful fetch - so it reads back as resolved.
 _member_cache: dict[tuple[str, str], tuple[frozenset[str], float]] = {}
+_member_outcome: dict[tuple[str, str], tuple[bool, str]] = {}
 _cache_lock = asyncio.Lock()
 
 _guild_perm_cache: dict[str, tuple[tuple[str, dict[str, int]] | None, float]] = {}
 _GUILD_PERM_TTL = 60.0
+# Same reasoning as _MEMBER_NEGATIVE_TTL, and it matters more here: a None guild
+# context makes _member_has_manage_guild deny immediately, so caching a transient
+# failure for the full minute locked a genuine admin out of the panel for that
+# minute on the strength of one bad response.
+_GUILD_PERM_NEGATIVE_TTL = 10.0
+
+# Both caches are keyed per member or per guild, so they grow with every distinct
+# key seen over the process lifetime. Expired entries were skipped on read but
+# never removed, which made this a slow leak in a long-running dashboard. Swept on
+# write, and only once the map is big enough for the sweep to earn itself.
+_CACHE_PRUNE_AT = 2048
+
+
+def _prune_expired(cache: dict, ttl: float, now: float, *companions: dict) -> None:
+    """Drop entries past their TTL. The caller must already hold ``_cache_lock``.
+
+    ``companions`` are maps sharing the same keys (``_member_outcome``), dropped in
+    step so an outcome cannot outlive the roles it describes.
+    """
+    if len(cache) < _CACHE_PRUNE_AT:
+        return
+    stale = [key for key, entry in cache.items() if now - entry[1] >= ttl]
+    for key in stale:
+        cache.pop(key, None)
+        for companion in companions:
+            companion.pop(key, None)
+
 
 # Token bucket for the bot-token fetch path. Discord's global bot limit is 50/s; stay well
 # under to leave headroom for the channels/roles/guilds fetches sharing the token. Both
@@ -84,16 +123,51 @@ async def _acquire_rate_slot() -> None:
         await asyncio.sleep(wait)
 
 
-async def member_role_ids(guild_id: str, user_id: str) -> frozenset[str]:
-    """Live (cached) fetch of a member's role ids via the bot token."""
+@dataclass(frozen=True)
+class MemberRoles:
+    """The OUTCOME of a member-role lookup, not just its result.
+
+    ``resolved`` is the field that matters. False means Discord never gave us an
+    answer, so ``roles`` being empty says nothing about the member - it is the
+    absence of a reply, not a member who holds no roles. A bare set cannot tell
+    those apart, which is the whole reason this type exists: a caller that reads
+    an empty set as "holds nothing" will deny a member their entitlements during
+    an outage, or - worse - skip a deny-by-role rule and report the opposite of
+    the truth.
+
+    ``reason`` is for logs and for a member-readable "we could not check right
+    now", never for a decision: branch on ``resolved``.
+    """
+
+    roles: frozenset[str]
+    resolved: bool
+    reason: str = ""
+
+    def __bool__(self) -> bool:  # pragma: no cover - guard, not a decision point
+        raise TypeError(
+            "MemberRoles has no truth value on purpose - an unresolved lookup and a "
+            "member with no roles must not collapse to the same falsy answer. "
+            "Branch on .resolved, then read .roles."
+        )
+
+
+async def member_roles_lookup(guild_id: str, user_id: str) -> MemberRoles:
+    """Live (cached) fetch of a member's role ids, carrying whether it resolved.
+
+    Prefer this over ``member_role_ids`` anywhere an empty answer would change
+    what a member is shown or allowed. Access checks that fail closed can keep
+    using the plain fetch - denying on an unresolved lookup is the safe
+    direction and is what they already do.
+    """
     key = (str(guild_id), str(user_id))
     now = time.monotonic()
     cached = _member_cache.get(key)
     if cached is not None and now - cached[1] < _MEMBER_CACHE_TTL:
-        return cached[0]
+        resolved, reason = _member_outcome.get(key, (True, ""))
+        return MemberRoles(cached[0], resolved, reason)
 
     if not BOT_TOKEN:
-        return frozenset()
+        return MemberRoles(frozenset(), False, "no_bot_token")
 
     await _acquire_rate_slot()
 
@@ -109,23 +183,40 @@ async def member_role_ids(guild_id: str, user_id: str) -> frozenset[str]:
                 resp = await client.get(url, headers=headers)
     except Exception as e:
         logger.warning("Discord member fetch failed for %s/%s: %s", guild_id, user_id, e)
-        return frozenset()
+        return MemberRoles(frozenset(), False, "request_failed")
 
     if resp.status_code == 404:
-        # User not a member - cache the empty result for the full TTL.
+        # User not a member - a real answer, cached for the full TTL.
         roles: frozenset[str] = frozenset()
     elif resp.status_code == 200:
         roles = frozenset(str(r) for r in resp.json().get("roles", []))
     else:
         logger.warning("Discord member fetch %s/%s -> %s", guild_id, user_id, resp.status_code)
-        # Cache unexpected failures for the shorter negative TTL so they clear quickly.
+        # Cache unexpected failures for the shorter negative TTL so they clear
+        # quickly. The timestamp is backdated rather than stored with its own
+        # expiry, so the single TTL comparison above still governs both.
+        reason = f"http_{resp.status_code}"
         async with _cache_lock:
             _member_cache[key] = (frozenset(), now - (_MEMBER_CACHE_TTL - _MEMBER_NEGATIVE_TTL))
-        return frozenset()
+            _member_outcome[key] = (False, reason)
+            _prune_expired(_member_cache, _MEMBER_CACHE_TTL, now, _member_outcome)
+        return MemberRoles(frozenset(), False, reason)
 
     async with _cache_lock:
         _member_cache[key] = (roles, now)
-    return roles
+        _member_outcome[key] = (True, "")
+        _prune_expired(_member_cache, _MEMBER_CACHE_TTL, now, _member_outcome)
+    return MemberRoles(roles, True, "")
+
+
+async def member_role_ids(guild_id: str, user_id: str) -> frozenset[str]:
+    """Live (cached) fetch of a member's role ids via the bot token.
+
+    Returns an empty set when the lookup could not be resolved, which is why
+    every caller of this function fails closed. Use ``member_roles_lookup`` when
+    "we could not check" has to read differently from "holds no roles".
+    """
+    return (await member_roles_lookup(guild_id, user_id)).roles
 
 
 async def _guild_perm_context(guild_id: str) -> tuple[str, dict[str, int]] | None:
@@ -157,8 +248,15 @@ async def _guild_perm_context(guild_id: str) -> tuple[str, dict[str, int]] | Non
 
     if resp.status_code != 200:
         logger.debug("Discord guild fetch %s -> %s", guild_id, resp.status_code)
+        # A 404 is a real answer - the bot is not in this guild - and keeps the full
+        # TTL. Anything else is transient and is backdated into the negative window,
+        # because denying every admin for a minute over one 503 is worse than asking
+        # Discord again in ten seconds.
+        definite = resp.status_code == 404
+        stamp = now if definite else now - (_GUILD_PERM_TTL - _GUILD_PERM_NEGATIVE_TTL)
         async with _cache_lock:
-            _guild_perm_cache[key] = (None, now)
+            _guild_perm_cache[key] = (None, stamp)
+            _prune_expired(_guild_perm_cache, _GUILD_PERM_TTL, now)
         return None
 
     data = resp.json()
@@ -170,6 +268,7 @@ async def _guild_perm_context(guild_id: str) -> tuple[str, dict[str, int]] | Non
     ctx = (owner_id, role_perms)
     async with _cache_lock:
         _guild_perm_cache[key] = (ctx, now)
+        _prune_expired(_guild_perm_cache, _GUILD_PERM_TTL, now)
     return ctx
 
 

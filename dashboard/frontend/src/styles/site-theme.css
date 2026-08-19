@@ -1544,6 +1544,9 @@ tr:hover td {
 }
 .mroute__mark--yes { color: var(--success); }
 .mroute__mark--no { color: var(--muted); }
+/* Unknown is its own state, not a shade of no - it has to read as a question,
+   which is what --warning says everywhere else in this theme. */
+.mroute__mark--unknown { color: var(--warning); }
 .mroute__dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
 /* ── Keyword chips (rule editor) ────────────────────────────────────────────

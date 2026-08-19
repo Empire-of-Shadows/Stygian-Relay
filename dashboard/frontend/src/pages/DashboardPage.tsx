@@ -405,13 +405,18 @@ function memberSignals(view: RelayViewResponse | null): Signal[] {
   if (!view) return [];
   const routes = view.guilds.reduce((sum, g) => sum + g.routes.length, 0);
   const carrying = view.guilds.reduce((sum, g) => sum + g.carrying_you, 0);
+  const unknown = view.guilds.reduce((sum, g) => sum + g.unknown_you, 0);
   return [
     {
       key: "carrying",
       value: view.privacy.relaying_paused ? "0" : formatCount(carrying),
       label: view.privacy.relaying_paused
         ? "Carry your messages - you paused relaying"
-        : "Routes carrying your messages",
+        : unknown > 0
+          // The figure counts only the routes we could answer for, so it would read as
+          // the whole story while some were unanswered. Say how many are missing.
+          ? `Routes carrying your messages (${unknown} could not be checked)`
+          : "Routes carrying your messages",
     },
     {
       key: "routes",

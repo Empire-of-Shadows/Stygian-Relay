@@ -27,6 +27,9 @@ export default function MemberRelayView({ view }: { view: RelayViewResponse }) {
   const guilds = view.guilds;
   const withRoutes = guilds.filter((g) => g.routes.length > 0);
   const carryingYou = guilds.reduce((sum, g) => sum + g.carrying_you, 0);
+  // Routes whose answer needed roles we could not read. Held separately so the chip
+  // below never states a confident "no" over the top of an unanswered question.
+  const unknownYou = guilds.reduce((sum, g) => sum + g.unknown_you, 0);
   const paused = view.privacy.relaying_paused;
 
   return (
@@ -45,6 +48,12 @@ export default function MemberRelayView({ view }: { view: RelayViewResponse }) {
               {carryingYou === 1
                 ? "1 route carries your messages"
                 : `${carryingYou} routes carry your messages`}
+            </span>
+          ) : unknownYou > 0 ? (
+            <span className="ov-chip ov-chip--warn">
+              {unknownYou === 1
+                ? "1 route could not be checked"
+                : `${unknownYou} routes could not be checked`}
             </span>
           ) : (
             <span className="ov-chip">No route carries your messages</span>
@@ -141,17 +150,33 @@ function RouteRow({ route }: { route: MemberRoute }) {
         )}
         <span
           className={
-            route.carries_you ? "mroute__mark mroute__mark--yes" : "mroute__mark mroute__mark--no"
+            route.carries_you === null
+              ? "mroute__mark mroute__mark--unknown"
+              : route.carries_you
+                ? "mroute__mark mroute__mark--yes"
+                : "mroute__mark mroute__mark--no"
           }
           style={{ marginLeft: "auto" }}
         >
           <span className="mroute__dot" aria-hidden="true" />
-          {route.carries_you ? "carries your messages" : "not your messages"}
+          {route.carries_you === null
+            ? "could not check"
+            : route.carries_you
+              ? "carries your messages"
+              : "not your messages"}
         </span>
       </div>
-      {!route.carries_you && (
+      {route.carries_you === false && (
         <span className="mroute__note">
           This rule only copies certain people, and you are not one of them.
+        </span>
+      )}
+      {/* Null is not "no". This rule picks people by role, and Discord did not answer
+          when we asked which roles you have - so we say that rather than guess. */}
+      {route.carries_you === null && (
+        <span className="mroute__note">
+          This rule copies people by role, and we could not check your roles just now.
+          Try again in a minute.
         </span>
       )}
     </div>

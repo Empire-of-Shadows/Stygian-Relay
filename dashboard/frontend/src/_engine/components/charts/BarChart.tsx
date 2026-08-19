@@ -96,8 +96,58 @@ export default function BarChart({
   const bandOffset = Math.max((groupWidth - bandUsed) / 2, 0);
   const baseline = PT + ih;
 
-  // Thin the axis labels so they never collide in a narrow tile.
-  const labelStep = Math.max(1, Math.ceil(groups.length / 6));
+  const lastGroup = groups.length - 1;
+  // Text width is estimated at ~0.62em per character plus a little breathing
+  // room, rather than measured, so this stays a single render with no second
+  // layout pass. The 8px is the minimum gap between two neighbouring labels.
+  const labelWidth = groups.reduce((n, g) => Math.max(n, g.length), 0) * 6.2 + 8;
+
+  /**
+   * Where a label under group `i` is actually painted. An end label that would
+   * run past the plot is pulled inward instead of clipped, so its span is not
+   * always centred on its bar - which is why the thinning below has to test
+   * these spans rather than assume the drawn indexes are evenly spaced.
+   */
+  function labelPlacement(i: number) {
+    const centre = PL + i * groupWidth + groupWidth / 2;
+    const half = labelWidth / 2;
+    if (centre - half < PL) {
+      return { x: PL, anchor: "start" as const, from: PL, to: PL + labelWidth };
+    }
+    if (centre + half > W - PR) {
+      return { x: W - PR, anchor: "end" as const, from: W - PR - labelWidth, to: W - PR };
+    }
+    return { x: centre, anchor: "middle" as const, from: centre - half, to: centre + half };
+  }
+
+  // Thin the axis labels so they never collide in a narrow tile. Group count
+  // alone cannot decide this: the old rule allowed six labels whatever the
+  // width and then forced the last one on top of that, which put two labels a
+  // single group apart whenever the count was not a multiple of the step -
+  // eight groups drew 0, 2, 4, 6 and then 7 as its neighbour. Instead, take
+  // the most labels that genuinely fit: try six spread evenly across the axis,
+  // drop to five, and so on until no two painted spans touch. Spreading from
+  // both ends keeps the first and last groups labelled, which a fixed step
+  // stepping from zero does not.
+  const evenlySpread = (slots: number) => [
+    ...new Set(
+      Array.from({ length: slots }, (_, k) => Math.round((k * lastGroup) / (slots - 1))),
+    ),
+  ];
+  const spansClear = (indexes: number[]) =>
+    indexes.every((i, k) => k === 0 || labelPlacement(indexes[k - 1]).to <= labelPlacement(i).from);
+
+  // Falls back to the most recent group alone, for when even the two ends
+  // would overlap each other.
+  let labelIndexes = [lastGroup];
+  for (let slots = Math.min(6, groups.length); slots >= 2; slots--) {
+    const candidate = evenlySpread(slots);
+    if (candidate.length === slots && spansClear(candidate)) {
+      labelIndexes = candidate;
+      break;
+    }
+  }
+  const labelled = new Set(labelIndexes);
 
   const colourOf = (index: number): string | undefined =>
     index < MAX_COLOURED_SERIES ? SERIES_CLASSES[index] : undefined;
@@ -164,20 +214,22 @@ export default function BarChart({
           </g>
         ))}
 
-        {groups.map((group, i) =>
-          i % labelStep === 0 || i === groups.length - 1 ? (
+        {groups.map((group, i) => {
+          if (!labelled.has(i)) return null;
+          const { x, anchor } = labelPlacement(i);
+          return (
             <text
               key={`label-${group}-${i}`}
-              x={PL + i * groupWidth + groupWidth / 2}
+              x={x}
               y={H - 4}
-              textAnchor="middle"
+              textAnchor={anchor}
               fontSize={10}
               style={{ fill: "var(--eos-fg-muted)" }}
             >
               {group}
             </text>
-          ) : null,
-        )}
+          );
+        })}
 
         {hover !== null && (
           <rect

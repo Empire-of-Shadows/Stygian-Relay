@@ -19,10 +19,18 @@ WHAT THIS IS ALLOWED TO RETURN, and why it is narrower than the admin rules page
 
 It never returns rule counts for other people, opted-out members, or any filter contents.
 
-The carries-you answer mirrors ``commands/forward/forward.py::check_author_filters``
-exactly: a deny match rejects outright; if either allow list is non-empty the author must
-match at least one across both. Divergence here would tell a member something untrue
-about their own messages, so the two must move together.
+The carries-you answer mirrors ``commands/forward/forward.py::check_author_filters``:
+a deny match rejects outright; if either allow list is non-empty the author must match at
+least one across both. Divergence here would tell a member something untrue about their
+own messages, so the two must move together.
+
+It adds one state the bot does not need: **None, meaning "we could not work it out"**.
+The bot always knows a member's roles because it holds the member object; this page has
+to fetch them over HTTP, and that fetch can fail. Reporting a failed fetch as an empty
+role set is not a smaller version of the truth, it is the opposite of it - an empty set
+matches no ``deny_role_ids``, so a blocked member was told they were carried. Any rule
+whose verdict depends on roles we could not read returns None, and the counts and the UI
+keep None distinct from False all the way to the member.
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ import time
 import httpx
 
 from dashboard import db
-from dashboard._engine.auth.panel_access import member_role_ids
+from dashboard._engine.auth.panel_access import member_roles_lookup
 from dashboard.config import BOT_TOKEN, DISCORD_API_BASE
 from dashboard.routers.dashboard import fetch_guild_channels
 from dashboard.services import user_data
@@ -78,22 +86,46 @@ def _ids(values) -> set[str]:
     return {str(v) for v in (values or [])}
 
 
-def carries_author(author_filters, user_id: str, role_ids: set[str]) -> bool:
+def carries_author(
+    author_filters, user_id: str, role_ids: set[str], *, roles_known: bool
+) -> bool | None:
     """Whether a rule with these author filters would carry this member's messages.
 
     Mirrors ``check_author_filters``: missing or non-dict filters mean no filtering.
+
+    Returns ``None`` for "we could not work it out", which happens when the answer
+    genuinely turns on roles and ``roles_known`` is False. This used to answer a
+    confident True in that case, and it was answering the OPPOSITE of the truth:
+    an unread role set matches no ``deny_role_ids``, so a member who is in fact
+    blocked from a route was told their messages are carried. ``roles_known`` is
+    keyword-only and has no default on purpose - a caller has to say whether it
+    actually read the roles.
+
+    Only a rule that DEPENDS on roles goes unknown. One filtering by user id alone
+    is still answered definitively, because the roles never entered into it.
     """
     if not isinstance(author_filters, dict) or not author_filters:
         return True
     uid = str(user_id)
     if uid in _ids(author_filters.get("deny_user_ids")):
         return False
-    if _ids(author_filters.get("deny_role_ids")) & role_ids:
-        return False
+
+    deny_roles = _ids(author_filters.get("deny_role_ids"))
+    if deny_roles:
+        if not roles_known:
+            return None
+        if deny_roles & role_ids:
+            return False
+
     allow_users = _ids(author_filters.get("allow_user_ids"))
     allow_roles = _ids(author_filters.get("allow_role_ids"))
     if allow_users or allow_roles:
-        if uid not in allow_users and not (allow_roles & role_ids):
+        # An explicit allow by user id settles it without needing the roles.
+        if uid in allow_users:
+            return True
+        if allow_roles and not roles_known:
+            return None
+        if not (allow_roles & role_ids):
             return False
     return True
 
@@ -129,6 +161,7 @@ async def build_member_view(
                 "has_config": False,
                 "routes": [],
                 "carrying_you": 0,
+                "unknown_you": 0,
             })
             continue
 
@@ -141,7 +174,12 @@ async def build_member_view(
         # One member fetch per guild, shared by every rule in it. The engine caches it
         # for a minute and rate-limits the bot token, so a member in many servers still
         # costs one fetch per server per minute.
-        roles = set(await member_role_ids(str(gid), uid)) if active else set()
+        # The OUTCOME is carried, not just the roles: an empty set from a failed fetch
+        # looks exactly like a member who holds no roles, and reading it as the latter
+        # made every deny-by-role rule silently stop matching.
+        lookup = await member_roles_lookup(str(gid), uid) if active else None
+        roles = set(lookup.roles) if lookup is not None else set()
+        roles_known = lookup.resolved if lookup is not None else True
         channels = await fetch_guild_channels(str(gid)) if active else []
         names = {c["id"]: c["name"] for c in channels}
 
@@ -152,7 +190,10 @@ async def build_member_view(
             source_id = str(rule.get("source_channel_id") or "")
             destination_id = str(rule.get("destination_channel_id") or "")
             carries = carries_author(
-                (rule.get("settings") or {}).get("author_filters"), uid, roles
+                (rule.get("settings") or {}).get("author_filters"),
+                uid,
+                roles,
+                roles_known=roles_known,
             )
             routes.append({
                 "rule_id": str(rule.get("rule_id") or ""),
@@ -194,7 +235,10 @@ async def build_member_view(
             "forwarding_enabled": forwarding_enabled,
             "has_config": True,
             "routes": routes,
-            "carrying_you": sum(1 for r in routes if r["carries_you"]),
+            # `is True` and `is None`, not truthiness - an unknown route must not be
+            # quietly counted as "not carrying you", which is the whole bug being fixed.
+            "carrying_you": sum(1 for r in routes if r["carries_you"] is True),
+            "unknown_you": sum(1 for r in routes if r["carries_you"] is None),
         })
 
     return {

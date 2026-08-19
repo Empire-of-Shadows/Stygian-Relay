@@ -359,8 +359,15 @@ export interface MemberRoute {
   cross_server: boolean;
   destination_guild_id: string | null;
   destination_guild_name: string | null;
-  /** Whether this route would carry THIS member's messages. */
-  carries_you: boolean;
+  /**
+   * Whether this route would carry THIS member's messages.
+   *
+   * Null means "could not work it out" - the rule filters by role and the member's
+   * roles could not be read. It is deliberately NOT false: an unread role set matches
+   * no deny rule, so treating unknown as "not carried" reported the opposite of the
+   * truth to a member who is in fact blocked.
+   */
+  carries_you: boolean | null;
 }
 
 export interface MemberGuildView {
@@ -369,7 +376,10 @@ export interface MemberGuildView {
   forwarding_enabled: boolean;
   has_config: boolean;
   routes: MemberRoute[];
+  /** Routes that definitely carry this member. Unknown routes are NOT counted here. */
   carrying_you: number;
+  /** Routes whose answer depends on roles that could not be read. */
+  unknown_you: number;
 }
 
 export interface RelayViewResponse {
