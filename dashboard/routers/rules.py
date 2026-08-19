@@ -27,7 +27,7 @@ def _validate_snowflake(v: str | None) -> str | None:
     return v
 
 from dashboard.auth.dependencies import get_current_user, require_panel_access
-from dashboard.services import audit, rule_service, user_data
+from dashboard.services import audit, rule_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["rules"])
@@ -88,13 +88,15 @@ class FiltersModel(BaseModel):
 class FormattingModel(BaseModel):
     """How a forwarded copy is written.
 
-    ``add_prefix`` / ``add_suffix`` / ``forward_style`` are STORED but are not read by the
-    forwarding runtime today - ``forward_as_native_style`` builds the quoted block itself
-    and never applies them, and ``forward_message`` always renders the native style. They
-    are editable here because the owner ruled the editor complete, and the editor page
-    says plainly that they are saved with the rule rather than pretending they change the
-    forwarded message. Do not quietly start honouring them without saying so: it would
-    change what appears in every destination channel that has one set.
+    ``add_prefix`` and ``add_suffix`` ARE applied as of 2026-08-19 (owner ruling):
+    ``forward_as_native_style`` wraps them around the quote block, outside it, so they read
+    as the rule owner's lines rather than as words the original author wrote. The changelog
+    says so, because turning them on changed what appears in every destination channel that
+    already had one saved.
+
+    ``forward_style`` is the one that is still STORED but not read - ``forward_message``
+    always renders the native style. The editor page says so rather than pretending it
+    changes the forwarded message. Do not quietly start honouring it without saying so.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -190,11 +192,14 @@ def _validate_lengths(body: CreateRuleRequest | UpdateRuleRequest) -> None:
 async def list_rules(guild_id: str, session: dict = Depends(get_current_user)):
     await require_panel_access(session, guild_id)
     rules = await rule_service.get_rules(guild_id)
-    # A COUNT and nothing else - never the ids, never the names (owner ruling). It is
-    # account-wide rather than per-server and the page says so; see
-    # user_data.count_relay_opt_outs for why it cannot honestly be narrowed.
-    opted_out = await user_data.count_relay_opt_outs()
-    return {"rules": rules, "count": len(rules), "opted_out_members": opted_out}
+    # No opt-out figure here, by owner ruling 2026-08-19. This used to return
+    # `opted_out_members`, a count of accounts that asked relay to skip their messages.
+    # It was honest about being account-wide rather than per-server, but it was still a
+    # cross-server aggregate on one server's admin page, and it could never be narrowed:
+    # `user_preferences` carries no guild dimension, so scoping it would have meant
+    # pulling the guild's whole member list from Discord on every page load. Do not
+    # reintroduce it without a way to make it about the server being viewed.
+    return {"rules": rules, "count": len(rules)}
 
 
 @router.post("/guilds/{guild_id}/rules", status_code=201)

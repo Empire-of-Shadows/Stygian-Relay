@@ -242,8 +242,8 @@ export function PrivacyPage() {
 
               <p className="ov-muted">
                 A server admin can still stop relaying your messages from their side with a
-                rule filter, and can see how many members of their server have opted out -
-                as a count only, never as a list of names.
+                rule filter. They are never shown who has opted out, and are not shown a
+                count of it either.
               </p>
 
               <div className="admin-actions" style={{ alignItems: "center", flexWrap: "wrap" }}>

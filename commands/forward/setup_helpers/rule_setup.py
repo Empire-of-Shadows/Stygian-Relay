@@ -141,25 +141,20 @@ class RuleSetupHelper:
             inline=False
         )
 
-        # add_prefix, add_suffix and forward_style are STORED on the rule but are not
-        # read by the forwarding runtime: forward_as_native_style builds the quoted
-        # block itself and never applies a prefix or a suffix, and forward_message
-        # always renders the native style. This summary used to print them as plain
-        # facts - "Prefix: hello", "Style: Component v2" - which told an admin their
-        # messages were being changed in a way they were not. The dashboard's rule
-        # editor already says so on the page; this surface is the one that did not.
+        # add_prefix and add_suffix ARE applied as of 2026-08-19 - forward_as_native_style
+        # wraps them around the quote block - so they print as plain facts again. Only
+        # forward_style is still stored-but-unread: forward_message always renders the
+        # native style. Keep the two apart here. This summary once printed all three as
+        # plain facts, which told an admin their messages were being changed in ways they
+        # were not; that is now true of style alone.
         # See dashboard/routers/rules.py::FormattingModel.
         formatting_info = []
         if rule["formatting"]["include_author"]:
             formatting_info.append("• Include author")
         if rule["formatting"]["add_prefix"]:
-            formatting_info.append(
-                f"• Prefix: {rule['formatting']['add_prefix']} (saved, not applied yet)"
-            )
+            formatting_info.append(f"• Prefix: {rule['formatting']['add_prefix']}")
         if rule["formatting"]["add_suffix"]:
-            formatting_info.append(
-                f"• Suffix: {rule['formatting']['add_suffix']} (saved, not applied yet)"
-            )
+            formatting_info.append(f"• Suffix: {rule['formatting']['add_suffix']}")
 
         # Map the internal style name to a user-friendly display name.
         style = rule["formatting"].get("forward_style", "native")

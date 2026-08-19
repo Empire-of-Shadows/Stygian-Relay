@@ -29,7 +29,6 @@ import { formatCount, formatDate, formatRelative } from "../_engine/format";
 export function RulesPage() {
   const { guildId } = useParams<{ guildId: string }>();
   const [rules, setRules] = useState<Rule[] | null>(null);
-  const [optedOut, setOptedOut] = useState<number | null>(null);
   const [overview, setOverview] = useState<GuildOverview | null>(null);
   const [channels, setChannels] = useState<Map<string, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +43,6 @@ export function RulesPage() {
       .then((r) => {
         if (cancelled) return;
         setRules(r.rules);
-        setOptedOut(r.opted_out_members ?? null);
       })
       .catch((e) => { if (!cancelled) setError(formatError(e)); });
 
@@ -242,28 +240,6 @@ export function RulesPage() {
             ) : (
               <p className="ov-muted">
                 Your plan's limits could not be loaded right now. Refresh to try again.
-              </p>
-            )}
-
-            <Divider />
-
-            <span className="ov-card__title">Members who opted out</span>
-            {optedOut === null ? (
-              <p className="ov-muted">
-                The opt-out count could not be loaded right now.
-              </p>
-            ) : optedOut === 0 ? (
-              <p className="ov-muted">
-                Nobody has asked Stygian Relay to leave their messages out.
-              </p>
-            ) : (
-              <p className="ov-muted">
-                {optedOut} {optedOut === 1 ? "person has" : "people have"} asked Stygian
-                Relay not to relay their messages. If any of them post in a watched channel,
-                those messages are skipped by every rule - which is worth knowing if a
-                forwarded conversation ever looks like it has gaps in it. This is a count
-                across everywhere the bot runs, not just this server, and relay never shows
-                who they are.
               </p>
             )}
           </Tile>

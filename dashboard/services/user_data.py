@@ -112,24 +112,6 @@ async def set_privacy(user_id: str, features: dict[str, bool]) -> dict[str, bool
     return clean
 
 
-async def count_relay_opt_outs() -> int:
-    """How many accounts have asked relay not to relay their messages.
-
-    A COUNT, never names - owner ruling 2026-08-13. It exists so an admin looking at a
-    mirror with gaps in it has an explanation other than "the bot is broken".
-
-    It is deliberately NOT scoped to one server, and the page must say so. A relay opt-out
-    is account-wide, and ``user_preferences`` holds no guild dimension to filter on;
-    narrowing it to one server would mean pulling that server's whole member list from
-    Discord on every page load to intersect against. Reporting a global figure as if it
-    were "members of this server" would be the dishonest option, so the page states what
-    the number actually counts.
-    """
-    return await db.user_preferences().count_documents(
-        {"$or": [{"features.all": True}, {"features.relay_messages": True}]}
-    )
-
-
 # ── Scope ────────────────────────────────────────────────────────────────────
 
 

@@ -464,10 +464,9 @@ export function RuleEditorPage() {
                 />
               </FRow>
               <p className="eos-muted" style={{ margin: 0 }}>
-                The prefix and suffix are saved with the rule, but forwarded messages do
-                not show them yet - the bot posts the quoted style above and nothing else.
-                They are here so the setting is not stranded in the Discord panel, not
-                because they change what gets posted today.
+                The prefix goes on its own line above the quoted copy and the suffix on its
+                own line below it, so they read as your words rather than the original
+                author's. Leave either one empty to skip it.
               </p>
             </Fieldset>
 

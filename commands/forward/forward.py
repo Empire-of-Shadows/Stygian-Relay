@@ -615,6 +615,26 @@ class Forwarding(commands.Cog):
 
         quoted_content = '\n'.join(quote_lines)
 
+        # Prefix and suffix are the rule owner's own lines wrapped around the copy.
+        # They sit OUTSIDE the quote block deliberately: inside it they would read as
+        # words the original author wrote, which is the opposite of what they are for.
+        # They also sit ABOVE the footnote lines appended below (attachment problems,
+        # branding), because those are relay talking ABOUT the copy while these are
+        # part of it.
+        #
+        # No mention guard is needed here: startup/bot.py constructs the bot with a
+        # process-wide AllowedMentions(everyone=False, roles=False), so an @everyone
+        # typed into a prefix cannot ping a destination channel.
+        prefix = (formatting.get("add_prefix") or "").strip()
+        suffix = (formatting.get("add_suffix") or "").strip()
+        if prefix or suffix:
+            # Filtered rather than concatenated: quoted_content is empty when a rule
+            # has include_author off and the source message carried no text, and a
+            # blank line would otherwise open or close the copy with nothing in it.
+            quoted_content = '\n'.join(
+                part for part in (prefix, quoted_content, suffix) if part
+            )
+
         files_to_send = []
         # Detailed reasons per omitted attachment, surfaced to the destination.
         attachment_issues: list[str] = []
@@ -897,6 +917,13 @@ class Forwarding(commands.Cog):
         # The size-fallback renderers name the author unconditionally - include_author
         # never reached them. A member who opted out of having their name shown must not
         # have it reappear here just because their message was too big for the normal path.
+        #
+        # add_prefix / add_suffix deliberately do NOT reach here, and that is not the same
+        # oversight. This path exists because the payload did not fit, and it already drops
+        # attachments, embeds and everything past 500 characters; adding up to 400 more
+        # characters of decoration works against the only thing it is for. hide_author_name
+        # is different in kind - it is a member's privacy choice, not decoration, so it has
+        # to survive every degradation.
         author_info = "**Forwarded message**" if hide_author_name else f"**From {message.author.display_name}**"
         content_preview = message.content[:500] + "..." if len(message.content) > 500 else message.content
 

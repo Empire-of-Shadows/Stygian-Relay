@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] - 2026-08-19 (prefix and suffix now work)
+
+### Fixed
+- **Pressing Escape no longer closes a confirmation box while the action is already running.**
+  When you confirm something destructive, the Cancel button greys out and clicking outside the
+  box does nothing, because by then there is nothing left to call off. Escape ignored that and
+  closed the box anyway, so the action carried on out of sight and it looked like you had
+  stopped it. Escape now behaves like the other two, and still closes the box normally before
+  you confirm.
+
+### Added
+- **Your rule's prefix and suffix are now actually added to forwarded copies.** Both settings
+  have been on the rule editor for a while but nothing was done with them. Now the prefix is
+  posted on its own line above the copy and the suffix on its own line below it, outside the
+  quoted block, so they read as your words rather than as something the original author wrote.
+  Leave either one empty to skip it.
+- **Worth checking before this goes live:** if you already typed a prefix or a suffix into a rule
+  at any point, it was saved even though nothing showed it, and it will start appearing on every
+  message that rule copies. Open the rule and clear the box if you do not want it.
+
+### Note
+- The **Style** setting is still saved without being used - every copy is posted in the quoted
+  style regardless of what you pick. The rule editor and the Discord setup screen both say so.
+
+### Changed
+- **The "Members who opted out" figure is gone from the rules page.** It counted everyone who
+  had asked Stygian Relay to skip their messages across every server the bot runs in, not just
+  yours, so it could never tell you anything about your own server. It said as much, but a number
+  you cannot act on is worse than no number. Nothing about opting out itself has changed - members
+  can still ask relay to skip their messages, and those messages are still skipped by every rule.
+- **Members are told this plainly.** The privacy page used to say a server admin could see how
+  many members of their server had opted out. That was never what admins actually saw, and now
+  admins see no count at all, so the page says so.
+
 ## [Unreleased] - 2026-08-17 (rule summary honesty)
 
 ### Fixed

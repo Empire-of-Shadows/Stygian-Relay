@@ -69,6 +69,11 @@ export default function ConfirmDialog({
   // effect and steal focus back mid-interaction.
   const cancelRef = useRef(onCancel);
   cancelRef.current = onCancel;
+  // `busy` is read through a ref for the same reason: the key handler is installed
+  // once per opening, so a plain closure would capture whatever busy was when the
+  // dialog opened - which is always false - and the guard below would never fire.
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
 
   useEffect(() => {
     if (!open) return;
@@ -82,7 +87,16 @@ export default function ConfirmDialog({
 
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // Escape is one of three ways out, and it has to agree with the other
+        // two: the backdrop is inert while busy and the Cancel button is
+        // disabled while busy. Without this guard Escape was the one route that
+        // still fired mid-flight, closing the dialog over a request that keeps
+        // running - so the member watched a destructive action they believe they
+        // cancelled go through anyway. Worst on the privacy pages, which are the
+        // ones using typeToConfirm. preventDefault still runs so Escape does not
+        // fall through to anything behind the dialog either way.
         e.preventDefault();
+        if (busyRef.current) return;
         cancelRef.current();
         return;
       }

@@ -66,10 +66,13 @@ export interface RuleFilters {
 /**
  * How a forwarded copy is written.
  *
- * `add_prefix`, `add_suffix` and `forward_style` are stored on the rule but are NOT read
- * by the forwarding runtime today - it always renders the quoted style and never applies
- * a prefix or suffix. The editor says so on the page rather than presenting them as if
- * they changed the forwarded message. See dashboard/routers/rules.py::FormattingModel.
+ * `add_prefix` and `add_suffix` are applied as of 2026-08-19 - the bot wraps them around
+ * the quote block, outside it, so they read as the rule owner's lines and not as words the
+ * original author wrote.
+ *
+ * `forward_style` is the one still stored but NOT read: the runtime always renders the
+ * quoted style. The editor says so on the page rather than presenting it as if it changed
+ * the forwarded message. See dashboard/routers/rules.py::FormattingModel.
  */
 export interface RuleFormatting {
   include_author: boolean;
@@ -124,12 +127,6 @@ export interface Rule {
 export interface RulesResponse {
   rules: Rule[];
   count: number;
-  /**
-   * How many accounts have asked relay not to relay their messages. A COUNT only, never
-   * names (owner ruling). It is account-wide rather than scoped to this server, and the
-   * rules page says so - see dashboard/services/user_data.py::count_relay_opt_outs.
-   */
-  opted_out_members?: number;
 }
 
 export interface DailyCount {

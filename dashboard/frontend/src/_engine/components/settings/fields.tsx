@@ -44,6 +44,23 @@ export function PickerStatusProvider({
   );
 }
 
+/**
+ * Read the picker availability flags from inside the provider.
+ *
+ * The engine's own fields read the context directly; this exists so a BOT-owned
+ * field component can too, instead of having the two booleans prop-drilled down
+ * to it from the page that already put them in the context. Purely additive - the
+ * context keeps its defaults, so a component used outside a provider still sees
+ * "nothing failed" rather than throwing, which is the right answer for a page
+ * that never had pickers to fail.
+ *
+ * Bots unwind their prop-drilling onto this at their own turn; nothing is
+ * required to adopt it.
+ */
+export function usePickerStatus(): PickerStatus {
+  return useContext(PickerStatusContext);
+}
+
 const CHANNELS_UNAVAILABLE =
   "The channel list could not be loaded, so there is nothing to choose from here. Whatever is already saved stays as it is. Reload the page to try again.";
 
