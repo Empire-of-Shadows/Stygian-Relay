@@ -3,6 +3,10 @@
 ## [Unreleased] - 2026-08-24 (login page layout)
 
 ### Fixed
+- **Logging in on the relay dashboard now brings you back to the relay dashboard.** It used
+  to drop you on TheCodex's dashboard after the Discord sign-in, because the sign-in was
+  configured to return there. (Your login still counted everywhere - one login covers every
+  Empire of Shadows dashboard - you just landed on the wrong site.)
 - **The "What Stygian Relay does" section on the dashboard login page is centered again.**
   It sat pushed to the left while everything above it was centered.
 
