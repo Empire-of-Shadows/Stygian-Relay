@@ -13,7 +13,7 @@ import discord
 from storage.bot_specific.relay import audit_log, guild_manager
 
 from ..views.panel_engine import PanelNode
-from .forwarding_actions import make_add_rule_node, make_manage_rules_node
+from .forwarding_actions import make_forwarding_rules_node
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -297,16 +297,10 @@ FEATURES_NODE = PanelNode(
     },
 )
 
-FORWARDING_RULES_NODE = PanelNode(
-    key="forwarding_rules",
-    label="Forwarding Rules",
-    kind="menu",
-    description="View and manage your forwarding rules.",
+# The section IS the rules list - it opens directly into it, with Add Rule as a
+# button in the list (owner ruling 2026-08-24; the old wrapper menu is gone).
+FORWARDING_RULES_NODE = make_forwarding_rules_node(
     async_description=_forwarding_rules_description,
-    children={
-        "add_rule": make_add_rule_node(),
-        "manage_rules": make_manage_rules_node(),
-    },
 )
 
 PREMIUM_NODE = PanelNode(

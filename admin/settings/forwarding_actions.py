@@ -594,25 +594,19 @@ class AddRuleFlow:
             logger.debug("audit create_rule failed", exc_info=True)
 
 
-def make_add_rule_node() -> PanelNode:
-    """The ``Add Rule`` action node - launches the create wizard."""
-    async def _on_run(cog, interaction, guild, ctx):
+# ─── Forwarding Rules: the list IS the section ──────────────────────────
+
+def make_forwarding_rules_node(async_description=None) -> PanelNode:
+    """The Forwarding Rules section: opens STRAIGHT into the rules list, with
+    Add Rule as a button inside it (owner ruling 2026-08-24 - no submenu
+    dropdown between an admin and their rules). Replaces the old menu that
+    held separate Add Rule / Manage Rules entries."""
+
+    async def _launch_wizard(cog, interaction, guild, ctx):
+        # Same contract as an action node's on_run; ctx.parent_node is the
+        # list itself, so the wizard's back-to-panel lands on the rules list.
         flow = AddRuleFlow(cog, guild, ctx, interaction.client)
         await flow.render_source(interaction)
-
-    return PanelNode(
-        key="add_rule",
-        label="Add Rule",
-        kind="action",
-        description="Create a new forwarding rule (pick a source and destination channel).",
-        on_run=_on_run,
-    )
-
-
-# ─── Manage Rules: list + delete ─────────────────────────────────────────────
-
-def make_manage_rules_node() -> PanelNode:
-    """The ``Manage Rules`` paginated list - browse every rule, delete any one."""
 
     async def _items(guild_id) -> list:
         return await guild_manager.get_guild_rules(str(guild_id))
@@ -643,10 +637,18 @@ def make_manage_rules_node() -> PanelNode:
         return await guild_manager.permanently_delete_rule(str(guild_id), rule_id)
 
     return PanelNode(
-        key="manage_rules",
-        label="Manage Rules",
+        key="forwarding_rules",
+        label="Forwarding Rules",
         kind="paginated_list",
-        description="Your forwarding rules. Use the menu below to delete one.",
+        description=(
+            "Your forwarding rules. **Add Rule** creates one; the menu below "
+            "deletes one."
+        ),
+        async_description=async_description,
+        # Promoted to the panel root when the wrapper menu was removed
+        # (2026-08-24); this keeps its audit history under the section name it
+        # always had instead of splitting the dashboard's filter across two.
+        audit_section="forwarding_rules",
         list_get_items=_items,
         list_count=_count,
         list_format_line=_format_line,
@@ -656,4 +658,6 @@ def make_manage_rules_node() -> PanelNode:
         list_action_label="Delete",
         list_action=_delete,
         list_action_confirm_line=_confirm_line,
+        list_extra_action_label="Add Rule",
+        list_extra_action=_launch_wizard,
     )

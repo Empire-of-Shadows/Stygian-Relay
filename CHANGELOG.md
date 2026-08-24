@@ -10,6 +10,15 @@
 - **The "What Stygian Relay does" section on the dashboard login page is centered again.**
   It sat pushed to the left while everything above it was centered.
 
+## [Unreleased] - 2026-08-24 (Forwarding Rules opens straight into your rules)
+
+### Changed
+- **Opening Forwarding Rules in the admin panel now takes you straight to your rules.**
+  The list is right there, with an **Add Rule** button beside the paging controls - no more
+  picking "Manage Rules" or "Add Rule" from a dropdown first. Everything else works as
+  before: the live rule summary on the main menu, deleting from the list, and the create
+  wizard itself are unchanged.
+
 ## [Unreleased] - 2026-08-24 (honest answers in the rules pages and change history)
 
 ### Fixed
