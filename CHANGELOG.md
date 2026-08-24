@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] - 2026-08-24 (login page layout)
+
+### Fixed
+- **The "What Stygian Relay does" section on the dashboard login page is centered again.**
+  It sat pushed to the left while everything above it was centered.
+
 ## [Unreleased] - 2026-08-24 (honest answers in the rules pages and change history)
 
 ### Fixed

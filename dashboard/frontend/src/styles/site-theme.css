@@ -704,6 +704,12 @@ tr:hover td {
   width: 100%;
   max-width: 680px;
   margin: 0 auto;
+  /* Centered flex column like .login-hero - the divider (360px) and tiles
+     (560px) are narrower than this 680px box, so without it they pin left. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
 }
 
 /* Semantic button variants. .btn-primary / -secondary / -danger and the shared
