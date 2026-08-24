@@ -188,12 +188,17 @@ async def create_rule(
     return False, "error", None
 
 
-async def update_rule(guild_id: str, rule_id: str, updates: dict) -> bool:
-    """Update fields of a specific rule. Returns True if modified.
+async def update_rule(guild_id: str, rule_id: str, updates: dict) -> str:
+    """Update fields of a specific rule. Returns a verdict string:
 
-    Re-activating a rule (is_active -> True) is gated by the same active-rule cap that
-    create enforces, so a user can't bypass the limit by creating up to the cap,
-    deactivating one, creating another, then re-enabling the deactivated rule.
+    "ok" - modified; "limit_reached" - the write was refused by the active-rule
+    cap (re-activating is gated by the same cap create enforces, so a user can't
+    bypass the limit by deactivating and re-enabling); "not_found" - no such
+    rule; "error" - the rule exists but the write did not apply.
+
+    The verdict exists because a capped re-activation used to be
+    indistinguishable from a missing rule (modified_count 0 either way), and the
+    router answered 404 "Rule not found." for a rule the admin was looking at.
     """
     now = datetime.now(timezone.utc)
     gid = str(guild_id)
@@ -220,23 +225,43 @@ async def update_rule(guild_id: str, rule_id: str, updates: dict) -> bool:
         }
 
     result = await db.guild_settings().update_one(query, {"$set": set_fields})
-    return result.modified_count > 0
+    if result.modified_count > 0:
+        return "ok"
+    # Disambiguate the miss the same way create does.
+    rule = await get_rule(gid, rule_id)
+    if rule is None:
+        return "not_found"
+    if updates.get("is_active") is True:
+        # The rule exists, so the only clause the gated query can have missed on
+        # is the cap $expr: the OTHER active rules already fill the limit.
+        return "limit_reached"
+    return "error"
 
 
 async def delete_rule(guild_id: str, rule_id: str) -> bool:
     """Permanently remove a rule from the array. Returns True if removed."""
     result = await db.guild_settings().update_one(
-        {"guild_id": str(guild_id)},
+        # Scoped on the rule id as well as the guild, so modified_count can only
+        # ever reflect the pull itself - not some future sibling write.
+        {"guild_id": str(guild_id), "rules.rule_id": rule_id},
         {"$pull": {"rules": {"rule_id": rule_id}}},
     )
     return result.modified_count > 0
 
 
-async def toggle_rule(guild_id: str, rule_id: str) -> bool | None:
-    """Toggle is_active for a rule. Returns new state or None if not found."""
+async def toggle_rule(guild_id: str, rule_id: str) -> tuple[str, bool | None]:
+    """Toggle is_active for a rule.
+
+    Returns (verdict, new_state): ("ok", bool) on success, ("not_found", None)
+    for a missing rule, ("limit_reached", None) when re-activation is refused by
+    the active-rule cap - so the router can answer 429 honestly instead of the
+    404 this path used to produce.
+    """
     rule = await get_rule(guild_id, rule_id)
     if rule is None:
-        return None
+        return "not_found", None
     new_active = not rule.get("is_active", True)
-    ok = await update_rule(guild_id, rule_id, {"is_active": new_active})
-    return new_active if ok else None
+    verdict = await update_rule(guild_id, rule_id, {"is_active": new_active})
+    if verdict == "ok":
+        return "ok", new_active
+    return ("limit_reached", None) if verdict == "limit_reached" else ("not_found", None)

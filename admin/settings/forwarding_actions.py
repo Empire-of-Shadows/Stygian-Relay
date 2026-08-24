@@ -577,8 +577,12 @@ class AddRuleFlow:
 
     async def _audit(self, interaction: discord.Interaction, rule_data: dict) -> None:
         try:
+            # category "rules", matching the dashboard's writers - the audit page's
+            # "Forwarding rules" filter reads this category, and panel-made rule
+            # changes used to file under "settings" and vanish from that filter
+            # (fixed 2026-08-24; older entries keep their category).
             await audit_log.log(
-                "settings", str(self.guild.id), str(interaction.user.id), "create_rule",
+                "rules", str(self.guild.id), str(interaction.user.id), "create_rule",
                 {
                     "rule_name": rule_data["rule_name"],
                     "source_channel_id": rule_data["source_channel_id"],

@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - 2026-08-24 (honest answers in the rules pages and change history)
+
+### Fixed
+- **Turning a rule back on when your server is at its rule limit now says so.** It used to
+  answer "Rule not found" for a rule that was right there on the page; now it tells you the
+  active-rule limit is reached, the same way creating one too many always has.
+- **Rule changes made from Discord's admin panel now show up under the "Forwarding rules"
+  filter in Change history.** They were being filed under a different label, so that filter
+  quietly hid every change made from inside Discord. Older entries keep their old label.
+- **The Change history filter no longer offers "Server" and "System"** - no change was ever
+  recorded under either, so picking them always showed an empty page.
+- **Error messages for invalid form input are readable now.** Some validation errors used to
+  render as raw data instead of a sentence naming the field and the problem.
+
+## [Unreleased] - 2026-08-24 (picking a log channel checks what the bot needs)
+
+### Changed
+- **Choosing a Log Channel in the admin panel now checks every permission the bot really
+  needs there.** The bot posts notices to that channel on its own - when a forwarding rule
+  is switched off after repeated failures, and when premium changes - and those notices are
+  embeds. Before, picking a channel where the bot could not post or embed looked fine and
+  the notices just silently never arrived; now the panel names the exact missing permission
+  the moment you pick the channel.
+
 ## [Unreleased] - 2026-08-22 (admin panel pickers)
 
 ### Changed

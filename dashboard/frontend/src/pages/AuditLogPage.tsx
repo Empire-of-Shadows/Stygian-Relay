@@ -24,14 +24,15 @@ import { formatDateTime, formatRelative } from "../_engine/format";
  * is what renders then - never a fabricated name.
  */
 
-const CATEGORIES = ["", "rules", "settings", "premium", "guild", "system"];
+// Only categories a writer actually produces (verified 2026-08-24: the audit
+// writers emit exactly rules/settings/premium - the old "guild" and "system"
+// options always returned an empty page).
+const CATEGORIES = ["", "rules", "settings", "premium"];
 
 const CATEGORY_LABELS: Record<string, string> = {
   rules: "Forwarding rules",
   settings: "Server settings",
   premium: "Premium",
-  guild: "Server",
-  system: "System",
 };
 
 function categoryLabel(category: string): string {

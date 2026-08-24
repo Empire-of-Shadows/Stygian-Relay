@@ -146,9 +146,9 @@ async def guilds(session: dict = Depends(get_current_user)):
             "id": gid,
             "name": guild["name"],
             "icon": guild.get("icon"),
-            "bot_in_guild": gid in bot_guild_ids,
+            "bot_in_guild": in_bot_guild,
             "has_config": gid in configured_ids,
-            "setup_required": gid not in bot_guild_ids,
+            "setup_required": not in_bot_guild,
             "panel_role": panel_role if panel_role != "none" else (
                 "admin" if has_manage else "none"
             ),

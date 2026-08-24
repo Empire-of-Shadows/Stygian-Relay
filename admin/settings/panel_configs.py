@@ -209,6 +209,10 @@ CORE_NODE = PanelNode(
     kind="menu",
     description="Manager role and log channel.",
     children={
+        # Deliberately NO requires_role_manage on manager_role: the bot never
+        # assigns or edits this role - it only checks membership - and the
+        # hierarchy rule would wrongly reject exactly the above-bot staff roles
+        # an admin wants to delegate the panel to (decree precedent, 2026-08-17).
         "manager_role": PanelNode(
             key="manager_role",
             label="Manager Role",
@@ -224,13 +228,24 @@ CORE_NODE = PanelNode(
             key="log_channel",
             label="Log Channel",
             kind="channel_select",
-            description="Channel where the bot posts log messages (premium redeems, errors).",
+            description="Channel where the bot posts log messages (premium changes, forwarding errors).",
             get_values=_get_log_channel,
             set_values=_set_log_channel,
             clear_values=_clear_log_channel,
             channel_types=[discord.ChannelType.text],
             min_values=0,
             max_values=1,
+            # The bot posts here UNPROMPTED (rule auto-deactivation notices in
+            # forward.py, premium change notices in the premium cog) and both
+            # senders post EMBEDS inside try/except - so a channel missing these
+            # degrades silently. Refuse it at save time instead (decree/IR
+            # precedent). Destination channels for forwarding rules are validated
+            # per-rule by the wizard itself and are not this leaf's concern.
+            required_channel_perms=[
+                "view_channel",
+                "send_messages",
+                "embed_links",
+            ],
         ),
     },
 )

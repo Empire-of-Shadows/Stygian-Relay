@@ -239,7 +239,7 @@ async def create_rule(
         applied = await rule_service.update_rule(
             guild_id, rule["rule_id"], settings_updates
         )
-        if applied:
+        if applied == "ok":
             fresh = await rule_service.get_rule(guild_id, rule["rule_id"])
             if fresh is not None:
                 rule = fresh
@@ -307,8 +307,10 @@ async def update_rule(
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update.")
 
-    ok = await rule_service.update_rule(guild_id, rule_id, updates)
-    if not ok:
+    verdict = await rule_service.update_rule(guild_id, rule_id, updates)
+    if verdict == "limit_reached":
+        raise HTTPException(status_code=429, detail="Active rule limit reached for this guild.")
+    if verdict != "ok":
         raise HTTPException(status_code=404, detail="Rule not found or no changes made.")
 
     # Field names, not values: a payload carrying every keyword and channel id of every
@@ -365,8 +367,10 @@ async def toggle_rule(
 ):
     await require_panel_access(session, guild_id)
     existing = await rule_service.get_rule(guild_id, rule_id)
-    new_state = await rule_service.toggle_rule(guild_id, rule_id)
-    if new_state is None:
+    verdict, new_state = await rule_service.toggle_rule(guild_id, rule_id)
+    if verdict == "limit_reached":
+        raise HTTPException(status_code=429, detail="Active rule limit reached for this guild.")
+    if verdict != "ok" or new_state is None:
         raise HTTPException(status_code=404, detail="Rule not found.")
     await audit.record(
         session,
