@@ -206,6 +206,12 @@ class AddRuleFlow:
         return out
 
     async def render_destination_server(self, interaction: discord.Interaction) -> None:
+        # The candidate scan below can hit REST (fetch_member per shared guild)
+        # plus Mongo, which can outlive Discord's 3-second component-ack window
+        # and kill the interaction token (10062 Unknown interaction). Ack first;
+        # _render then edits via edit_original_response.
+        if not interaction.response.is_done():
+            await interaction.response.defer()
         candidates = await self._candidate_guilds(interaction.user.id)
         if len(candidates) <= 1:
             # No real choice - destination is this server. Skip straight to the

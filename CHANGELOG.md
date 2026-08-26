@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] - 2026-08-26 (Add Rule wizard no longer dies on slow steps)
+
+### Fixed
+- **The Add Rule wizard in the admin panel no longer freezes after you pick the source
+  channel.** Moving to the destination step could take longer than Discord allows a button
+  or menu click to wait, and when it did the wizard silently stopped responding and you had
+  to close the panel and start over. It now answers the click immediately and finishes
+  loading in the background.
+
 ## [Unreleased] - 2026-08-24 (login page layout)
 
 ### Fixed
