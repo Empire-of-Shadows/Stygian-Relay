@@ -9,6 +9,12 @@
   to close the panel and start over. It now answers the click immediately and finishes
   loading in the background.
 
+### Added
+- **The wizard now tells you about the wait instead of sitting silent.** After you pick the
+  source channel, a notice explains it is checking which other servers can receive forwards
+  from yours and that this can take about 10 seconds. The notice disappears on its own when
+  the next step appears, and you only see it when there are other servers to check.
+
 ## [Unreleased] - 2026-08-24 (login page layout)
 
 ### Fixed

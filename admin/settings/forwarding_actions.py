@@ -212,51 +212,79 @@ class AddRuleFlow:
         # _render then edits via edit_original_response.
         if not interaction.response.is_done():
             await interaction.response.defer()
-        candidates = await self._candidate_guilds(interaction.user.id)
-        if len(candidates) <= 1:
-            # No real choice - destination is this server. Skip straight to the
-            # channel picker (a single pre-selected option wouldn't fire a callback).
-            self.showed_server_step = False
-            self.dest_guild_id = self.guild.id
-            self.dest_page = 0
-            await self.render_destination_channel(interaction)
-            return
 
-        self.showed_server_step = True
-        b = AdminLayoutBuilder()
-        b.add_header("## Add Forwarding Rule")
-        b.add_item(readonly_container(discord.ui.TextDisplay(
-            "**Step 2 of 3 - Destination server**\n"
-            "Same server is the common case. You can also forward into another "
-            "server that the bot and you both share and that allows inbound "
-            "forwards from here."
-        )))
+        # The scan can genuinely run ~10 seconds and a silent panel reads as
+        # frozen, so when there is anything to scan, say so on Message 3 (the
+        # panel's notice lane). The notice is deleted once the step renders so
+        # it never outlives the wait it describes.
+        notice = None
+        if any(g.id != self.guild.id for g in self.bot.guilds):
+            try:
+                notice = await interaction.followup.send(
+                    view=build_notice_layout(
+                        "Checking other servers",
+                        "Looking for servers that can also receive forwards from "
+                        "here - ones both you and I are in that allow inbound "
+                        "forwards from this server. This can take about 10 "
+                        "seconds; the panel moves on by itself.",
+                    ),
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                logger.debug("destination-scan notice failed to send", exc_info=True)
 
-        options = []
-        for g in candidates[:25]:
-            desc = "This server" if g.id == self.guild.id else f"Server ID: {g.id}"
-            options.append(discord.SelectOption(
-                label=g.name[:100], value=str(g.id), description=desc[:100],
+        try:
+            candidates = await self._candidate_guilds(interaction.user.id)
+            if len(candidates) <= 1:
+                # No real choice - destination is this server. Skip straight to the
+                # channel picker (a single pre-selected option wouldn't fire a callback).
+                self.showed_server_step = False
+                self.dest_guild_id = self.guild.id
+                self.dest_page = 0
+                await self.render_destination_channel(interaction)
+                return
+
+            self.showed_server_step = True
+            b = AdminLayoutBuilder()
+            b.add_header("## Add Forwarding Rule")
+            b.add_item(readonly_container(discord.ui.TextDisplay(
+                "**Step 2 of 3 - Destination server**\n"
+                "Same server is the common case. You can also forward into another "
+                "server that the bot and you both share and that allows inbound "
+                "forwards from here."
+            )))
+
+            options = []
+            for g in candidates[:25]:
+                desc = "This server" if g.id == self.guild.id else f"Server ID: {g.id}"
+                options.append(discord.SelectOption(
+                    label=g.name[:100], value=str(g.id), description=desc[:100],
+                ))
+            select = discord.ui.Select(
+                placeholder="Select destination server...",
+                options=options, min_values=1, max_values=1,
+                custom_id=cid("relayrule", "dguild"),
+            )
+
+            async def _picked(inter: discord.Interaction):
+                self.dest_guild_id = int(select.values[0])
+                self.dest_channel_id = None
+                self.dest_page = 0
+                await self.render_destination_channel(inter)
+
+            select.callback = _picked
+            b.add_item(editable_container(self._row(select)))
+            b.add_item(self._row(
+                self._button("Back", discord.ButtonStyle.secondary, self._back_to_source, "dguild_back"),
+                self._button("Cancel", discord.ButtonStyle.secondary, self._cancel, "dguild_cancel"),
             ))
-        select = discord.ui.Select(
-            placeholder="Select destination server...",
-            options=options, min_values=1, max_values=1,
-            custom_id=cid("relayrule", "dguild"),
-        )
-
-        async def _picked(inter: discord.Interaction):
-            self.dest_guild_id = int(select.values[0])
-            self.dest_channel_id = None
-            self.dest_page = 0
-            await self.render_destination_channel(inter)
-
-        select.callback = _picked
-        b.add_item(editable_container(self._row(select)))
-        b.add_item(self._row(
-            self._button("Back", discord.ButtonStyle.secondary, self._back_to_source, "dguild_back"),
-            self._button("Cancel", discord.ButtonStyle.secondary, self._cancel, "dguild_cancel"),
-        ))
-        await self._render(interaction, b.build())
+            await self._render(interaction, b.build())
+        finally:
+            if notice is not None:
+                try:
+                    await notice.delete()
+                except discord.HTTPException:
+                    logger.debug("destination-scan notice cleanup failed", exc_info=True)
 
     async def _back_to_source(self, interaction: discord.Interaction) -> None:
         await self.render_source(interaction)
