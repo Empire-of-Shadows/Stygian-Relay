@@ -83,7 +83,10 @@ async def update_config(
             set_fields["master_log_channel_id"] = None
         else:
             try:
-                set_fields["master_log_channel_id"] = int(body.master_log_channel_id)
+                # Stored as a STRING: the ecosystem convention is string ids, and
+                # the panel already writes strings here. int() is kept purely as the
+                # validation that this is a real snowflake.
+                set_fields["master_log_channel_id"] = str(int(body.master_log_channel_id))
             except ValueError:
                 raise HTTPException(status_code=400, detail="master_log_channel_id must be a valid integer snowflake.")
 
@@ -92,7 +95,8 @@ async def update_config(
             set_fields["manager_role_id"] = None
         else:
             try:
-                set_fields["manager_role_id"] = int(body.manager_role_id)
+                # String, for the same reason as master_log_channel_id above.
+                set_fields["manager_role_id"] = str(int(body.manager_role_id))
             except ValueError:
                 raise HTTPException(status_code=400, detail="manager_role_id must be a valid integer snowflake.")
 

@@ -266,9 +266,15 @@ FEATURES_NODE = PanelNode(
         ),
         "notify_on_error": PanelNode(
             key="notify_on_error",
-            label="Error Notifications",
+            label="Daily Limit Notice",
             kind="menu",
-            description="When enabled, the bot posts in-channel notices on forwarding errors and rate-limit hits.",
+            # The stored key keeps its historical name (persisted data, renaming
+            # it would need a migration for nothing), but the label and the
+            # description say what the toggle actually gates: its only runtime
+            # reader is the daily-forward-limit notice in
+            # commands/forward/forward.py. Do not wire other notices to it
+            # without renaming both again.
+            description="When enabled, the bot posts a notice in the channel when this server's daily forwarding limit is reached.",
             toggle_get=_make_toggle_get("notify_on_error"),
             toggle_set=_make_toggle_set("notify_on_error"),
         ),

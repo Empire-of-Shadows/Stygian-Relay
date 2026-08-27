@@ -49,6 +49,19 @@ _AUTO_DEACTIVATE_THRESHOLD = 20
 _MAX_TRACKED_RULES = 5000
 
 
+class DestinationForbidden(Exception):
+    """Discord refused a forward send with 403 Forbidden.
+
+    Raised at the send site and caught in ``process_rule``, the only place that
+    holds the rule identity a misconfig strike needs. A permission failure on the
+    real send is a misconfiguration, not a transient error - retrying it just
+    fails again - so it feeds the same ``_record_rule_misconfig`` machinery as the
+    pre-send send_messages gate (metric, rate-limited warning, and auto-deactivate
+    plus a log-channel notice after _AUTO_DEACTIVATE_THRESHOLD strikes) instead of
+    escaping as one uncaught ERROR line per message forever.
+    """
+
+
 class _TokenBucket:
     """Per-guild token bucket. Capacity == burst; refills at rate/sec."""
 
@@ -255,7 +268,19 @@ class Forwarding(commands.Cog):
                 await asyncio.sleep(delay)
                 try:
                     refreshed = await message.channel.fetch_message(message.id)
-                except (discord.NotFound, discord.Forbidden):
+                except discord.NotFound:
+                    # The source message was deleted while we waited for its embed.
+                    # Normal and frequent - nothing to say about it.
+                    return
+                except discord.Forbidden:
+                    # Missing Read Message History in the SOURCE channel. Every
+                    # link-bearing message from here is silently discarded until
+                    # it is fixed, so say so out loud rather than dropping it.
+                    logger.warning(
+                        f"[{gid_str}] cannot re-read messages in source channel "
+                        f"{message.channel.id} (missing read_message_history at the "
+                        f"source); link-bearing messages are not being forwarded"
+                    )
                     return
                 message = refreshed
                 if message.embeds:
@@ -393,10 +418,17 @@ class Forwarding(commands.Cog):
         # include_author - the member's choice beats the rule owner's formatting.
         hide_author_name = await opted_out_of(message.author.id, FLAG_SHOW_NAME)
 
-        await self.forward_message(
-            settings.get("formatting", {}), message, destination_channel,
-            hide_author_name=hide_author_name,
-        )
+        try:
+            await self.forward_message(
+                settings.get("formatting", {}), message, destination_channel,
+                hide_author_name=hide_author_name,
+            )
+        except DestinationForbidden as e:
+            # Exactly the send_messages gate's outcome: record the strike and
+            # report failure, so the caller writes no log_batch row and no
+            # METRIC_FORWARDED for a message that never landed.
+            await self._record_rule_misconfig(rule, guild_settings, str(e))
+            return False
         # Successful forward - clear failure counter so a recovered rule
         # doesn't carry stale strikes from before the fix.
         self._perm_fail.pop(rule_id, None)
@@ -757,6 +789,16 @@ class Forwarding(commands.Cog):
 
         try:
             await destination.send(**send_kwargs)
+        except discord.Forbidden as e:
+            # Deliberately BEFORE the HTTPException branch: Forbidden is a subclass
+            # of it, and that branch blind-retries the send, which raises Forbidden
+            # again and used to escape uncaught - no metric, no strike, no
+            # auto-deactivate, just a dropped message every time forever. No retry
+            # here; process_rule turns this into a misconfig strike instead.
+            raise DestinationForbidden(
+                f"missing permissions posting to destination {destination.id} "
+                f"(Discord refused: {getattr(e, 'text', None) or e})"
+            ) from e
         except discord.HTTPException as e:
             if e.code == 40005:
                 self._bump_metric(source_gid, METRIC_OVERSIZED_FALLBACK)
@@ -793,10 +835,21 @@ class Forwarding(commands.Cog):
                 send_kwargs.pop('reference', None)
                 send_kwargs.pop('files', None)
                 fallback_embeds = send_kwargs.get('embeds', [])[:1] if forward_embeds else []
-                await destination.send(
-                    content="📨 *Message forwarded (some content omitted due to size limits)*",
-                    embeds=fallback_embeds
-                )
+                # The fallback send gets its own guard: any HTTPException it
+                # raises used to escape uncaught through process_rule and die as
+                # one ERROR line in _dispatch, exactly the shape the Forbidden
+                # fix above closed for the primary send. If even the stripped
+                # notice cannot be delivered, log it and give this message up.
+                try:
+                    await destination.send(
+                        content="📨 *Message forwarded (some content omitted due to size limits)*",
+                        embeds=fallback_embeds
+                    )
+                except discord.HTTPException as e2:
+                    logger.error(
+                        f"Fallback notice for message {message.id} also failed "
+                        f"in destination {destination.id}: {e2}"
+                    )
 
     async def _handle_oversized_message(self, destination: discord.TextChannel, message: discord.Message,
                                         send_kwargs: dict, formatting: dict,

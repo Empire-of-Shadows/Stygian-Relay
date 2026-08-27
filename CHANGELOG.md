@@ -1,13 +1,34 @@
 # Changelog
 
-## [Unreleased] - 2026-08-26 (Add Rule wizard no longer dies on slow steps)
+## [Unreleased] - 2026-08-26 (rules that cannot deliver speak up)
 
 ### Fixed
+- **Creating or editing a forwarding rule now checks that I can actually deliver everything
+  to the destination channel, not just that I can talk there.** Attachments, link previews
+  and long messages that arrive in several parts each need their own permission, and a
+  channel that was missing one used to be accepted anyway - the rule then worked only
+  halfway, quietly, with pieces of every message going missing. The wizard now refuses that
+  channel up front and names exactly which permission is missing, and the cross-server
+  channel list no longer offers channels it would only turn around and reject.
+- **A rule whose destination I lose permission to post in now switches itself off and posts
+  a notice in your log channel.** Before, that rule dropped every single message for as long
+  as it existed and nothing anywhere said so. Now the failures are counted like any other
+  broken rule: after enough of them in a row the rule is deactivated and you get told which
+  one and why, so you can fix the permission and turn it back on.
+- **When I lose permission to re-read messages in a source channel, that now shows up in the
+  logs.** Messages containing links were being silently discarded there.
+
 - **The Add Rule wizard in the admin panel no longer freezes after you pick the source
   channel.** Moving to the destination step could take longer than Discord allows a button
   or menu click to wait, and when it did the wizard silently stopped responding and you had
   to close the panel and start over. It now answers the click immediately and finishes
   loading in the background.
+
+### Changed
+- **The old Error Notifications toggle is now called Daily Limit Notice, and is described by
+  what it actually does.** It said it covered forwarding errors and rate-limit hits; the only
+  notice it has ever controlled is the one telling you your server has hit its daily
+  forwarding limit, so that is what it is named and says now. The behaviour is unchanged.
 
 ### Added
 - **The wizard now tells you about the wait instead of sitting silent.** After you pick the

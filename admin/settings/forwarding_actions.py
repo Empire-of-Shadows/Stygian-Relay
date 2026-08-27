@@ -51,6 +51,37 @@ _CROSS_CHANNEL_PAGE = 25
 # Cooldown key for the create action (shared per user via cog._check_cooldown).
 _ADD_RULE_KEY = "relay_add_rule"
 
+# Every permission the forwarder actually uses on a destination channel, paired
+# with the member-readable label Discord itself shows. Send Messages posts the
+# copy; Attach Files covers attachments, which are re-downloaded and re-uploaded
+# as files rather than linked; Embed Links is what keeps URL previews alive across
+# the hop, which is the point of the product; Read Message History is needed
+# because a forward too long for one message replies to its own first chunk.
+# Checking only Send Messages let an admin finish the wizard on a channel where
+# forwarding would then half-work, silently, forever.
+_REQUIRED_DEST_PERMS: tuple[tuple[str, str], ...] = (
+    ("send_messages", "Send Messages"),
+    ("attach_files", "Attach Files"),
+    ("embed_links", "Embed Links"),
+    ("read_message_history", "Read Message History"),
+)
+
+# The same four, spelled out for a refusal that has to explain the whole set.
+_REQUIRED_DEST_PERMS_TEXT = "Send Messages, Attach Files, Embed Links and Read Message History"
+
+
+def _missing_dest_perms(channel, me) -> list[str]:
+    """Member-readable names of the destination permissions ``me`` lacks in ``channel``."""
+    perms = channel.permissions_for(me)
+    return [label for attr, label in _REQUIRED_DEST_PERMS if not getattr(perms, attr, False)]
+
+
+def _join_perm_names(names: list[str]) -> str:
+    """Join names so they read in a sentence: A / A and B / A, B and C."""
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
 
 # ─── Add Rule: step wizard ───────────────────────────────────────────────────
 
@@ -345,16 +376,18 @@ class AddRuleFlow:
             )
             return
 
+        # Filtered on the SAME set _validate_destination enforces, so the picker
+        # never offers a channel that the very next step would then refuse.
         channels = [
             c for c in target.text_channels
-            if c.permissions_for(target.me).send_messages
+            if not _missing_dest_perms(c, target.me)
         ]
         if not channels:
             await interaction.response.send_message(
                 view=build_notice_layout(
                     "No writable channels",
-                    f"I can't post in any channel in **{target.name}**. Grant me "
-                    "Send Messages there, or pick another server.",
+                    f"I can't forward into any channel in **{target.name}**. Grant me "
+                    f"{_REQUIRED_DEST_PERMS_TEXT} there, or pick another server.",
                 ),
                 ephemeral=True,
             )
@@ -371,7 +404,7 @@ class AddRuleFlow:
             f"**Step 3 of 3 - Destination channel**\n"
             f"Channel in **{target.name}** to forward messages **to**.\n"
             f"Page {self.dest_page + 1} of {total_pages} "
-            f"({len(channels)} channels I can post in)."
+            f"({len(channels)} channels I can forward into)."
         )))
 
         options = [
@@ -489,8 +522,14 @@ class AddRuleFlow:
         channel = target.get_channel(channel_id)
         if channel is None or not isinstance(channel, discord.TextChannel):
             return "That channel no longer exists or isn't a text channel."
-        if not channel.permissions_for(target.me).send_messages:
-            return f"I don't have permission to send messages in {channel.mention}."
+        missing = _missing_dest_perms(channel, target.me)
+        if missing:
+            return (
+                f"I'm missing {_join_perm_names(missing)} in {channel.mention}. "
+                f"To forward properly I need {_REQUIRED_DEST_PERMS_TEXT} there - "
+                "without all four, attachments, link previews or long multi-part "
+                "messages would go missing."
+            )
         cross = target.id != self.guild.id
         if not cross and channel_id == self.source_id:
             return "Source and destination channels must be different."
