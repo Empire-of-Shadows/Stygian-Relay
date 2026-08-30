@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased] - 2026-08-28 (tidier setup guide)
+
+### Fixed
+- **The admin panel's setup guide no longer shows a stray gap under its numbered sections.**
+  Discord was treating the bold section numbers as the start of a list and adding extra
+  space after each one; the guide now reads as one tidy block.
+
 ## [Unreleased] - 2026-08-26 (rules that cannot deliver speak up)
 
 ### Fixed

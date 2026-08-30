@@ -22,8 +22,9 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import re
 import sys
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional, Union
 
 from loguru import logger
 
@@ -43,6 +44,170 @@ FILE_FORMAT = (
     "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
     "{extra[name]}:{function}:{line} - {message}"
 )
+
+# ── Console colour behaviour (opt-in via env; files are never coloured) ──────
+#
+# loguru only colourizes when the sink is a TTY, and inside a Docker container
+# stdout/stderr never is one - so production logs viewed over SSH render flat.
+# ``LOG_COLOR`` overrides the autodetect for the CONSOLE sink only:
+#   force / always / true / 1  -> colourize even without a TTY (docker logs
+#                                 pass ANSI through; modern terminals render it)
+#   off / never / false / 0    -> never colourize
+#   auto / unset               -> today's behaviour (TTY autodetect)
+#
+# ``LOG_HIGHLIGHT=true`` additionally paints the fleet's structured log tokens
+# inside the message itself - G:/U:/C: ids and +N XP / +N Embers amounts - so a
+# payout line breaks into scannable chunks. Purely cosmetic, console-only, and
+# any formatting error falls back to the plain format for that record.
+
+_TOKEN_PATTERNS: List[tuple] = [
+    (re.compile(r"\bG:\d+"), "yellow"),
+    (re.compile(r"\bU:\d+"), "light-blue"),
+    (re.compile(r"\bC:\d+"), "light-cyan"),
+    (re.compile(r"\+[\d,]+ XP\b"), "light-green"),
+    (re.compile(r"\+[\d,]+ Embers\b"), "light-yellow"),
+]
+
+# Highlight mode also colours the ``module:function:line`` segment by the
+# FEATURE that emitted the record (first case-insensitive substring match on
+# the logger name, order matters), so features separate at a glance in a mixed
+# tail. The table carries the whole fleet's vocabulary - each bot only ever
+# matches its own module paths, so entries from other bots are inert. A bot
+# can override or extend it without code via ``LOG_SOURCE_COLORS`` in its env:
+# ``keyword:color,keyword:color`` - env entries win over this table, and color
+# names are validated against loguru's palette so a typo can never break the
+# sink. Anything unmatched keeps the engine's usual cyan.
+_SOURCE_COLORS: List[tuple] = [
+    # Ecom (economy / leveling)
+    ("voice", "blue"),
+    ("reaction", "magenta"),
+    ("achievement", "yellow"),
+    ("prestige", "light-red"),
+    ("shop", "light-green"),
+    ("trade", "light-green"),
+    ("notification", "light-magenta"),
+    # TheHost (games)
+    ("uno", "light-red"),
+    ("hangman", "light-green"),
+    ("tictactoe", "light-blue"),
+    ("counting", "green"),
+    ("milestone", "yellow"),
+    ("leaderboard", "light-magenta"),
+    # TheCodex
+    ("drop", "light-blue"),
+    ("wyr", "magenta"),
+    ("suggestion", "light-green"),
+    ("guide", "green"),
+    ("greeting", "light-magenta"),
+    ("member", "light-magenta"),
+    ("embed", "yellow"),
+    ("tracker", "light-cyan"),
+    # TheDecree
+    ("quote", "magenta"),
+    ("scheduler", "blue"),
+    ("claim", "light-blue"),
+    # ImperialReminder
+    ("bump", "green"),
+    ("time_handler", "blue"),
+    ("timer", "blue"),
+    # Stygian-Relay
+    ("forward", "green"),
+    # Shared subsystems
+    ("premium", "light-yellow"),
+    ("ipc", "light-cyan"),
+    # Generic catch-alls last, so the specific families above win.
+    ("message", "green"),
+]
+_SOURCE_DEFAULT_COLOR = "cyan"
+
+# loguru's colour palette - the only names LOG_SOURCE_COLORS may use.
+_VALID_COLORS = frozenset(
+    ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+    + ["light-" + c for c in ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")]
+)
+
+# Resolved at sink-configure time: env overrides first, then the fleet table.
+_ACTIVE_SOURCE_COLORS: List[tuple] = list(_SOURCE_COLORS)
+
+
+def _env_source_colors() -> List[tuple]:
+    """Parse LOG_SOURCE_COLORS (``keyword:color,...``); invalid entries dropped."""
+    out: List[tuple] = []
+    for part in (os.getenv("LOG_SOURCE_COLORS") or "").split(","):
+        keyword, _, color = part.partition(":")
+        keyword, color = keyword.strip().lower(), color.strip().lower()
+        if keyword and color in _VALID_COLORS:
+            out.append((keyword, color))
+    return out
+
+
+def _resolve_source_colors() -> None:
+    global _ACTIVE_SOURCE_COLORS
+    _ACTIVE_SOURCE_COLORS = _env_source_colors() + _SOURCE_COLORS
+
+# Level colours applied at sink setup (console rendering only - markup is
+# stripped wherever colourize is off, and files never colourize). WARNING
+# (yellow) and ERROR (red) keep loguru's defaults; INFO gains green and DEBUG
+# blue so levels separate on a scan.
+_LEVEL_COLORS = {
+    "INFO": "<green><bold>",
+    "DEBUG": "<blue>",
+}
+
+def _apply_level_colors() -> None:
+    for level_name, color in _LEVEL_COLORS.items():
+        try:
+            logger.level(level_name, color=color)
+        except Exception:
+            # A level colour is cosmetic; never let it break sink setup.
+            pass
+
+
+def _source_color(logger_name: str) -> str:
+    lowered = logger_name.lower()
+    for key, color in _ACTIVE_SOURCE_COLORS:
+        if key in lowered:
+            return color
+    return _SOURCE_DEFAULT_COLOR
+
+
+def _console_colorize() -> Optional[bool]:
+    """Resolve LOG_COLOR: True (force), False (off), or None (TTY autodetect)."""
+    value = (os.getenv("LOG_COLOR") or "auto").strip().lower()
+    if value in ("force", "always", "true", "1", "yes", "on"):
+        return True
+    if value in ("off", "never", "false", "0", "no"):
+        return False
+    return None
+
+
+def _highlight_enabled() -> bool:
+    return (os.getenv("LOG_HIGHLIGHT") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _highlighted_console_format(record: dict) -> str:
+    """Dynamic console format that wraps known tokens in colour markup.
+
+    The message text is embedded literally into the returned format string, so
+    braces are doubled and ``<`` escaped first (or loguru would parse stray
+    markup out of user content); the colour tags injected AFTER that escaping
+    are the only markup loguru sees. When format is a callable, loguru appends
+    neither the newline nor the exception - both are included explicitly.
+    """
+    try:
+        msg = record["message"].replace("{", "{{").replace("}", "}}").replace("<", r"\<")
+        for pattern, color in _TOKEN_PATTERNS:
+            msg = pattern.sub(lambda m, c=color: f"<{c}>{m.group(0)}</{c}>", msg)
+        src = _source_color(str(record["extra"].get("name", "")))
+        prefix = (
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            f"<{src}>{{extra[name]}}</{src}>:<{src}>{{function}}</{src}>:"
+            f"<{src}>{{line}}</{src}> - "
+        )
+        return prefix + msg + "\n{exception}"
+    except Exception:
+        return CONSOLE_FORMAT + "\n{exception}"
 
 # Noisy third-party loggers we pin to WARNING so the console stays readable.
 _NOISY_LOGGERS = (
@@ -148,16 +313,26 @@ def _configure_sinks(
     # ``name`` extra so the format's {extra[name]} always resolves for un-bound records.
     logger.remove()
     logger.configure(extra={"name": app_name})
+    _apply_level_colors()
+    _resolve_source_colors()
 
     ids: List[int] = []
     if console:
+        console_format: Union[str, Callable] = CONSOLE_FORMAT
+        if _highlight_enabled():
+            console_format = _highlighted_console_format
+        console_kwargs: dict = {}
+        colorize = _console_colorize()
+        if colorize is not None:
+            console_kwargs["colorize"] = colorize
         ids.append(
             logger.add(
                 sys.stderr,
                 level=level,
-                format=CONSOLE_FORMAT,
+                format=console_format,
                 backtrace=backtrace,
                 diagnose=diagnose,
+                **console_kwargs,
             )
         )
     if file:
