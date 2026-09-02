@@ -28,6 +28,7 @@ import {
 } from "../_engine/components/settings/fields";
 import { KeyValue, Rule as Divider } from "../_engine/components/overview/Tile";
 import { formatCount } from "../_engine/format";
+import { AdminNav } from "../components/AdminNav";
 
 /*
  * The rule editor.
@@ -228,7 +229,7 @@ export function RuleEditorPage() {
       } else {
         await api.updateRule(guildId, ruleId!, body);
       }
-      navigate(`/guilds/${guildId}/rules`);
+      navigate(`/settings/guilds/${guildId}/rules`);
     } catch (e) {
       setError(formatError(e));
     } finally {
@@ -240,6 +241,7 @@ export function RuleEditorPage() {
   if (loading) {
     return (
       <div className="page">
+        <div style={{ paddingTop: 16 }}><AdminNav guildId={guildId} /></div>
         <div className="ov-grid" role="status" aria-busy="true">
           <div className="skeleton-card s12" />
           <span className="visually-hidden">Loading this rule</span>
@@ -250,9 +252,19 @@ export function RuleEditorPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ paddingTop: 16 }}>
+      {/* The Forwarding rules tab stays lit here: this editor is a page within that
+          area, not a seventh one, and NavLink matches on the path prefix. */}
+      <div style={{ paddingTop: 16 }}>
+        <AdminNav guildId={guildId} />
+      </div>
+
+      <div className="page-header">
         <div>
-          <Link to={`/guilds/${guildId}/rules`} className="muted" style={{ fontSize: 13 }}>
+          <Link
+            to={`/settings/guilds/${guildId}/rules`}
+            className="muted"
+            style={{ fontSize: 13 }}
+          >
             &larr; Forwarding rules
           </Link>
           <h1 style={{ marginTop: 4 }}>{isNew ? "New rule" : "Edit rule"}</h1>
@@ -509,7 +521,7 @@ export function RuleEditorPage() {
               <button type="submit" className="btn btn-primary" disabled={saving || !canSave}>
                 {saving ? "Saving..." : isNew ? "Create rule" : "Save changes"}
               </button>
-              <Link to={`/guilds/${guildId}/rules`} className="btn ghost">
+              <Link to={`/settings/guilds/${guildId}/rules`} className="btn ghost">
                 Cancel
               </Link>
               <span className="muted" style={{ fontSize: 13 }}>

@@ -57,10 +57,12 @@ export default function RelayOverview({
   );
 }
 
-/** Settings live under the guild, not at a fleet-wide /settings/:id route. */
+/** A deep link into one area of a server's settings page, which is where the engine's
+ *  FeatureStrip sends "this feature is not set up yet". The rail reads the area out of
+ *  `?s=`, so the link opens on the right one rather than on the default. */
 function settingsHrefFor(guildId: string) {
   return (settingsKey: string) =>
-    `/guilds/${guildId}/config?s=${encodeURIComponent(settingsKey)}`;
+    `/settings/guilds/${guildId}/settings?s=${encodeURIComponent(settingsKey)}`;
 }
 
 /* ── Is it working ─────────────────────────────────────────────────── */
@@ -83,10 +85,10 @@ function IsItWorking({ overview }: { overview: GuildOverview }) {
       }
       action={
         <>
-          <Link className="ov-link" to={`/guilds/${guildId}/config`}>
+          <Link className="ov-link" to={`/settings/guilds/${guildId}/settings`}>
             Change settings
           </Link>
-          <Link className="ov-link" to={`/guilds/${guildId}/audit-log`}>
+          <Link className="ov-link" to={`/settings/guilds/${guildId}/audit-log`}>
             Change history
           </Link>
         </>
@@ -135,7 +137,7 @@ function ForwardingTrend({
         ) : null
       }
       action={
-        <Link className="ov-link" to={`/guilds/${guildId}/stats`}>
+        <Link className="ov-link" to={`/settings/guilds/${guildId}/stats`}>
           Full analytics
         </Link>
       }
@@ -277,7 +279,7 @@ function Routes({
         </span>
       }
       action={
-        <Link className="ov-link" to={`/guilds/${guildId}/rules`}>
+        <Link className="ov-link" to={`/settings/guilds/${guildId}/rules`}>
           Manage rules
         </Link>
       }
@@ -290,7 +292,7 @@ function Routes({
             channel to copy into.
           </p>
           <div className="admin-actions">
-            <Link className="btn btn-primary" to={`/guilds/${guildId}/rules/new`}>
+            <Link className="btn btn-primary" to={`/settings/guilds/${guildId}/rules/new`}>
               Create your first rule
             </Link>
           </div>
@@ -302,7 +304,7 @@ function Routes({
               <Link
                 key={route.rule_id}
                 className="ov-qrow"
-                to={`/guilds/${guildId}/rules/${route.rule_id}`}
+                to={`/settings/guilds/${guildId}/rules/${route.rule_id}`}
               >
                 <span
                   className="ov-qrow__dot"
@@ -398,7 +400,7 @@ function Blocked({
         )
       }
       action={
-        <Link className="ov-link" to={`/guilds/${guildId}/stats`}>
+        <Link className="ov-link" to={`/settings/guilds/${guildId}/stats`}>
           Breakdown
         </Link>
       }
@@ -460,7 +462,7 @@ function ServerSetup({
           get started, or run the setup from the bot's admin panel in Discord.
         </p>
         <div className="admin-actions">
-          <Link className="btn btn-primary" to={`/guilds/${guildId}/config`}>
+          <Link className="btn btn-primary" to={`/settings/guilds/${guildId}/settings`}>
             Open settings
           </Link>
         </div>
@@ -475,7 +477,7 @@ function ServerSetup({
       span={6}
       title="How this server is set up"
       action={
-        <Link className="ov-link" to={`/guilds/${guildId}/config`}>
+        <Link className="ov-link" to={`/settings/guilds/${guildId}/settings`}>
           Change settings
         </Link>
       }
@@ -537,7 +539,7 @@ function Plan({
         )
       }
       action={
-        <Link className="ov-link" to={`/guilds/${guildId}/premium`}>
+        <Link className="ov-link" to={`/settings/guilds/${guildId}/premium`}>
           Plan details
         </Link>
       }

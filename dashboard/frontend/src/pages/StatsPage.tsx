@@ -7,6 +7,7 @@ import { Alert } from "../_engine/components/Alert";
 import SignalStrip, { type Signal } from "../_engine/components/overview/SignalStrip";
 import { KeyValue, Rule as Divider, Stat, Tile } from "../_engine/components/overview/Tile";
 import { formatCount } from "../_engine/format";
+import { AdminNav } from "../components/AdminNav";
 import { reasonColor, reasonHelp, reasonLabel } from "../components/overview/format";
 
 /*
@@ -272,7 +273,7 @@ function RouteCards({
         ) : (
           <Link
             key={r.rule_id}
-            to={`/guilds/${guildId}/rules/${r.rule_id}`}
+            to={`/settings/guilds/${guildId}/rules/${r.rule_id}`}
             className={`route-card${r.is_active ? "" : " route-card--muted"}`}
             style={{ "--share": `${share}%`, textDecoration: "none", color: "inherit" } as CSSProperties}
           >
@@ -391,11 +392,12 @@ export function StatsPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ paddingTop: 16 }}>
+      <div style={{ paddingTop: 16 }}>
+        <AdminNav guildId={guildId} />
+      </div>
+
+      <div className="page-header">
         <div>
-          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
-            &larr; Server overview
-          </Link>
           <h1 style={{ marginTop: 4 }}>Forwarding analytics</h1>
         </div>
         <div className="seg" role="group" aria-label="Time range">
@@ -444,7 +446,7 @@ export function StatsPage() {
               here on their own.
             </p>
             <div className="admin-actions">
-              <Link className="btn btn-secondary" to={`/guilds/${guildId}/rules`}>
+              <Link className="btn btn-secondary" to={`/settings/guilds/${guildId}/rules`}>
                 Check your rules
               </Link>
             </div>
@@ -500,7 +502,7 @@ export function StatsPage() {
             <Divider />
             <KeyValue k="Plan" v={stats.is_premium ? "Premium" : "Free"} />
             <KeyValue k="All time" v={formatCount(t.lifetime)} />
-            <Link className="ov-link" to={`/guilds/${guildId}/premium`}>
+            <Link className="ov-link" to={`/settings/guilds/${guildId}/premium`}>
               Plan details
             </Link>
           </Tile>
@@ -622,7 +624,7 @@ export function StatsPage() {
               span={12}
               title="Which rules carried the traffic"
               action={
-                <Link className="ov-link" to={`/guilds/${guildId}/rules`}>
+                <Link className="ov-link" to={`/settings/guilds/${guildId}/rules`}>
                   Manage rules
                 </Link>
               }

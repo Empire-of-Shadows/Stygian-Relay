@@ -6,6 +6,7 @@ import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
 import { KeyValue, Rule as Divider, Stat, Tile } from "../_engine/components/overview/Tile";
 import { formatCount, formatDate } from "../_engine/format";
+import { AdminNav } from "../components/AdminNav";
 import { planLabel, reasonLabel } from "../components/overview/format";
 
 /*
@@ -67,11 +68,12 @@ export function PremiumPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ paddingTop: 16 }}>
+      <div style={{ paddingTop: 16 }}>
+        <AdminNav guildId={guildId} />
+      </div>
+
+      <div className="page-header">
         <div>
-          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
-            &larr; Server overview
-          </Link>
           <h1 style={{ marginTop: 4 }}>Plan</h1>
         </div>
       </div>
@@ -248,7 +250,7 @@ export function PremiumPage() {
                     ? " That is the premium allowance, so a higher one is not available."
                     : ` Premium raises the allowance to ${formatCount(PREMIUM_DAILY_LIMIT)} a day.`}
                 </p>
-                <Link className="ov-link" to={`/guilds/${guildId}/stats`}>
+                <Link className="ov-link" to={`/settings/guilds/${guildId}/stats`}>
                   See the full breakdown
                 </Link>
               </>

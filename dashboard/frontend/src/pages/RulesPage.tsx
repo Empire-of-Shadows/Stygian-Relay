@@ -5,6 +5,7 @@ import type { Channel, GuildOverview, Rule } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { AdminNav } from "../components/AdminNav";
 import SignalStrip, { type Signal } from "../_engine/components/overview/SignalStrip";
 import { KeyValue, Rule as Divider, Tile } from "../_engine/components/overview/Tile";
 import { formatCount, formatDate, formatRelative } from "../_engine/format";
@@ -138,14 +139,15 @@ export function RulesPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ paddingTop: 16 }}>
+      <div style={{ paddingTop: 16 }}>
+        <AdminNav guildId={guildId} />
+      </div>
+
+      <div className="page-header">
         <div>
-          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
-            &larr; Server overview
-          </Link>
           <h1 style={{ marginTop: 4 }}>Forwarding rules</h1>
         </div>
-        <Link to={`/guilds/${guildId}/rules/new`} className="btn btn-primary">
+        <Link to={`/settings/guilds/${guildId}/rules/new`} className="btn btn-primary">
           New rule
         </Link>
       </div>
@@ -175,7 +177,7 @@ export function RulesPage() {
               first into the second.
             </p>
             <div className="admin-actions">
-              <Link to={`/guilds/${guildId}/rules/new`} className="btn btn-primary">
+              <Link to={`/settings/guilds/${guildId}/rules/new`} className="btn btn-primary">
                 Create your first rule
               </Link>
             </div>
@@ -232,7 +234,7 @@ export function RulesPage() {
                     : "Only active rules count towards the limit. A paused rule keeps its settings and costs nothing."}
                 </p>
                 <div className="admin-actions">
-                  <Link className="btn btn-secondary" to={`/guilds/${guildId}/premium`}>
+                  <Link className="btn btn-secondary" to={`/settings/guilds/${guildId}/premium`}>
                     Plan details
                   </Link>
                 </div>
@@ -350,7 +352,10 @@ function RuleCard({
       </div>
 
       <div className="admin-actions" style={{ marginTop: "auto" }}>
-        <Link to={`/guilds/${guildId}/rules/${rule.rule_id}`} className="btn btn-secondary small">
+        <Link
+          to={`/settings/guilds/${guildId}/rules/${rule.rule_id}`}
+          className="btn btn-secondary small"
+        >
           Edit
         </Link>
         <button

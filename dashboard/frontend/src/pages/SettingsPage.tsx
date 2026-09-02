@@ -192,36 +192,42 @@ function ServerActionPanel({
           )
         ) : (
           <>
-            <button className="btn btn-primary" onClick={() => onNavigate(`/me?guild=${guild.id}`)}>
+            {/* The overview is the one member-side destination in this panel, so it is
+                the one that leaves the /settings tree. The rest are this server's
+                management pages, which now hang off /settings below their server. */}
+            <button
+              className="btn btn-primary"
+              onClick={() => onNavigate(`/me/guilds/${guild.id}/overview`)}
+            >
               Server overview
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => onNavigate(`/guilds/${guild.id}/rules`)}
+              onClick={() => onNavigate(`/settings/guilds/${guild.id}/rules`)}
             >
               Forwarding rules
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => onNavigate(`/guilds/${guild.id}/config`)}
+              onClick={() => onNavigate(`/settings/guilds/${guild.id}/settings`)}
             >
               Settings
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => onNavigate(`/guilds/${guild.id}/stats`)}
+              onClick={() => onNavigate(`/settings/guilds/${guild.id}/stats`)}
             >
               Analytics
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => onNavigate(`/guilds/${guild.id}/premium`)}
+              onClick={() => onNavigate(`/settings/guilds/${guild.id}/premium`)}
             >
               Plan
             </button>
             <button
               className="btn btn-secondary"
-              onClick={() => onNavigate(`/guilds/${guild.id}/audit-log`)}
+              onClick={() => onNavigate(`/settings/guilds/${guild.id}/audit-log`)}
             >
               Change history
             </button>

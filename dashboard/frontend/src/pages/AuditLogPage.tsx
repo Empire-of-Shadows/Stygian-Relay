@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import type { AuditLogEntry } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
 import { KeyValue, Rule as Divider, Tile } from "../_engine/components/overview/Tile";
 import { formatDateTime, formatRelative } from "../_engine/format";
+import { AdminNav } from "../components/AdminNav";
 
 /*
  * The change history.
@@ -191,11 +192,12 @@ export function AuditLogPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ paddingTop: 16 }}>
+      <div style={{ paddingTop: 16 }}>
+        <AdminNav guildId={guildId} />
+      </div>
+
+      <div className="page-header">
         <div>
-          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
-            &larr; Server overview
-          </Link>
           <h1 style={{ marginTop: 4 }}>Change history</h1>
         </div>
       </div>

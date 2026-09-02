@@ -20,12 +20,17 @@ export function Header({ me }: { me: Me | null }) {
       }
       nav={me ? (
         <>
-          <NavLink to="/me" end className={navClass}>Servers</NavLink>
+          {/* Fleet vocabulary: the member link is "Dashboard" and the admin hub is
+              "Manage", the same two words on every bot's header. They used to be
+              "Servers" and "Settings", and "Settings" in particular collided with the
+              per-server Settings tab further down the page - two links with one name,
+              leading to different places. The targets are unchanged. */}
+          <NavLink to="/me" end className={navClass}>Dashboard</NavLink>
           {/* Not gated on any permission: relay copies an ordinary member's messages, so
               the switches that stop it have to be reachable by an ordinary member. */}
           <NavLink to="/me/privacy" className={navClass}>Privacy</NavLink>
           {me.can_access_settings_any && (
-            <NavLink to="/settings" className={navClass}>Settings</NavLink>
+            <NavLink to="/settings" className={navClass}>Manage</NavLink>
           )}
         </>
       ) : null}

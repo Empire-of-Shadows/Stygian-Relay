@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] - 2026-08-31 (one address per server, and clearer menu names)
+
+### Changed
+- **Every server now has its own page with its own web address.** Choosing a server on the
+  dashboard used to keep you on the same page and only tack the server onto the end of the
+  address; now it opens that server's own Overview page, so you can bookmark it, share it,
+  reload it and use your browser's back button on it like any other page. Links you saved
+  the old way still work and land on the same server's Overview.
+- **The dashboard home is now the server list plus everything relay carries for you.** It
+  shows where your messages go across every server at once, rather than making you pick one
+  server before it says anything.
+- **A row of tabs is on every server page from the moment you open it.** Before, you had to
+  leave the home page before any way of moving around a server appeared. Back to your
+  servers, the server's Overview, and its Settings if you manage it, are all one click away
+  now.
+- **The management pages have their own tabs.** Settings, Forwarding rules, Analytics, Plan
+  and Change history each link straight to the others, so changing a rule and then checking
+  what it carried no longer means going back to the start.
+- **The top menu says "Dashboard" and "Manage".** They used to be "Servers" and "Settings",
+  and "Settings" appeared twice on some pages meaning two different things. Both go exactly
+  where they always did.
+
 ## [Unreleased] - 2026-08-28 (tidier setup guide)
 
 ### Fixed

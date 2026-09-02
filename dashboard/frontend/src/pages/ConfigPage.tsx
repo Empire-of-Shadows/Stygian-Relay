@@ -14,6 +14,7 @@ import {
 } from "../_engine/components/settings/fields";
 import ContextColumn from "../components/settings/ContextColumn";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { AdminNav } from "../components/AdminNav";
 
 /*
  * Server settings.
@@ -275,7 +276,8 @@ export function ConfigPage() {
   if (loadError) {
     return (
       <div className="page">
-        <div className="alert danger" role="alert" style={{ marginTop: 16 }}>{loadError}</div>
+        <div style={{ paddingTop: 16 }}><AdminNav guildId={guildId} /></div>
+        <div className="alert danger" role="alert">{loadError}</div>
       </div>
     );
   }
@@ -283,7 +285,8 @@ export function ConfigPage() {
   if (!config || !draft || !saved) {
     return (
       <div className="page">
-        <p className="muted" style={{ padding: 24 }}>Loading settings...</p>
+        <div style={{ paddingTop: 16 }}><AdminNav guildId={guildId} /></div>
+        <p className="muted">Loading settings...</p>
       </div>
     );
   }
@@ -387,11 +390,12 @@ export function ConfigPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ paddingTop: 16 }}>
+      <div style={{ paddingTop: 16 }}>
+        <AdminNav guildId={guildId} />
+      </div>
+
+      <div className="page-header">
         <div>
-          <Link to={`/me?guild=${guildId}`} className="muted" style={{ fontSize: 13 }}>
-            &larr; Server overview
-          </Link>
           <h1 style={{ marginTop: 4 }}>Server settings</h1>
         </div>
       </div>
@@ -454,12 +458,12 @@ export function ConfigPage() {
                     );
                   })}
                   {showRules && (
-                    <Link className="set-rail__item" to={`/guilds/${guildId}/rules`}>
+                    <Link className="set-rail__item" to={`/settings/guilds/${guildId}/rules`}>
                       <span>Forwarding rules</span>
                     </Link>
                   )}
                   {showAudit && (
-                    <Link className="set-rail__item" to={`/guilds/${guildId}/audit-log`}>
+                    <Link className="set-rail__item" to={`/settings/guilds/${guildId}/audit-log`}>
                       <span>Audit log</span>
                     </Link>
                   )}

@@ -15,6 +15,14 @@ Empire of Shadows ecosystem (see the monorepo root `../../CLAUDE.md` and the eng
   endpoint (**port 50013**) → `on_ready` (Database Attachment via `attach_databases` +
   `initialize_existing_guilds`, cog load, command sync, status).
 - **Run locally:** `python Relay.py`  ·  **Docker:** `docker/stygian.sh` (joins `obsidian_grid`).
+- **Console log colors** (engine feature, opt-in in `docker/.env`, fleet pass 2026-09-01):
+  `LOG_COLOR=force` emits ANSI without a TTY so `docker compose logs` over SSH renders
+  colored; `LOG_HIGHLIGHT=true` colors the `module:function:line` segment by FEATURE
+  (this bot's logger names are in the fleet table in the engine master
+  `storage_engine/log/factory.py`) and paints ids, durations, counts, `key=` labels and
+  outcome words inside messages; `LOG_SOURCE_COLORS=keyword:color,...` overrides the
+  table without code. Files and JSON stay plain. Stdlib `extra=` fields render as a
+  trailing `| k=v` on every sink.
 
 ## Engine distribution: vendored, not installed
 
