@@ -26,7 +26,10 @@ def _validate_snowflake(v: str | None) -> str | None:
         raise ValueError("must be a numeric snowflake ID")
     return v
 
+from dashboard import db
+from dashboard._engine.discord_cache import discord_cache, missing_permissions, permission_label
 from dashboard.auth.dependencies import get_current_user, require_panel_access
+from dashboard.routers.dashboard import _fetch_bot_guild_ids
 from dashboard.services import audit, rule_service
 
 logger = logging.getLogger(__name__)
@@ -162,6 +165,87 @@ class UpdateRuleRequest(BaseModel):
     )(_validate_snowflake)
 
 
+#: What the forwarder needs where it watches, and where it posts. The same sets the Discord
+#: wizard checks (admin/settings/forwarding_actions.py).
+SOURCE_PERMS = ["view_channel", "read_message_history"]
+DESTINATION_PERMS = ["send_messages", "attach_files", "embed_links", "read_message_history"]
+
+
+def _labels(names: list[str]) -> str:
+    return ", ".join(permission_label(n) for n in names)
+
+
+async def _validate_route(
+    guild_id: str,
+    *,
+    source_id: int,
+    destination_id: int,
+    destination_guild_id: str,
+    check_source: bool,
+    check_destination: bool,
+) -> None:
+    """Refuse the routes the Discord wizard refuses.
+
+    The dashboard used to save anything: the same channel twice, a channel the bot cannot
+    see or post in, a server that has not allowed this one in. Each saved and then forwarded
+    nothing (or collected strikes until it paused itself). Only the parts this save
+    changes are checked, and Discord lookups fail open, so an unreachable API never blocks a
+    save.
+    """
+    gid = str(guild_id)
+    dgid = str(destination_guild_id)
+    cross = dgid != gid
+
+    if not cross and source_id == destination_id:
+        raise HTTPException(status_code=400, detail="Source and destination channels must be different.")
+
+    if check_destination and cross:
+        bot_guilds = await _fetch_bot_guild_ids()
+        if bot_guilds and dgid not in bot_guilds:
+            raise HTTPException(
+                status_code=422,
+                detail="Stygian Relay is not in that destination server, so nothing could be copied there.",
+            )
+        dest_doc = await db.guild_settings().find_one({"guild_id": dgid}, {"inbound_allowed_guilds": 1})
+        allowed = {str(g) for g in ((dest_doc or {}).get("inbound_allowed_guilds") or [])}
+        if gid not in allowed:
+            raise HTTPException(
+                status_code=422,
+                detail="That server does not allow inbound forwards from this one. Ask its admins "
+                       "to add this server's ID to their cross-server allowlist first.",
+            )
+        listing = await discord_cache.guild_channels(dgid, types=(0, 5))
+        if listing and not any(str(c["id"]) == str(destination_id) for c in listing):
+            raise HTTPException(
+                status_code=422,
+                detail="That destination channel ID is not a text channel in the destination server.",
+            )
+
+    if check_source:
+        missing = missing_permissions(
+            await discord_cache.bot_channel_permissions(gid, str(source_id)), SOURCE_PERMS,
+        )
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The bot is missing permissions in the channel to watch: {_labels(missing)}. "
+                       f"It needs View Channel and Read Message History there, or the rule "
+                       f"forwards nothing.",
+            )
+
+    if check_destination:
+        missing = missing_permissions(
+            await discord_cache.bot_channel_permissions(dgid, str(destination_id)), DESTINATION_PERMS,
+        )
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"The bot is missing permissions in the destination channel: {_labels(missing)}. "
+                       f"It needs Send Messages, Attach Files, Embed Links and Read Message "
+                       f"History there.",
+            )
+
+
 def _settings_updates(body: CreateRuleRequest | UpdateRuleRequest) -> dict[str, Any]:
     """Dotted per-leaf ``settings.*`` writes for whichever sections were sent.
 
@@ -212,6 +296,14 @@ async def create_rule(
     _validate_lengths(body)
 
     dest_guild = int(body.destination_guild_id) if body.destination_guild_id else None
+    await _validate_route(
+        guild_id,
+        source_id=int(body.source_channel_id),
+        destination_id=int(body.destination_channel_id),
+        destination_guild_id=str(dest_guild or guild_id),
+        check_source=True,
+        check_destination=True,
+    )
 
     ok, reason, rule = await rule_service.create_rule(
         guild_id,
@@ -285,6 +377,30 @@ async def update_rule(
     await require_panel_access(session, guild_id)
     _validate_lengths(body)
 
+    if (
+        body.source_channel_id is not None
+        or body.destination_channel_id is not None
+        or body.destination_guild_id is not None
+    ):
+        before = await rule_service.get_rule(guild_id, rule_id)
+        if before is None:
+            raise HTTPException(status_code=404, detail="Rule not found.")
+        old_source = str(before.get("source_channel_id") or "")
+        old_dest = str(before.get("destination_channel_id") or "")
+        old_dest_guild = str(before.get("destination_guild_id") or guild_id)
+        new_source = body.source_channel_id or old_source
+        new_dest = body.destination_channel_id or old_dest
+        # The editor sends no destination server for a same-server rule.
+        new_dest_guild = body.destination_guild_id or str(guild_id)
+        await _validate_route(
+            guild_id,
+            source_id=int(new_source),
+            destination_id=int(new_dest),
+            destination_guild_id=new_dest_guild,
+            check_source=new_source != old_source,
+            check_destination=(new_dest != old_dest or new_dest_guild != old_dest_guild),
+        )
+
     updates: dict[str, Any] = {}
     if body.rule_name is not None:
         updates["rule_name"] = body.rule_name
@@ -294,6 +410,10 @@ async def update_rule(
         updates["destination_channel_id"] = int(body.destination_channel_id)
     if body.destination_guild_id is not None:
         updates["destination_guild_id"] = int(body.destination_guild_id)
+    elif body.destination_channel_id is not None:
+        # A destination sent without a server is a same-server rule. Without this, a rule
+        # switched back from another server kept pointing at that server.
+        updates["destination_guild_id"] = int(guild_id)
     if body.is_active is not None:
         updates["is_active"] = body.is_active
     if body.author_filters is not None:

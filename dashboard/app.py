@@ -1,12 +1,13 @@
 """FastAPI application for the Stygian-Relay web dashboard."""
 
+import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from dashboard import db
@@ -113,39 +114,47 @@ app.include_router(settings_router, prefix="/api")
 app.include_router(user_data_router, prefix="/api")
 
 
+_PING_TIMEOUT_SECONDS = 3.0
+
+
+async def _ping(get_client, label: str) -> bool:
+    """One bounded Mongo ping. The failure is logged here, never returned in the body."""
+    try:
+        await asyncio.wait_for(get_client().admin.command("ping"), timeout=_PING_TIMEOUT_SECONDS)
+        return True
+    except Exception:
+        health_logger.warning("%s Mongo health ping failed", label, exc_info=True)
+        return False
+
+
 @app.get("/health")
 async def health():
+    """Liveness plus both databases, per the fleet health contract.
+
+    The relay database is the dashboard's own data: without it no page can read or save
+    anything, so a failure is ``unhealthy`` with HTTP 503. The shared sessions store is
+    sign-in only: without it the public pages still load, so on its own it is ``degraded``
+    with HTTP 200. The body carries statuses only.
+    """
+    relay_ok, sessions_ok = await asyncio.gather(
+        _ping(db.relay_client, "Relay"),
+        _ping(db.shared_client, "Shared-sessions"),
+    )
+    status = "unhealthy" if not relay_ok else ("degraded" if not sessions_ok else "healthy")
     response = {
-        "status": "healthy",
+        "status": status,
         "timestamp": time.time(),
         "service": "Stygian-Relay Dashboard",
         "uptime": int(time.time() - _START_TIME),
         "frontend_built": os.path.isfile(_index_html),
+        "relay_db_connected": relay_ok,
+        "shared_sessions_db_connected": sessions_ok,
+        "checks": {
+            "relay_db": {"status": "healthy" if relay_ok else "unhealthy"},
+            "shared_sessions_db": {"status": "healthy" if sessions_ok else "unhealthy"},
+        },
     }
-    checks: dict = {}
-
-    try:
-        await db.relay_client().admin.command("ping")
-        response["relay_db_connected"] = True
-        checks["relay_db"] = {"status": "healthy"}
-    except Exception:
-        health_logger.warning("Relay Mongo health ping failed", exc_info=True)
-        response["relay_db_connected"] = False
-        checks["relay_db"] = {"status": "unhealthy"}
-        response["status"] = "degraded"
-
-    try:
-        await db.shared_client().admin.command("ping")
-        response["shared_sessions_db_connected"] = True
-        checks["shared_sessions_db"] = {"status": "healthy"}
-    except Exception:
-        health_logger.warning("Shared-sessions Mongo health ping failed", exc_info=True)
-        response["shared_sessions_db_connected"] = False
-        checks["shared_sessions_db"] = {"status": "unhealthy"}
-        response["status"] = "degraded"
-
-    response["checks"] = checks
-    return response
+    return JSONResponse(status_code=503 if status == "unhealthy" else 200, content=response)
 
 
 if os.path.isdir(_frontend_dist):

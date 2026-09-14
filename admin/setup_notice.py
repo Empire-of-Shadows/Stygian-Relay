@@ -35,6 +35,8 @@ Per-bot customization, all optional, read from ``settings/bindings.py``:
 - ``ROLE_ACCESS_PATH`` - breadcrumb to the panel's role-access node when a bot's tree
   labels it differently (ImperialReminder: ``"Panel Access -> Panel Access Roles"``).
 - ``PANEL_COMMAND`` - the panel command, if a bot ever renames it.
+- ``PANEL_ACCESS_ROLE_PHRASE`` - how the /admin panel refusal names the delegated access
+  role (Stygian-Relay: ``"the Manager Role"``).
 """
 
 from __future__ import annotations
@@ -49,6 +51,7 @@ logger = logging.getLogger("AdminSetupNotice")
 # Defaults; a bot overrides either by defining the same name in its bindings seam.
 DEFAULT_PANEL_COMMAND = "`/admin panel`"
 DEFAULT_ROLE_ACCESS_PATH = "Role Configuration -> Panel Access Roles"
+DEFAULT_PANEL_ACCESS_ROLE_PHRASE = "a configured Panel Access role"
 
 ADMIN_ROLES_PATH = "roles.admin_role_ids"
 
@@ -70,6 +73,16 @@ def panel_command() -> str:
 def role_access_path() -> str:
     """Breadcrumb to the panel node that grants panel access by role."""
     return _binding("ROLE_ACCESS_PATH", DEFAULT_ROLE_ACCESS_PATH)
+
+
+def panel_access_role_phrase() -> str:
+    """How the panel refusal names the delegated access role, mid-sentence.
+
+    Most bots call it Panel Access; Stygian-Relay calls its single delegated role the
+    Manager Role, so a refusal naming "Panel Access" pointed its admins at a setting that
+    does not exist there.
+    """
+    return _binding("PANEL_ACCESS_ROLE_PHRASE", DEFAULT_PANEL_ACCESS_ROLE_PHRASE)
 
 
 def _as_ids(values: Any) -> Set[int]:
@@ -237,7 +250,7 @@ async def permission_notice_embed(
     the honest answer is "nobody has delegated it yet" rather than "you were denied".
     """
     parts = [
-        f"You need **Administrator** or the configured **Panel Access** role to {action}."
+        f"You need **Manage Server** or the configured **Panel Access** role to {action}."
     ]
 
     delegated = True

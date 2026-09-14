@@ -1,10 +1,12 @@
 import asyncio
+import functools
 import re
 import time
 import discord
 from collections import Counter
 from discord.ext import commands
-from storage.bot_specific.relay import guild_manager
+from commands.help.help_content import DASHBOARD_URL
+from storage.bot_specific.relay import audit_log, guild_manager
 from storage.bot_specific.relay.utils import normalize_channel_id
 from storage.settings.user_preferences import (
     FLAG_RELAY_MESSAGES,
@@ -34,6 +36,24 @@ _EMBEDDABLE_URL_RE = re.compile(
     r'|https?://\S+\.(?:jpg|jpeg|png|gif|webp|mp4|webm|mov)\b',
     re.IGNORECASE,
 )
+
+# A forwarded copy never pings anyone. The copy lands in a channel (sometimes another
+# server) the mentioned member may not even be in, so a mention renders as a name only.
+# Owner ruling 2026-09-13; the process-wide default still allows user pings elsewhere.
+_NO_PINGS = discord.AllowedMentions.none()
+
+
+@functools.lru_cache(maxsize=2048)
+def _whole_word_pattern(keyword: str, case_sensitive: bool) -> re.Pattern:
+    """A keyword matched as a whole word or phrase.
+
+    Word boundaries are "not a letter, digit or underscore" on either side, so trailing
+    punctuation ("giveaway!") still matches and a multi-word keyword ("free games") is
+    matched as a phrase rather than compared against single words.
+    """
+    flags = 0 if case_sensitive else re.IGNORECASE
+    return re.compile(r"(?<!\w)" + re.escape(keyword) + r"(?!\w)", flags)
+
 
 # Per-guild concurrency cap for the background forward dispatcher.
 _GUILD_CONCURRENCY = 5
@@ -226,7 +246,9 @@ class Forwarding(commands.Cog):
 
         # Single cached fetch - settings cache (5-min TTL) covers repeats.
         guild_settings = await guild_manager.get_guild_settings(gid_str)
-        if not guild_settings.get("features", {}).get("forwarding_enabled", False):
+        # A missing switch reads as ON, the same as every screen that shows it (the panel,
+        # the dashboard, the overview and the member page); new servers store it ON.
+        if not guild_settings.get("features", {}).get("forwarding_enabled", True):
             logger.debug(f"[{gid_str}] forwarding_enabled=False; skip mid={message.id}")
             return
 
@@ -286,6 +308,14 @@ class Forwarding(commands.Cog):
                 if message.embeds:
                     break
 
+        # Only rules that would actually take this message go on. Checked before the rate
+        # limit and the daily cap, so a message no rule would forward never costs a token,
+        # never triggers the limit notice and is never counted as blocked.
+        accepted_rules = [r for r in matching_rules if self._rule_accepts(r, message)]
+        if not accepted_rules:
+            logger.debug(f"[{gid_str}] no matching rule accepts mid={message.id}")
+            return
+
         # Rate limit per guild.
         if not self._bucket_for(message.guild.id).take():
             self._bump_metric(message.guild.id, METRIC_RATE_LIMITED)
@@ -316,7 +346,7 @@ class Forwarding(commands.Cog):
         # end so a source message that fans out to N rules costs one DB round
         # trip instead of N.
         log_batch: list[dict] = []
-        for rule in matching_rules:
+        for rule in accepted_rules:
             if await self.process_rule(rule, message, guild_settings):
                 log_batch.append({
                     "guild_id": gid_str,
@@ -329,6 +359,16 @@ class Forwarding(commands.Cog):
         if log_batch:
             self._bump_metric(message.guild.id, METRIC_FORWARDED, len(log_batch))
             await guild_manager.log_forwarded_messages(log_batch)
+
+    def _rule_accepts(self, rule: dict, message: discord.Message) -> bool:
+        """Whether a rule's message types, keyword/length filters and author filters let
+        this message through. ``process_rule`` applies the same checks again."""
+        settings = rule.get("settings", {})
+        return (
+            self.check_message_type(settings.get("message_types", {}), message)
+            and self.check_filters(settings.get("filters", {}), message, settings.get("advanced_options", {}))
+            and self.check_author_filters(settings.get("author_filters"), message)
+        )
 
     async def _should_show_branding(self, guild_id: int) -> bool:
         """
@@ -419,15 +459,20 @@ class Forwarding(commands.Cog):
         hide_author_name = await opted_out_of(message.author.id, FLAG_SHOW_NAME)
 
         try:
-            await self.forward_message(
+            sent = await self.forward_message(
                 settings.get("formatting", {}), message, destination_channel,
                 hide_author_name=hide_author_name,
+                include_stickers=bool(settings.get("message_types", {}).get("stickers", False)),
             )
         except DestinationForbidden as e:
             # Exactly the send_messages gate's outcome: record the strike and
             # report failure, so the caller writes no log_batch row and no
             # METRIC_FORWARDED for a message that never landed.
             await self._record_rule_misconfig(rule, guild_settings, str(e))
+            return False
+        if sent is False:
+            # Nothing was left to post (for example an image-only message on a rule with
+            # attachments and the author line both off). Not a failure, not a forward.
             return False
         # Successful forward - clear failure counter so a recovered rule
         # doesn't carry stale strikes from before the fix.
@@ -492,6 +537,15 @@ class Forwarding(commands.Cog):
             f"Rule {rule_id} auto-deactivated after "
             f"{_AUTO_DEACTIVATE_THRESHOLD} consecutive failures: {reason}"
         )
+        await audit_log.log(
+            "rules", str(guild_settings.get("guild_id") or ""), "system", "auto_deactivate_rule",
+            {
+                "rule_id": rule_id,
+                "rule_name": rule.get("rule_name") or "",
+                "reason": reason,
+                "failures": _AUTO_DEACTIVATE_THRESHOLD,
+            },
+        )
 
         log_channel_id = guild_settings.get("master_log_channel_id")
         if not log_channel_id:
@@ -506,8 +560,8 @@ class Forwarding(commands.Cog):
                     f"Rule **{rule_name}** (`{rule_id}`) was disabled after "
                     f"{_AUTO_DEACTIVATE_THRESHOLD} consecutive failures.\n\n"
                     f"**Reason:** {reason}\n\n"
-                    "Re-enable it from `/admin` once the destination channel "
-                    "or permissions are fixed."
+                    "Once the destination channel or permissions are fixed, resume it "
+                    f"from **Forwarding rules** on the dashboard: {DASHBOARD_URL}"
                 ),
                 color=discord.Color.orange(),
                 timestamp=datetime.now(timezone.utc),
@@ -567,10 +621,14 @@ class Forwarding(commands.Cog):
             block_keywords = [k.lower() for k in block_keywords]
 
         if whole_word:
-            words = content.split()
-            if block_keywords and any(word in block_keywords for word in words):
+            # content and keywords are already lower-cased when matching ignores case.
+            if block_keywords and any(
+                _whole_word_pattern(k, case_sensitive).search(content) for k in block_keywords if k
+            ):
                 return False
-            if require_keywords and not any(word in require_keywords for word in words):
+            if require_keywords and not any(
+                _whole_word_pattern(k, case_sensitive).search(content) for k in require_keywords if k
+            ):
                 return False
         else:
             if block_keywords and any(keyword in content for keyword in block_keywords):
@@ -622,7 +680,8 @@ class Forwarding(commands.Cog):
 
     async def forward_as_native_style(self, formatting: dict, message: discord.Message,
                                       destination: discord.TextChannel,
-                                      *, hide_author_name: bool = False):
+                                      *, hide_author_name: bool = False,
+                                      include_stickers: bool = False) -> bool:
         """
         Quoted-message style forwarding. Discord regenerates URL embeds in the
         quoted text, preserving video previews. Per-attachment failure reasons
@@ -644,6 +703,21 @@ class Forwarding(commands.Cog):
         if message.content:
             for line in message.content.split('\n'):
                 quote_lines.append(f"> {line}")
+
+        # Stickers. A bot may only send a sticker that belongs to the server it posts in
+        # (or a standard one), so a same-server copy sends the sticker itself and a copy
+        # into another server links the sticker image instead, which Discord previews.
+        # Animated Lottie stickers have no image to link, so they are named.
+        native_stickers: list = []
+        if include_stickers:
+            same_server = message.guild is not None and destination.guild.id == message.guild.id
+            for sticker in list(getattr(message, "stickers", None) or [])[:3]:
+                if same_server:
+                    native_stickers.append(sticker)
+                elif getattr(sticker, "format", None) == discord.StickerFormatType.lottie:
+                    quote_lines.append(f"> *Sticker: {sticker.name}*")
+                else:
+                    quote_lines.append(f"> {sticker.url}")
 
         quoted_content = '\n'.join(quote_lines)
 
@@ -747,6 +821,14 @@ class Forwarding(commands.Cog):
             quoted_content += f"\n-# Powered by Empire of Shadows\n-# Gaming Community • <{server_invite_link}>"
             await guild_manager.touch_runtime_state(str(source_gid), "branding")
 
+        if not quoted_content.strip() and not files_to_send and not native_stickers:
+            # Nothing to post: Discord refuses an empty message, and the refusal used to
+            # land in the generic fallback, which posted a misleading notice instead.
+            return False
+
+        send_kwargs = {}
+        if native_stickers:
+            send_kwargs["stickers"] = native_stickers
         try:
             await self._send_with_enhanced_handling(
                 destination=destination,
@@ -755,6 +837,7 @@ class Forwarding(commands.Cog):
                 files=files_to_send,
                 formatting=formatting,
                 hide_author_name=hide_author_name,
+                **send_kwargs,
             )
         finally:
             for file in files_to_send:
@@ -763,11 +846,14 @@ class Forwarding(commands.Cog):
                         file.close()
                 except Exception as cleanup_error:
                     logger.debug(f"Error closing file handle: {cleanup_error}")
+        return True
 
     async def forward_message(self, formatting: dict, message: discord.Message, destination: discord.TextChannel,
-                              *, hide_author_name: bool = False):
-        await self.forward_as_native_style(
-            formatting, message, destination, hide_author_name=hide_author_name
+                              *, hide_author_name: bool = False, include_stickers: bool = False) -> bool:
+        """Post the copy. False when there was nothing to post."""
+        return await self.forward_as_native_style(
+            formatting, message, destination,
+            hide_author_name=hide_author_name, include_stickers=include_stickers,
         )
 
     async def _send_with_enhanced_handling(self, destination: discord.TextChannel, message: discord.Message,
@@ -781,6 +867,11 @@ class Forwarding(commands.Cog):
         if message.channel.id == destination.id:
             send_kwargs["reference"] = message
             send_kwargs["mention_author"] = formatting.get("mention_author", False)
+
+        send_kwargs["allowed_mentions"] = _NO_PINGS
+        if not forward_embeds:
+            # "Copy embeds" off: the copy carries no link previews.
+            send_kwargs["suppress_embeds"] = True
 
         # Metrics key off the source guild - that's the rule owner. A premium
         # source guild forwarding into a free destination still attributes
@@ -842,8 +933,12 @@ class Forwarding(commands.Cog):
                 # notice cannot be delivered, log it and give this message up.
                 try:
                     await destination.send(
-                        content="📨 *Message forwarded (some content omitted due to size limits)*",
-                        embeds=fallback_embeds
+                        content=(
+                            "📨 *This message could not be copied in full.* "
+                            f"[View the original]({message.jump_url})"
+                        ),
+                        embeds=fallback_embeds,
+                        allowed_mentions=_NO_PINGS,
                     )
                 except discord.HTTPException as e2:
                     logger.error(
@@ -890,7 +985,9 @@ class Forwarding(commands.Cog):
             first_message = await destination.send(
                 content=first_chunk,
                 embeds=embeds[:1] if embeds else [],
-                files=files[:1] if files else []
+                files=files[:1] if files else [],
+                allowed_mentions=_NO_PINGS,
+                suppress_embeds=not formatting.get("forward_embeds", True),
             )
         except discord.HTTPException:
             await self._send_ultra_minimal(
@@ -909,18 +1006,21 @@ class Forwarding(commands.Cog):
                         content=chunk_content,
                         embeds=remaining_embeds,
                         files=remaining_files,
-                        mention_author=False
+                        mention_author=False,
+                        allowed_mentions=_NO_PINGS,
                     )
                 except discord.HTTPException:
                     await first_message.reply(
                         content=chunk_content + "\n\n*(Some files omitted due to size limits)*",
                         embeds=remaining_embeds,
-                        mention_author=False
+                        mention_author=False,
+                        allowed_mentions=_NO_PINGS,
                     )
             else:
                 await first_message.reply(
                     content=chunk_content,
-                    mention_author=False
+                    mention_author=False,
+                    allowed_mentions=_NO_PINGS,
                 )
 
     async def _send_reduced_embeds(self, destination: discord.TextChannel, message: discord.Message,
@@ -932,13 +1032,15 @@ class Forwarding(commands.Cog):
             await destination.send(
                 content=content + summary_text,
                 embeds=embeds[:10],
-                files=files[:10]
+                files=files[:10],
+                allowed_mentions=_NO_PINGS,
             )
         except discord.HTTPException:
             await destination.send(
                 content=content + summary_text,
                 embeds=embeds[:5],
-                files=files[:3]
+                files=files[:3],
+                allowed_mentions=_NO_PINGS,
             )
 
     async def _send_compressed_files(self, destination: discord.TextChannel, message: discord.Message,
@@ -962,7 +1064,8 @@ class Forwarding(commands.Cog):
 
         await destination.send(
             content=content + warning_msg,
-            embeds=embeds[:10] if formatting.get("forward_embeds", True) else []
+            embeds=embeds[:10] if formatting.get("forward_embeds", True) else [],
+            allowed_mentions=_NO_PINGS,
         )
 
     async def _send_minimal_version(self, destination: discord.TextChannel, message: discord.Message,
@@ -993,7 +1096,11 @@ class Forwarding(commands.Cog):
             f"🔗 [View Original]({message.jump_url})"
         )
 
-        await destination.send(content=minimal_content)
+        await destination.send(
+            content=minimal_content,
+            allowed_mentions=_NO_PINGS,
+            suppress_embeds=not formatting.get("forward_embeds", True),
+        )
 
     async def _send_ultra_minimal(self, destination: discord.TextChannel, message: discord.Message,
                                   formatting: dict, *, hide_author_name: bool = False):
@@ -1008,62 +1115,60 @@ class Forwarding(commands.Cog):
             f"🔗 [View Original]({message.jump_url})"
         )
 
-        await destination.send(content=ultra_minimal)
+        await destination.send(content=ultra_minimal, allowed_mentions=_NO_PINGS)
 
     def _split_content(self, content: str, max_length: int = 1900) -> list:
+        """Split a copy into parts of at most ``max_length`` characters, line by line.
+
+        Lines are kept whole and joined with their line breaks, so the quote marker at the
+        start of each line and the small-text author header stay on their own lines. (The
+        old splitter rejoined every line with spaces, turning a whole part into one line of
+        small text.) Only a single line longer than a part is broken, between words, and
+        each piece keeps the line's quote marker.
+        """
         if len(content) <= max_length:
             return [content]
 
-        chunks = []
-        current_chunk = ""
+        chunks: list[str] = []
+        current: list[str] = []
+        size = 0
+        for line in content.split("\n"):
+            pieces = self._split_long_line(line, max_length) if len(line) > max_length else [line]
+            for piece in pieces:
+                added = len(piece) + (1 if current else 0)
+                if current and size + added > max_length:
+                    chunks.append("\n".join(current))
+                    current, size, added = [], 0, len(piece)
+                current.append(piece)
+                size += added
+        if current:
+            chunks.append("\n".join(current))
+        return [chunk for chunk in chunks if chunk.strip()] or [content[:max_length]]
 
-        paragraphs = content.split('\n\n')
-
-        for paragraph in paragraphs:
-            if current_chunk and len(current_chunk) + len(paragraph) + 2 > max_length:
-                chunks.append(current_chunk.strip())
-                current_chunk = ""
-
-            if len(paragraph) > max_length:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-
-                sentences = paragraph.replace('. ', '.\n').split('\n')
-                for sentence in sentences:
-                    if len(sentence) > max_length:
-                        words = sentence.split(' ')
-                        for word in words:
-                            # A single word longer than max_length must be hard-sliced;
-                            # otherwise the chunk would exceed the cap and Discord rejects it.
-                            if len(word) > max_length:
-                                if current_chunk.strip():
-                                    chunks.append(current_chunk.strip())
-                                current_chunk = ""
-                                for i in range(0, len(word), max_length):
-                                    piece = word[i:i + max_length]
-                                    if i + max_length < len(word):
-                                        chunks.append(piece)
-                                    else:
-                                        current_chunk = piece + " "
-                                continue
-                            if len(current_chunk) + len(word) + 1 > max_length:
-                                chunks.append(current_chunk.strip())
-                                current_chunk = ""
-                            current_chunk += word + " "
-                    else:
-                        if len(current_chunk) + len(sentence) + 1 > max_length:
-                            chunks.append(current_chunk.strip())
-                            current_chunk = ""
-                        current_chunk += sentence + " "
+    @staticmethod
+    def _split_long_line(line: str, max_length: int) -> list[str]:
+        """Break one over-long line between words, hard-slicing a word longer than a part.
+        A quoted line ("> ...") repeats its quote marker on every piece."""
+        prefix = "> " if line.startswith("> ") else ""
+        room = max(1, max_length - len(prefix))
+        pieces: list[str] = []
+        current = ""
+        for word in line[len(prefix):].split(" "):
+            while len(word) > room:
+                if current:
+                    pieces.append(current)
+                    current = ""
+                pieces.append(word[:room])
+                word = word[room:]
+            candidate = f"{current} {word}" if current else word
+            if len(candidate) > room:
+                pieces.append(current)
+                current = word
             else:
-                current_chunk += paragraph + "\n\n"
-
-        if current_chunk.strip():
-            chunks.append(current_chunk.strip())
-
-        return chunks
-
+                current = candidate
+        if current:
+            pieces.append(current)
+        return [prefix + piece for piece in pieces]
 
 async def setup(bot):
     await bot.add_cog(Forwarding(bot))

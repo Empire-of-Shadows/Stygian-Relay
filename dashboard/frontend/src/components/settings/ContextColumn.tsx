@@ -14,7 +14,7 @@ import { reasonLabel } from "../overview/format";
  */
 
 export interface ContextDraft {
-  is_enabled: boolean;
+  forwarding_enabled: boolean;
   notify_on_error: boolean;
   master_log_channel_id: string | null;
   manager_role_id: string | null;
@@ -105,8 +105,8 @@ function ContextBody({ slug, draft, channels, roles, overview }: ContextProps) {
 
   if (slug === "forwarding") {
     const rows: [string, string][] = [
-      ["Forwarding", onOff(draft.is_enabled)],
-      ["Error notices", onOff(draft.notify_on_error)],
+      ["Forwarding", onOff(draft.forwarding_enabled)],
+      ["Daily limit notice", onOff(draft.notify_on_error)],
     ];
     if (rules) {
       rows.push(["Active rules", `${rules.active} of ${rules.max_rules}`]);
@@ -136,7 +136,7 @@ function ContextBody({ slug, draft, channels, roles, overview }: ContextProps) {
             )}
             footer={
               delivery.undeliverable_30d > 0
-                ? "Some messages could not be delivered. Check that every rule's destination channel still exists and the bot can post there."
+                ? "Some messages could not be delivered. Check that every rule's destination channel still exists, the bot can post there, and a destination in another server still allows this one."
                 : undefined
             }
           />
@@ -179,7 +179,7 @@ function ContextBody({ slug, draft, channels, roles, overview }: ContextProps) {
         rows={rows}
         footer={
           draft.master_log_channel_id
-            ? "The bot posts premium changes, forwarding errors, and any rule it had to switch off here."
+            ? "The bot posts any rule it had to switch off after repeated delivery failures here, and premium changes."
             : "With no channel set the bot keeps quiet. Everything is still recorded in the audit log."
         }
       />

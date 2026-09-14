@@ -87,6 +87,7 @@ from .views.base import (
     notice_container,
 )
 from .views.panel_views import PanelSession
+from .setup_notice import panel_access_role_phrase
 
 logger = logging.getLogger("AdminCog")
 
@@ -173,6 +174,22 @@ class AdminCog(commands.Cog):
             logger.debug(f"Audit log write skipped for {node.key}: {e}")
 
     @staticmethod
+    async def _resolve_async_description(node: PanelNode, guild: discord.Guild) -> str | None:
+        """A node's live ``async_description`` (async (guild) -> str), or None.
+
+        None falls back to the node's static description. Resolved on every render so
+        the text reflects current state. Used by the category menu on message 2 and by
+        paginated lists; ``_show_menu`` resolves its own.
+        """
+        if node.async_description is None:
+            return None
+        try:
+            return await node.async_description(guild)
+        except Exception:
+            logger.exception("async_description failed for %s", node.key)
+            return None
+
+    @staticmethod
     async def _is_premium(guild_id: int) -> bool:
         """Whether the guild has premium (via the bot's bindings; canonical async)."""
         return await is_premium(guild_id)
@@ -209,7 +226,7 @@ class AdminCog(commands.Cog):
                 view=build_notice_layout(
                     "Permission Denied",
                     "You do not have permission to use the admin panel. "
-                    "Requires **Manage Server** or a configured Panel Access role.",
+                    f"Requires **Manage Server** or {panel_access_role_phrase()}.",
                 ),
                 ephemeral=True,
             )
@@ -416,6 +433,7 @@ class AdminCog(commands.Cog):
                 guild_id=guild.id,
                 guild=guild,
                 is_premium=await self._is_premium(guild.id),
+                description_override=await self._resolve_async_description(category_node, guild),
             )
 
         async def on_child_select(child_interaction: discord.Interaction, child_key: str):
@@ -516,6 +534,7 @@ class AdminCog(commands.Cog):
             guild_id=guild.id,
             guild=guild,
             is_premium=await self._is_premium(guild.id),
+            description_override=await self._resolve_async_description(category_node, guild),
         )
         # Send as new followup (message 2)
         session.register_view(layout)
@@ -892,7 +911,7 @@ class AdminCog(commands.Cog):
                     notice = build_premium_layout(
                         "Premium Required",
                         "This option requires a **Premium** subscription.\n\n"
-                        "Use `/premium` to learn more about upgrading.",
+                        "Use `/premium status` to learn more about upgrading.",
                     )
                     await _refuse(notice)
                     return
@@ -904,7 +923,7 @@ class AdminCog(commands.Cog):
                         "Premium Required",
                         f"Free servers can select up to **{node.max_values}** channel(s).\n"
                         f"Upgrade to **Premium** to select up to **{node.premium_max_values}**.\n\n"
-                        "Use `/premium` to learn more about upgrading.",
+                        "Use `/premium status` to learn more about upgrading.",
                     )
                     await _refuse(notice)
                     return
@@ -2202,6 +2221,7 @@ class AdminCog(commands.Cog):
                 node, page_items, page_state["page"], total, guild,
                 on_list_prev, on_list_next, on_list_pick, on_list_back,
                 back_label, is_premium=is_premium, on_extra=on_list_extra,
+                description_override=await self._resolve_async_description(node, guild),
             )
 
         async def on_list_extra(extra_interaction: discord.Interaction):
@@ -2685,6 +2705,10 @@ class AdminCog(commands.Cog):
             return ", ".join(names)
 
         if node.kind == "option_select":
+            # A multi-select stores several values; naming only the first made
+            # "Enabled Bots: Disboard" read as one bot when three were ticked.
+            if len(vals) > 1:
+                return ", ".join(_option_label(node, str(v)) for v in vals)
             default_val = _get_default_option_value(node)
             label = _option_label(node, str(vals[0]))
             if default_val is not None and str(vals[0]) == default_val:

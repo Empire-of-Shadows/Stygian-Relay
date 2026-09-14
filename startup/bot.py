@@ -141,7 +141,7 @@ async def on_guild_channel_delete(channel):
         for owning_guild_id, rule_id in affected:
             await guild_manager.update_rule(rule_id, {"is_active": False})
             await audit_log.log(
-                "rule", owning_guild_id, "system",
+                "rules", owning_guild_id, "system",
                 "auto_deactivate_rule",
                 {"rule_id": rule_id, "reason": "referenced channel deleted",
                  "channel_id": str(channel.id),
@@ -182,12 +182,17 @@ async def send_welcome_message(guild, settings):
         if not bot_settings or not bot_settings.get("welcome_message_enabled", True):
             return
 
-        # Find a suitable channel to send the welcome message.
-        # Prioritize the system channel, but fall back to the first available text channel.
+        # Find a suitable channel to send the welcome message: the system channel, else the
+        # first text channel. The welcome is an embed, so Embed Links is needed as well as
+        # Send Messages - a channel with only the first used to swallow the welcome.
+        def _can_welcome(ch) -> bool:
+            perms = ch.permissions_for(guild.me)
+            return perms.send_messages and perms.embed_links
+
         channel = guild.system_channel
-        if not (channel and channel.permissions_for(guild.me).send_messages):
+        if not (channel and _can_welcome(channel)):
             for text_channel in guild.text_channels:
-                if text_channel.permissions_for(guild.me).send_messages:
+                if _can_welcome(text_channel):
                     channel = text_channel
                     break
             else:
@@ -201,15 +206,15 @@ async def send_welcome_message(guild, settings):
         )
         embed.add_field(
             name="Getting Started",
-            value="Use `/admin` to open the configuration panel and create your first forwarding rule. You can also manage everything from the web dashboard.",
+            value="Use `/admin panel` to open the configuration panel and create your first forwarding rule. You can also manage everything from the web dashboard at https://relay.eosofficial.club.",
             inline=False
         )
         embed.add_field(
             name="Key Features",
-            value="• Cross-channel message forwarding\n• Advanced content filtering\n• Media and link support\n• Premium features available",
+            value="• Cross-channel and cross-server message forwarding\n• Keyword, length and role filters\n• Media and link support\n• Members choose whether they are relayed",
             inline=False
         )
-        embed.set_footer(text="Use /admin to configure Stygian-Relay")
+        embed.set_footer(text="Use /admin panel to configure Stygian-Relay")
 
         await channel.send(embed=embed)
         logger.info(f"📝 Sent welcome message to guild: {guild.name}")

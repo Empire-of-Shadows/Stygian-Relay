@@ -1,10 +1,17 @@
+import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
-import { discordLoginUrl } from "../api/client";
-import type { Me } from "../api/types";
+import { api, signInUrl } from "../api/client";
+import type { Me, PlanLimits } from "../api/types";
+import { formatCount } from "../_engine/format";
 
 export function LoginPage({ me }: { me: Me | null }) {
   const location = useLocation();
   const next = new URLSearchParams(location.search).get("next") || "/me";
+  const [plans, setPlans] = useState<PlanLimits | null>(null);
+
+  useEffect(() => {
+    api.planLimits().then(setPlans).catch(() => setPlans(null));
+  }, []);
 
   if (me) return <Navigate to={next} replace />;
 
@@ -17,7 +24,7 @@ export function LoginPage({ me }: { me: Me | null }) {
           your relay settings. Your Empire of Shadows session is shared - one login covers every
           bot dashboard.
         </p>
-        <a href={discordLoginUrl(next)} className="cta">
+        <a href={signInUrl(next)} className="cta">
           Login with Discord
         </a>
         <p className="muted" style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>
@@ -79,7 +86,8 @@ export function LoginPage({ me }: { me: Me | null }) {
         This strip was an empty reserved div. Every figure in it is the real free-tier
         limit the backend enforces (dashboard/services/premium.py::get_guild_limits), not
         a marketing number, so it cannot promise something a new server does not get. It
-        is static on purpose: nobody is signed in here, so there is nothing live to read.
+        limits come from the public plan-limits endpoint, so they are the numbers the bot
+        enforces today; if it cannot be reached the tile says it without numbers.
       */}
       <div className="login-below">
         <div className="login-divider">What Stygian Relay does</div>
@@ -93,11 +101,15 @@ export function LoginPage({ me }: { me: Me | null }) {
             </span>
           </div>
           <div className="tile-button" style={{ cursor: "default" }}>
-            <span className="tile-title">Three routes free, 100 messages a day</span>
+            <span className="tile-title">
+              {plans
+                ? `${plans.free.max_rules} routes free, ${formatCount(plans.free.daily_limit)} messages a day`
+                : "Free to use, with daily limits"}
+            </span>
             <span className="tile-desc">
-              A free server can run three rules at once and forward up to 100 messages a
-              day. Premium raises that to twenty rules and 5,000 messages, and is bought
-              through Discord.
+              {plans
+                ? `A free server can run ${plans.free.max_rules} rules at once and forward up to ${formatCount(plans.free.daily_limit)} messages a day. Premium raises that to ${plans.premium.max_rules} rules and ${formatCount(plans.premium.daily_limit)} messages; it is not on sale yet.`
+                : "A free server has a cap on active rules and messages forwarded per day. Premium raises both; it is not on sale yet."}
             </span>
           </div>
           <div className="tile-button" style={{ cursor: "default" }}>

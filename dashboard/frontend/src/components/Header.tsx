@@ -1,4 +1,5 @@
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { signInUrl } from "../api/client";
 import type { Me } from "../api/types";
 import { AppShell } from "../_engine/components/AppShell";
 
@@ -8,6 +9,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 
 /** Stygian Relay header: the shared AppShell wired with relay's brand + nav. */
 export function Header({ me }: { me: Me | null }) {
+  const { pathname, search } = useLocation();
   return (
     <AppShell
       user={me}
@@ -34,7 +36,10 @@ export function Header({ me }: { me: Me | null }) {
           )}
         </>
       ) : null}
-      loggedOut={<a href="/auth/discord" className="cta">Log in with Discord</a>}
+      loggedOut={
+        // Back to the page the visitor was reading (the public /privacy and /terms).
+        <a href={signInUrl(pathname + search)} className="cta">Log in with Discord</a>
+      }
     />
   );
 }

@@ -10,10 +10,17 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 
 from dashboard.auth.dependencies import get_current_user, require_panel_access
-from dashboard.services.premium import get_guild_limits, get_premium_status
+from dashboard.services.premium import get_guild_limits, get_premium_status, plan_limits
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["premium"])
+
+
+@router.get("/plan-limits")
+async def get_plan_limits():
+    """Free and premium limits as the bot enforces them. Public: the login page shows
+    them before anybody signs in, and they are the same for every server."""
+    return await plan_limits()
 
 
 @router.get("/guilds/{guild_id}/premium")
@@ -36,4 +43,5 @@ async def get_premium(guild_id: str, session: dict = Depends(get_current_user)):
         "expires_at": expires_at,
         "max_rules": limits["max_rules"],
         "daily_limit": limits["daily_limit"],
+        "plans": await plan_limits(),
     }

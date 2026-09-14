@@ -22,6 +22,7 @@ panel-created rule is byte-identical to a ``/forward``-wizard-created one - an e
 from __future__ import annotations
 
 import logging
+import uuid
 
 import discord
 
@@ -69,11 +70,25 @@ _REQUIRED_DEST_PERMS: tuple[tuple[str, str], ...] = (
 # The same four, spelled out for a refusal that has to explain the whole set.
 _REQUIRED_DEST_PERMS_TEXT = "Send Messages, Attach Files, Embed Links and Read Message History"
 
+# What the forwarder needs in a SOURCE channel: seeing it at all (no messages arrive
+# otherwise) and re-reading a message, which is how a link's preview is waited for.
+# Without these a rule saved fine and silently forwarded nothing.
+_REQUIRED_SOURCE_PERMS: tuple[tuple[str, str], ...] = (
+    ("view_channel", "View Channel"),
+    ("read_message_history", "Read Message History"),
+)
+
 
 def _missing_dest_perms(channel, me) -> list[str]:
     """Member-readable names of the destination permissions ``me`` lacks in ``channel``."""
     perms = channel.permissions_for(me)
     return [label for attr, label in _REQUIRED_DEST_PERMS if not getattr(perms, attr, False)]
+
+
+def _missing_source_perms(channel, me) -> list[str]:
+    """Member-readable names of the source permissions ``me`` lacks in ``channel``."""
+    perms = channel.permissions_for(me)
+    return [label for attr, label in _REQUIRED_SOURCE_PERMS if not getattr(perms, attr, False)]
 
 
 def _join_perm_names(names: list[str]) -> str:
@@ -105,6 +120,10 @@ class AddRuleFlow:
         # Whether the destination-server step was actually shown (it's skipped
         # when the only candidate is this server) - controls where Back goes.
         self.showed_server_step: bool = False
+        # Appended to the pickers' custom ids and changed after a refused pick, so the
+        # redrawn picker is a new component and Discord drops the refused highlight
+        # (otherwise re-picking the same channel after fixing it fires nothing).
+        self._picker_nonce: str = ""
 
     # -- rendering plumbing ---------------------------------------------------
 
@@ -130,6 +149,25 @@ class AddRuleFlow:
                     logger.warning("add-rule render fallback failed: %s", e2)
             else:
                 logger.warning("add-rule render failed: %s", e)
+
+    def _picker_id(self, key: str) -> str:
+        return cid("relayrule", key) + (f":{self._picker_nonce}" if self._picker_nonce else "")
+
+    @staticmethod
+    async def _notice(interaction: discord.Interaction, title: str, body: str) -> None:
+        """An ephemeral notice, whether or not the interaction was already answered."""
+        view = build_notice_layout(title, body)
+        if interaction.response.is_done():
+            await interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await interaction.response.send_message(view=view, ephemeral=True)
+
+    async def _refuse_pick(self, interaction: discord.Interaction, title: str, body: str, rerender) -> None:
+        """Say why a pick was refused, then redraw the step with fresh picker ids."""
+        await interaction.response.defer()
+        await interaction.followup.send(view=build_notice_layout(title, body), ephemeral=True)
+        self._picker_nonce = uuid.uuid4().hex[:8]
+        await rerender(interaction)
 
     @staticmethod
     def _button(label: str, style: discord.ButtonStyle, cb, key: str) -> discord.ui.Button:
@@ -180,11 +218,16 @@ class AddRuleFlow:
             channel_types=_TEXTLIKE_TYPES,
             placeholder="Select source channel...",
             min_values=1, max_values=1,
-            custom_id=cid("relayrule", "src"),
+            custom_id=self._picker_id("src"),
         )
 
         async def _picked(inter: discord.Interaction):
-            self.source_id = select.values[0].id
+            channel_id = select.values[0].id
+            err = self._validate_source(channel_id)
+            if err:
+                await self._refuse_pick(inter, "Cannot watch that channel", err, self.render_source)
+                return
+            self.source_id = channel_id
             await self.render_destination_server(inter)
 
         select.callback = _picked
@@ -342,15 +385,15 @@ class AddRuleFlow:
             channel_types=_TEXTLIKE_TYPES,
             placeholder="Select destination channel...",
             min_values=1, max_values=1,
-            custom_id=cid("relayrule", "dst"),
+            custom_id=self._picker_id("dst"),
         )
 
         async def _picked(inter: discord.Interaction):
             channel_id = select.values[0].id
             err = await self._validate_destination(channel_id)
             if err:
-                await inter.response.send_message(
-                    view=build_notice_layout("Cannot use that channel", err), ephemeral=True,
+                await self._refuse_pick(
+                    inter, "Cannot use that channel", err, self._render_dest_channel_same,
                 )
                 return
             self.dest_channel_id = channel_id
@@ -367,12 +410,9 @@ class AddRuleFlow:
     async def _render_dest_channel_cross(self, interaction: discord.Interaction) -> None:
         target = self.bot.get_guild(self.dest_guild_id)
         if target is None or target.me is None:
-            await interaction.response.send_message(
-                view=build_notice_layout(
-                    "Server unavailable",
-                    "I'm no longer in that server. Pick a different destination server.",
-                ),
-                ephemeral=True,
+            await self._notice(
+                interaction, "Server unavailable",
+                "I'm no longer in that server. Pick a different destination server.",
             )
             return
 
@@ -383,13 +423,10 @@ class AddRuleFlow:
             if not _missing_dest_perms(c, target.me)
         ]
         if not channels:
-            await interaction.response.send_message(
-                view=build_notice_layout(
-                    "No writable channels",
-                    f"I can't forward into any channel in **{target.name}**. Grant me "
-                    f"{_REQUIRED_DEST_PERMS_TEXT} there, or pick another server.",
-                ),
-                ephemeral=True,
+            await self._notice(
+                interaction, "No writable channels",
+                f"I can't forward into any channel in **{target.name}**. Grant me "
+                f"{_REQUIRED_DEST_PERMS_TEXT} there, or pick another server.",
             )
             return
 
@@ -416,15 +453,15 @@ class AddRuleFlow:
         select = discord.ui.Select(
             placeholder="Select destination channel...",
             options=options, min_values=1, max_values=1,
-            custom_id=cid("relayrule", "dstx"),
+            custom_id=self._picker_id("dstx"),
         )
 
         async def _picked(inter: discord.Interaction):
             channel_id = int(select.values[0])
             err = await self._validate_destination(channel_id)
             if err:
-                await inter.response.send_message(
-                    view=build_notice_layout("Cannot use that channel", err), ephemeral=True,
+                await self._refuse_pick(
+                    inter, "Cannot use that channel", err, self._render_dest_channel_cross,
                 )
                 return
             self.dest_channel_id = channel_id
@@ -513,6 +550,20 @@ class AddRuleFlow:
             return f"Forward from {s} to {d} in {target.name}"
         return f"Forward from {s} to {d}"
 
+    def _validate_source(self, channel_id: int | None) -> str | None:
+        """Return an error string if the bot cannot watch ``channel_id``, else None."""
+        channel = self.guild.get_channel(channel_id) if channel_id else None
+        if channel is None:
+            return "That channel no longer exists or I cannot see it."
+        missing = _missing_source_perms(channel, self.guild.me)
+        if missing:
+            return (
+                f"I'm missing {_join_perm_names(missing)} in {channel.mention}. I need "
+                "View Channel and Read Message History there to see new messages and "
+                "keep their link previews - without them the rule would forward nothing."
+            )
+        return None
+
     async def _validate_destination(self, channel_id: int) -> str | None:
         """Return an error string if ``channel_id`` can't be a destination, else None."""
         dest_guild_id = self.dest_guild_id or self.guild.id
@@ -587,6 +638,12 @@ class AddRuleFlow:
                 view=build_notice_layout("Cannot use that channel", err), ephemeral=True,
             )
             return
+        err = self._validate_source(self.source_id)
+        if err:
+            await interaction.response.send_message(
+                view=build_notice_layout("Cannot watch that channel", err), ephemeral=True,
+            )
+            return
 
         await interaction.response.defer(ephemeral=True)
         name = (raw_name or "").strip()
@@ -634,8 +691,8 @@ class AddRuleFlow:
             await interaction.followup.send(
                 view=build_notice_layout(
                     "Rule limit reached",
-                    f"You've hit the active-rule limit ({cap}). Delete a rule from "
-                    "**Manage Rules**, or upgrade to premium for a higher limit.",
+                    f"You've hit the active-rule limit ({cap}). Delete a rule from the "
+                    "**Forwarding Rules** list, or pause one on the dashboard.",
                 ),
                 ephemeral=True,
             )

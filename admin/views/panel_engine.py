@@ -1884,6 +1884,7 @@ def build_paginated_list_view(
     back_label: str = "Back",
     is_premium: bool = False,
     on_extra: Optional[Callable[[discord.Interaction], Awaitable[None]]] = None,
+    description_override: Optional[str] = None,
 ) -> discord.ui.LayoutView:
     """Build a paginated list view for a PanelNode with kind="paginated_list".
 
@@ -1899,8 +1900,11 @@ def build_paginated_list_view(
     node_label = _effective_label(node, is_premium)
     builder.add_header(f"## {node_label}")
 
-    if node.description:
-        builder.add_item(readonly_container(discord.ui.TextDisplay(node.description)))
+    # A live description (the node's async_description, resolved by the cog) replaces
+    # the static one, so a list can open with a current summary above its items.
+    description = description_override if description_override is not None else node.description
+    if description:
+        builder.add_item(readonly_container(discord.ui.TextDisplay(description)))
 
     page_size = max(1, node.list_page_size)
     total_pages = max(1, (total + page_size - 1) // page_size)

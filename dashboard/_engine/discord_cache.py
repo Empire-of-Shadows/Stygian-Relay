@@ -25,6 +25,13 @@ Usage (in a bot's ``routers/dashboard.py``)::
     channels = await discord_cache.guild_text_channels(guild_id)
     roles = await discord_cache.guild_roles(guild_id)
     bot_id = await discord_cache.bot_id()
+
+Settings validation (added 2026-09-13, additive - the picker payloads above are
+unchanged)::
+
+    role = await discord_cache.guild_role(guild_id, role_id)      # managed / mentionable
+    perms = await discord_cache.bot_channel_permissions(guild_id, channel_id)
+    missing = missing_permissions(perms, ["view_channel", "send_messages"])
 """
 
 from __future__ import annotations
@@ -48,6 +55,84 @@ _GUILDS_TTL = 300.0  # bot guild list + bot id
 _RESOURCE_TTL = 60.0  # per-guild channels/roles/members
 _MAX_MEMBER_ENTRIES = 2000  # guild:user pairs; one page of names is a few dozen at most
 _MAX_GUILD_ENTRIES = 512  # bound on the per-guild caches (oldest evicted)
+
+
+# Discord permission bits used by settings validation (discord.com/developers/docs/topics/permissions).
+PERMISSION_BITS: Dict[str, int] = {
+    "administrator": 1 << 3,
+    "manage_channels": 1 << 4,
+    "add_reactions": 1 << 6,
+    "view_channel": 1 << 10,
+    "send_messages": 1 << 11,
+    "manage_messages": 1 << 13,
+    "embed_links": 1 << 14,
+    "attach_files": 1 << 15,
+    "read_message_history": 1 << 16,
+    "mention_everyone": 1 << 17,
+    "manage_roles": 1 << 28,
+    "manage_threads": 1 << 34,
+    "create_public_threads": 1 << 35,
+    "send_messages_in_threads": 1 << 38,
+}
+_ALL_PERMISSIONS = (1 << 53) - 1
+
+
+def permission_label(name: str) -> str:
+    """'read_message_history' -> 'Read Message History'."""
+    return " ".join(part.capitalize() for part in name.split("_"))
+
+
+def compute_channel_permissions(
+    guild_id: str,
+    roles: List[dict],
+    member_id: str,
+    member_role_ids: List[str],
+    overwrites: List[dict],
+) -> int:
+    """A member's effective permissions in one channel, per Discord's documented order.
+
+    ``roles`` are raw role dicts carrying ``id`` and ``permissions`` (the @everyone
+    role's id is the guild id); ``overwrites`` are the channel's raw
+    ``permission_overwrites`` (``id``, ``type`` 0 role / 1 member, ``allow``, ``deny``).
+    Guild owners are not handled: this is for checking what a BOT can do.
+    """
+    guild_id = str(guild_id)
+    by_id = {str(r["id"]): int(r.get("permissions") or 0) for r in roles}
+    member_roles = {str(r) for r in member_role_ids}
+
+    perms = by_id.get(guild_id, 0)
+    for rid in member_roles:
+        perms |= by_id.get(rid, 0)
+    if perms & PERMISSION_BITS["administrator"]:
+        return _ALL_PERMISSIONS
+
+    ow = {str(o["id"]): o for o in (overwrites or [])}
+    everyone = ow.get(guild_id)
+    if everyone:
+        perms &= ~int(everyone.get("deny") or 0)
+        perms |= int(everyone.get("allow") or 0)
+
+    allow = deny = 0
+    for o in overwrites or []:
+        if int(o.get("type", 0)) == 0 and str(o["id"]) in member_roles:
+            allow |= int(o.get("allow") or 0)
+            deny |= int(o.get("deny") or 0)
+    perms &= ~deny
+    perms |= allow
+
+    member = ow.get(str(member_id))
+    if member and int(member.get("type", 1)) == 1:
+        perms &= ~int(member.get("deny") or 0)
+        perms |= int(member.get("allow") or 0)
+    return perms
+
+
+def missing_permissions(perms: Optional[int], names: List[str]) -> List[str]:
+    """The names in ``names`` that ``perms`` lacks. Empty when ``perms`` is None
+    (could not be computed): callers fail open, like the other lookups here."""
+    if perms is None:
+        return []
+    return [n for n in names if not perms & PERMISSION_BITS[n]]
 
 
 def _token() -> str:
@@ -207,12 +292,18 @@ class DiscordApiCache:
                             "type": ch["type"],
                             "parent_id": ch.get("parent_id"),
                             "position": ch.get("position", 0),
+                            "permission_overwrites": ch.get("permission_overwrites") or [],
                         }
                         for ch in resp.json()
                     ]
                     self._channels.set(guild_id, raw)
 
-        channels = [dict(ch) for ch in raw if ch["type"] in types]
+        # Overwrites stay internal (bot_channel_permissions); the picker payload
+        # keeps its original shape.
+        channels = [
+            {k: v for k, v in ch.items() if k != "permission_overwrites"}
+            for ch in raw if ch["type"] in types
+        ]
         channels.sort(key=lambda c: c["position"])
         return channels
 
@@ -254,6 +345,7 @@ class DiscordApiCache:
                     raw.get("nick") or user.get("global_name") or user.get("username") or ""
                 ),
                 "username": user.get("username") or "",
+                "roles": [str(r) for r in raw.get("roles") or []],
             }
             self._members.set(key, member)
             return member
@@ -262,9 +354,9 @@ class DiscordApiCache:
         """Text channels (type 0) sorted by position. Empty list on failure."""
         return await self.guild_channels(guild_id, types=(0,))
 
-    async def guild_roles(self, guild_id: str) -> List[dict]:
-        """Assignable roles (position > 0, not managed) sorted by position.
-        Empty list on failure."""
+    async def _guild_roles_raw(self, guild_id: str) -> List[dict]:
+        """Every role in the guild, @everyone included, with the fields validation
+        needs (managed, mentionable, permissions). Empty list on failure."""
         guild_id = str(guild_id)
         cached = self._roles.get(guild_id)
         if cached is not None:
@@ -288,13 +380,62 @@ class DiscordApiCache:
                     "name": r["name"],
                     "color": r.get("color", 0),
                     "position": r.get("position", 0),
+                    "managed": bool(r.get("managed", False)),
+                    "mentionable": bool(r.get("mentionable", False)),
+                    "permissions": int(r.get("permissions") or 0),
                 }
                 for r in resp.json()
-                if r.get("position", 0) > 0 and not r.get("managed", False)
             ]
-            roles.sort(key=lambda r: r["position"])
             self._roles.set(guild_id, roles)
             return roles
+
+    async def guild_roles(self, guild_id: str) -> List[dict]:
+        """Assignable roles (position > 0, not managed) sorted by position.
+        Empty list on failure."""
+        raw = await self._guild_roles_raw(guild_id)
+        roles = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "color": r["color"],
+                "position": r["position"],
+            }
+            for r in raw
+            if r["position"] > 0 and not r["managed"]
+        ]
+        roles.sort(key=lambda r: r["position"])
+        return roles
+
+    async def guild_role(self, guild_id: str, role_id: str) -> Optional[dict]:
+        """One role with ``managed``/``mentionable``/``permissions``, or None when it is
+        not in the guild or the roles could not be fetched."""
+        for r in await self._guild_roles_raw(guild_id):
+            if str(r["id"]) == str(role_id):
+                return dict(r)
+        return None
+
+    async def bot_channel_permissions(self, guild_id: str, channel_id: str) -> Optional[int]:
+        """The bot's effective permission bits in a channel, or None when any input
+        (bot id, roles, the bot's member record, the channel) could not be fetched."""
+        guild_id = str(guild_id)
+        bot_id = await self.bot_id()
+        if not bot_id:
+            return None
+        roles = await self._guild_roles_raw(guild_id)
+        if not roles:
+            return None
+        member = await self.guild_member(guild_id, bot_id)
+        if member is None:
+            return None
+        await self.guild_channels(guild_id, types=())  # warm the raw cache
+        raw = self._channels.get(guild_id) or []
+        channel = next((c for c in raw if str(c["id"]) == str(channel_id)), None)
+        if channel is None:
+            return None
+        return compute_channel_permissions(
+            guild_id, roles, bot_id, member.get("roles") or [],
+            channel.get("permission_overwrites") or [],
+        )
 
 
 # Module-level singleton - one cache per dashboard process.

@@ -43,21 +43,34 @@ async def is_guild_premium(guild_id: str) -> bool:
     return (await get_premium_status(str(guild_id)))["is_premium"]
 
 
+#: The defaults the bot writes into ``bot_settings.global_config`` and falls back to when a
+#: key is missing (storage_engine/bot_specific/relay/guild/constants.py::DEFAULT_BOT_SETTINGS).
+#: They MUST match it, or the dashboard would promise a cap the bot does not enforce.
+DEFAULT_LIMITS = {
+    "max_rules_per_guild": 15,
+    "free_tier_daily_limit": 500,
+    "max_rules_premium": 40,
+    "premium_tier_daily_limit": 5000,
+}
+
+
+def _limits_for(settings_doc: dict, premium: bool) -> dict:
+    rules_key = "max_rules_premium" if premium else "max_rules_per_guild"
+    daily_key = "premium_tier_daily_limit" if premium else "free_tier_daily_limit"
+    return {
+        "max_rules": int(settings_doc.get(rules_key, DEFAULT_LIMITS[rules_key])),
+        "daily_limit": int(settings_doc.get(daily_key, DEFAULT_LIMITS[daily_key])),
+    }
+
+
+async def plan_limits() -> dict:
+    """Both plans' limits as the bot enforces them right now, for the side-by-side tables."""
+    settings_doc = await db.bot_settings().find_one({"_id": "global_config"}) or {}
+    return {"free": _limits_for(settings_doc, False), "premium": _limits_for(settings_doc, True)}
+
+
 async def get_guild_limits(guild_id: str) -> dict:
     """Return rule and daily-message limits for the guild based on premium status."""
-    settings_doc = await db.bot_settings().find_one({"_id": "global_config"})
-    settings_doc = settings_doc or {}
+    settings_doc = await db.bot_settings().find_one({"_id": "global_config"}) or {}
     premium = await is_guild_premium(str(guild_id))
-    # Fallbacks MUST match the bot-side enforcement layer
-    # (storage_engine/bot_specific/relay/guild/guild_manager.py::get_guild_limits),
-    # or the dashboard would promise a cap the bot doesn't honour.
-    return {
-        "max_rules": settings_doc.get(
-            "max_rules_premium" if premium else "max_rules_per_guild", 20 if premium else 3
-        ),
-        "daily_limit": settings_doc.get(
-            "premium_tier_daily_limit" if premium else "free_tier_daily_limit",
-            5000 if premium else 100,
-        ),
-        "is_premium": premium,
-    }
+    return {**_limits_for(settings_doc, premium), "is_premium": premium}

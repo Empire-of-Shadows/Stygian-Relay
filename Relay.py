@@ -38,7 +38,7 @@ from startup.sync import load_cogs, attach_databases, log_all_commands
 from startup.phases import log_startup_summary, startup_phase
 from storage.log import setup_application_logging
 from logger.error_reporter import ErrorReporter, ReportingHandler
-from status.idle import rotate_status
+from status.idle import restore_presence, rotate_status
 from storage.settings.collections import db_manager
 from health_endpoint import initialize_health_server, stop_health_server
 
@@ -107,7 +107,9 @@ async def on_ready():
     """
     if getattr(bot, "_init_done", False):
         try:
-            await bot.change_presence(status=discord.Status.online)
+            # Puts the rotation's last activity back too; a bare status change cleared it
+            # until the next rotation, up to about two minutes later.
+            await restore_presence()
             logger.info("🔁 Reconnect detected - presence refreshed, init skipped.")
         except Exception as e:
             logger.error(f"❌ Error refreshing presence on reconnect: {e}")

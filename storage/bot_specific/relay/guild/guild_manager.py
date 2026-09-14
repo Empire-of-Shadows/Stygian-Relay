@@ -855,9 +855,14 @@ class GuildManager:
         is_premium = await self.is_premium_guild(guild_id)
 
         bot_settings = bot_settings or {}
+        # Fallbacks are the defaults this bot writes into global_config itself, so a
+        # missing key enforces the same cap every page advertises (they used to be a
+        # stale 3/100 and 20/5000 nobody had configured).
+        rules_key = "max_rules_premium" if is_premium else "max_rules_per_guild"
+        daily_key = "premium_tier_daily_limit" if is_premium else "free_tier_daily_limit"
         limits = {
-            "max_rules": bot_settings.get("max_rules_premium" if is_premium else "max_rules_per_guild", 20 if is_premium else 3),
-            "daily_limit": bot_settings.get("premium_tier_daily_limit" if is_premium else "free_tier_daily_limit", 5000 if is_premium else 100),
+            "max_rules": bot_settings.get(rules_key, DEFAULT_BOT_SETTINGS[rules_key]),
+            "daily_limit": bot_settings.get(daily_key, DEFAULT_BOT_SETTINGS[daily_key]),
             "is_premium": is_premium
         }
         self.limits_cache.set(guild_id, limits)

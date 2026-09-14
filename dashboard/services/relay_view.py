@@ -151,7 +151,7 @@ async def build_member_view(
     for gid in guild_ids:
         doc = await db.guild_settings().find_one(
             {"guild_id": str(gid)},
-            {"_id": 0, "guild_id": 1, "is_enabled": 1, "features": 1, "rules": 1},
+            {"_id": 0, "guild_id": 1, "features": 1, "rules": 1},
         )
         if not doc:
             out_guilds.append({
@@ -166,9 +166,8 @@ async def build_member_view(
             continue
 
         features = doc.get("features") or {}
-        forwarding_enabled = bool(doc.get("is_enabled", True)) and bool(
-            features.get("forwarding_enabled", True)
-        )
+        # The forwarder's own switch (missing means on, as the bot reads it).
+        forwarding_enabled = bool(features.get("forwarding_enabled", True))
         active = [r for r in (doc.get("rules") or []) if r.get("is_active")]
 
         # One member fetch per guild, shared by every rule in it. The engine caches it

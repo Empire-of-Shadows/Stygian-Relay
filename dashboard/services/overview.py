@@ -282,6 +282,12 @@ async def build_rules(gid: str, settings_doc: dict) -> dict:
         "idle_active": idle_active,
         "newest_at": _iso(newest),
         "routes": routes[:ROUTES_LIMIT],
+        # Every rule's 30-day count, not just the six routes above: the rules page and the
+        # rule editor read it, and used to show "not counted" past the sixth rule.
+        "carried_30d": {
+            str(rule.get("rule_id") or ""): int(per_rule.get(rule.get("rule_id"), 0))
+            for rule in rules if rule.get("rule_id")
+        },
     }
 
 
@@ -376,7 +382,6 @@ async def build_config(gid: str, settings_doc: dict) -> dict:
 
     return {
         "has_config": bool(doc),
-        "is_enabled": bool(doc.get("is_enabled", True)),
         "forwarding_enabled": bool(features.get("forwarding_enabled", True)),
         "notify_on_error": bool(features.get("notify_on_error", True)),
         "log_channel_id": _as_str_id(doc.get("master_log_channel_id")),
@@ -415,9 +420,8 @@ def build_features(
     feature_flags = doc.get("features") or {}
     has_config = bool(doc)
 
-    forwarding_on = bool(doc.get("is_enabled", True)) and bool(
-        feature_flags.get("forwarding_enabled", True)
-    )
+    # The forwarder's own switch, read the way the bot reads it (missing means on).
+    forwarding_on = bool(feature_flags.get("forwarding_enabled", True))
     active_rules = (rules or {}).get("active")
     forwarded_30d = (traffic or {}).get("forwarded_30d")
 
@@ -489,7 +493,7 @@ def build_features(
     if not bool(feature_flags.get("notify_on_error", True)):
         state, detail = "off", "Turned off"
     else:
-        state, detail = "on", "Posts a notice when a forward is blocked"
+        state, detail = "on", "Posts a notice when the daily cap is reached"
     features.append({
         "key": "notify_on_error",
         "label": "Error notices",
@@ -502,7 +506,7 @@ def build_features(
     if not doc.get("master_log_channel_id"):
         state, detail = "off", "No log channel set"
     else:
-        state, detail = "on", "Writing to your log channel"
+        state, detail = "on", "Switched-off rules and premium changes post there"
     features.append({
         "key": "logging",
         "label": "Activity log",

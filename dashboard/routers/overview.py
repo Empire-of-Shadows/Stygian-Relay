@@ -42,7 +42,6 @@ async def guild_overview(guild_id: str, session: dict = Depends(get_current_user
         {"guild_id": gid},
         {
             "_id": 0,
-            "is_enabled": 1,
             "features": 1,
             "master_log_channel_id": 1,
             "manager_role_id": 1,

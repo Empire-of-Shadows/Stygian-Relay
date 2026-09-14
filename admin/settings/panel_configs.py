@@ -2,16 +2,18 @@
 PanelNode trees for the Stygian-Relay settings panel.
 
 Defines four sections (core, features, forwarding_rules, premium) wired to
-storage.bot_specific.relay.guild.guild_manager. Each successful write also writes an audit_log
-entry.
+storage.bot_specific.relay.guild.guild_manager. The engine records every successful panel
+write in the audit log with the member who made it; these handlers write nothing of their
+own (they used to, which put two entries in the change history for every save).
 """
 
 import re
 
 import discord
 
-from storage.bot_specific.relay import audit_log, guild_manager
+from storage.bot_specific.relay import guild_manager
 
+from ..auth import manage_guild_pre_check
 from ..views.panel_engine import PanelNode
 from .forwarding_actions import make_forwarding_rules_node
 
@@ -31,21 +33,11 @@ async def _get_manager_role(guild_id: int) -> list:
 
 async def _set_manager_role(guild_id: int, values: list) -> bool:
     val = str(values[0]) if values else None
-    ok = await guild_manager.update_guild_settings(str(guild_id), {"manager_role_id": val})
-    if ok:
-        await audit_log.log(
-            "settings", str(guild_id), "panel",
-            "set_manager_role" if val else "remove_manager_role",
-            {"role_id": val},
-        )
-    return ok
+    return await guild_manager.update_guild_settings(str(guild_id), {"manager_role_id": val})
 
 
 async def _clear_manager_role(guild_id: int) -> bool:
-    ok = await guild_manager.update_guild_settings(str(guild_id), {"manager_role_id": None})
-    if ok:
-        await audit_log.log("settings", str(guild_id), "panel", "remove_manager_role", {})
-    return ok
+    return await guild_manager.update_guild_settings(str(guild_id), {"manager_role_id": None})
 
 
 # ─── Core: log channel ───────────────────────────────────────────────────────
@@ -57,21 +49,11 @@ async def _get_log_channel(guild_id: int) -> list:
 
 async def _set_log_channel(guild_id: int, values: list) -> bool:
     val = str(values[0]) if values else None
-    ok = await guild_manager.update_guild_settings(str(guild_id), {"master_log_channel_id": val})
-    if ok:
-        await audit_log.log(
-            "settings", str(guild_id), "panel",
-            "set_log_channel" if val else "remove_log_channel",
-            {"channel_id": val},
-        )
-    return ok
+    return await guild_manager.update_guild_settings(str(guild_id), {"master_log_channel_id": val})
 
 
 async def _clear_log_channel(guild_id: int) -> bool:
-    ok = await guild_manager.update_guild_settings(str(guild_id), {"master_log_channel_id": None})
-    if ok:
-        await audit_log.log("settings", str(guild_id), "panel", "remove_log_channel", {})
-    return ok
+    return await guild_manager.update_guild_settings(str(guild_id), {"master_log_channel_id": None})
 
 
 # ─── Feature toggles ─────────────────────────────────────────────────────────
@@ -85,15 +67,9 @@ def _make_toggle_get(feature_key: str):
 
 def _make_toggle_set(feature_key: str):
     async def _set(guild_id: int, enabled: bool) -> bool:
-        ok = await guild_manager.update_guild_settings(
+        return await guild_manager.update_guild_settings(
             str(guild_id), {f"features.{feature_key}": enabled}
         )
-        if ok:
-            await audit_log.log(
-                "settings", str(guild_id), "panel",
-                f"toggle_{feature_key}", {"new_value": enabled},
-            )
-        return ok
     return _set
 
 
@@ -125,28 +101,17 @@ def _validate_inbound_allow(raw: str):
 async def _set_inbound_allow(guild_id: int, values: list) -> bool:
     raw = values[0] if values else ""
     ids = [int(x) for x in raw.split(",") if x] if raw else []
-    ok = await guild_manager.set_inbound_allowed(str(guild_id), ids)
-    if ok:
-        await audit_log.log(
-            "settings", str(guild_id), "panel",
-            "set_inbound_allowed", {"guild_ids": ids},
-        )
-    return ok
+    return await guild_manager.set_inbound_allowed(str(guild_id), ids)
 
 
 async def _clear_inbound_allow(guild_id: int) -> bool:
-    ok = await guild_manager.set_inbound_allowed(str(guild_id), [])
-    if ok:
-        await audit_log.log(
-            "settings", str(guild_id), "panel",
-            "clear_inbound_allowed", {},
-        )
-    return ok
+    return await guild_manager.set_inbound_allowed(str(guild_id), [])
 
 
 # ─── Async descriptions for read-only / informational sections ───────────────
 
 async def _forwarding_rules_description(guild: discord.Guild) -> str:
+    """The live summary shown above the rules list (the list itself names every rule)."""
     gid = str(guild.id)
     rules = await guild_manager.get_guild_rules(gid)
     limits = await guild_manager.get_guild_limits(gid)
@@ -154,33 +119,32 @@ async def _forwarding_rules_description(guild: discord.Guild) -> str:
     active = [r for r in rules if r.get("is_active")]
 
     parts = [
-        f"**Active rules:** {len(active)} / {limits.get('max_rules', 3)}",
-        f"**Messages forwarded today:** {daily:,} / {limits.get('daily_limit', 100):,}",
+        f"**Active rules:** {len(active)} / {limits['max_rules']}",
+        f"**Messages forwarded today:** {daily:,} / {limits['daily_limit']:,}",
+        "",
+        "**Add Rule** creates one; the menu below deletes one. A paused rule is resumed "
+        "from the dashboard's Forwarding rules page.",
     ]
-    if active:
-        parts.append("")
-        parts.append("**Rules:**")
-        for r in active[:10]:
-            src = r.get("source_channel_id")
-            dst = r.get("destination_channel_id")
-            name = r.get("rule_name") or "(unnamed)"
-            parts.append(f"• **{name}** - <#{src}> -> <#{dst}>")
-        if len(active) > 10:
-            parts.append(f"…and {len(active) - 10} more.")
-    else:
-        parts.append("")
-        parts.append("*No active rules. Open **Forwarding Rules** in the panel below to create one.*")
     return "\n".join(parts)
 
 
 async def _premium_description(guild: discord.Guild) -> str:
     gid = str(guild.id)
     state = await guild_manager.get_premium_state(gid)
+    limits = await guild_manager.get_guild_limits(gid)
+    limits_line = (
+        f"**Limits:** {limits['max_rules']} active rules, "
+        f"{limits['daily_limit']:,} forwarded messages a day"
+    )
 
-    if not state or not state.get("is_premium"):
+    # is_premium_guild re-checks the expiry; the stored state keeps saying premium after a
+    # time-limited grant lapses until something recomputes it.
+    if not state or not await guild_manager.is_premium_guild(gid):
         return (
-            "**Status:** Free Tier\n\n"
-            "Premium unlocks more forwarding rules, higher daily limits, and ad-free forwards.\n"
+            "**Status:** Free Tier\n"
+            f"{limits_line}\n\n"
+            "Premium raises both limits and removes the credit line from forwarded copies. "
+            "It is not on sale yet.\n"
             "Run `/premium status` for full details."
         )
 
@@ -190,13 +154,15 @@ async def _premium_description(guild: discord.Guild) -> str:
     if not expires:
         return (
             f"**Status:** ✨ Premium ({tier_str})\n"
-            f"**Expires:** Never\n\n"
+            f"**Expires:** Never\n"
+            f"{limits_line}\n\n"
             f"Run `/premium status` for full details."
         )
     expiry_str = expires.strftime("%Y-%m-%d %H:%M UTC")
     return (
         f"**Status:** Premium ({tier_str})\n"
-        f"**Expires:** {expiry_str}\n\n"
+        f"**Expires:** {expiry_str}\n"
+        f"{limits_line}\n\n"
         f"Run `/premium status` for full details."
     )
 
@@ -217,18 +183,21 @@ CORE_NODE = PanelNode(
             key="manager_role",
             label="Manager Role",
             kind="role_select",
-            description="Role that may open `/admin panel` without Manage Server. It grants the same full access an admin has.",
+            description="Role that may open `/admin panel` without Manage Server. It grants the same full access an admin has. Only members with Manage Server can change it.",
             get_values=_get_manager_role,
             set_values=_set_manager_role,
             clear_values=_clear_manager_role,
             min_values=0,
             max_values=1,
+            # Who has access is Manage Server's call, as on every other bot: a delegated
+            # member must not hand the panel to another role or take it away.
+            pre_check=manage_guild_pre_check,
         ),
         "log_channel": PanelNode(
             key="log_channel",
             label="Log Channel",
             kind="channel_select",
-            description="Channel where the bot posts log messages (premium changes, forwarding errors).",
+            description="Channel where the bot posts rules it had to switch off after repeated delivery failures, and premium changes.",
             get_values=_get_log_channel,
             set_values=_set_log_channel,
             clear_values=_clear_log_channel,

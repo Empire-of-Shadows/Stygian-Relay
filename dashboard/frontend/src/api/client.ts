@@ -1,11 +1,13 @@
 import type {
   AuditLogResponse,
   Channel,
+  ConfigPatch,
   DeleteUserDataResponse,
   Guild,
   GuildConfig,
   GuildOverview,
   Me,
+  PlanLimits,
   PremiumStatus,
   PrivacyFeatures,
   RelayViewResponse,
@@ -16,7 +18,7 @@ import type {
   ScopeGuild,
   StatsResponse,
 } from "./types";
-import { apiFetch } from "../_engine/api/http";
+import { apiFetch, discordLoginUrl } from "../_engine/api/http";
 
 // Re-export the shared transport surface so pages keep importing from "./api/client".
 export {
@@ -26,6 +28,30 @@ export {
   discordLoginUrl,
   logoutUrl,
 } from "../_engine/api/http";
+
+/**
+ * The Discord sign-in link, returning to `path` afterwards.
+ *
+ * The server only honours a full URL on an allowed host, so a bare "/settings/..." path
+ * was dropped and every sign-in landed on /me. This turns a same-site path into an
+ * absolute URL on this origin. Anything else (another site, a protocol-relative "//" or
+ * /login itself) gets the plain sign-in link, so the parameter cannot become an open
+ * redirect.
+ */
+export function signInUrl(path: string | null | undefined): string {
+  if (!path || !path.startsWith("/") || path.startsWith("//") || path.startsWith("/\\")) {
+    return discordLoginUrl();
+  }
+  try {
+    const url = new URL(path, window.location.origin);
+    if (url.origin !== window.location.origin || url.pathname === "/login") {
+      return discordLoginUrl();
+    }
+    return discordLoginUrl(url.href);
+  } catch {
+    return discordLoginUrl();
+  }
+}
 
 export const api = {
   me: () => apiFetch<Me>("/api/me", { suppressAuthHandler: true }),
@@ -54,9 +80,11 @@ export const api = {
     apiFetch<StatsResponse>(`/api/guilds/${gid}/stats?days=${days}`),
 
   premium: (gid: string) => apiFetch<PremiumStatus>(`/api/guilds/${gid}/premium`),
+  // Public: the login page shows the limits before anybody has signed in.
+  planLimits: () => apiFetch<PlanLimits>("/api/plan-limits", { suppressAuthHandler: true }),
 
   config: (gid: string) => apiFetch<GuildConfig>(`/api/guilds/${gid}/config`),
-  saveConfig: (gid: string, patch: Partial<GuildConfig>) =>
+  saveConfig: (gid: string, patch: ConfigPatch) =>
     apiFetch<{ ok: boolean }>(`/api/guilds/${gid}/config`, { method: "PUT", body: JSON.stringify(patch) }),
 
   auditLog: (gid: string, before?: string | null, category?: string | null, limit = 50) => {

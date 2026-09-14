@@ -1,5 +1,66 @@
 # Changelog
 
+## [Unreleased] - 2026-09-13 (walk review fixes)
+
+### Fixed
+- **Long forwarded messages keep their line breaks.** A message too long for one copy used
+  to arrive as one run-on line, with the whole first part shrunk to small grey text. Each
+  part now keeps its lines and its quote.
+- **"Match whole words only" works on real sentences.** "giveaway!" now matches
+  "giveaway", and a phrase such as "free games" matches as a phrase. Before, a word next to
+  punctuation never matched and a phrase could never match at all.
+- **Stickers are copied.** A rule with Stickers turned on now sends the sticker itself in
+  the same server, and links the sticker's image when copying into another server.
+- **"Copy embeds" does something.** Turning it off now hides the link previews on the copy.
+- **A message no rule would forward no longer counts against your limits.** It used to use
+  up the rate limit, trigger the "daily limit reached" notice and show up as blocked, even
+  though no rule wanted it.
+- **Forwarded copies never ping anyone.** A mention in a copied message shows the name
+  without notifying that member, who may not even be in the destination server.
+- **A copy with nothing left to post is skipped** instead of posting a misleading "content
+  omitted due to size limits" notice.
+- **The dashboard's forwarding switch and the Discord panel's switch are now the same
+  switch.** They used to be two different settings, so turning forwarding off in one could
+  leave the other still saying On (or say Off while messages kept being copied).
+- **Only members with Manage Server can change the Manager Role**, in the panel and on the
+  dashboard. A member who held only the Manager Role could hand it to another role or
+  remove it.
+- **The dashboard now refuses rules and log channels the Discord panel refuses:** the same
+  channel twice, a channel the bot cannot see or post in, or a server that has not allowed
+  forwards from yours. Those used to save and then forward nothing.
+- **The Discord rule wizard checks that I can see the channel you pick to watch.** A rule
+  on a channel I could not read used to save and never forward anything.
+- **A channel the wizard refused can be picked again** once its permissions are fixed.
+- **The Forwarding Rules list and the Premium section in the panel show their live
+  summaries** (active rules, today's count, your plan and limits) instead of a fixed line.
+- **Each panel change appears once in Change history**, with who made it, and every panel
+  and bot action now reads as a sentence. Rules deleted in the panel and rules paused by the
+  bot are listed under Forwarding rules.
+- **A rule the bot switches off after repeated failures is recorded in Change history**, and
+  its log channel notice now says to resume it from the dashboard (the panel cannot).
+- **/premium status no longer says "Premium Active" after premium has ended**, and it only
+  works inside a server.
+- **Premium granted or removed by the Empire of Shadows team is posted to your log channel.**
+- **The limits shown everywhere are the limits the bot enforces.** The login page, Plan page
+  and code fallbacks said 3 rules and 100 messages a day free (20 and 5,000 premium); the
+  bot actually allows 15 and 500 (40 and 5,000).
+- **The rules page shows how much every rule carried**, not just the busiest six.
+- **Member ID boxes in the rule editor accept commas and spaces as you type.**
+- **Signing in from a link returns you to that page** instead of the dashboard home.
+- **The bot's status rotates through all its activities** instead of mostly "playing", and
+  keeps its activity after a reconnect.
+- **The welcome message picks a channel where it can actually be shown.**
+- **Error reports reach the bot owner by email again.** The report template was cut off, so
+  every email failed.
+- **Both health checks report a database outage.**
+
+### Changed
+- **Wording fixed across /help, the setup guide, the dashboard and the privacy policy.**
+  Forwarding is on for a new server, the notice switch is the Daily Limit Notice, a burst
+  of messages is cut back rather than queued, and premium is not on sale yet. The privacy
+  policy now says that removing the bot deletes the server's settings and rules straight
+  away.
+
 ## [Unreleased] - 2026-08-31 (one address per server, and clearer menu names)
 
 ### Changed

@@ -58,11 +58,13 @@ export function RulesPage() {
     return () => { cancelled = true; };
   }, [guildId]);
 
-  /** rule_id -> messages carried in 30 days. Absent means "no figure", not zero. */
+  /** rule_id -> messages carried in 30 days, for every rule. Absent means "no figure",
+   *  not zero. (It used to be built from the overview's top six routes only, so every
+   *  rule past the sixth read "not counted".) */
   const carried = useMemo(() => {
     const map = new Map<string, number>();
-    for (const route of overview?.rules?.routes ?? []) {
-      map.set(route.rule_id, route.forwarded_30d);
+    for (const [ruleId, count] of Object.entries(overview?.rules?.carried_30d ?? {})) {
+      map.set(ruleId, count);
     }
     return map;
   }, [overview]);

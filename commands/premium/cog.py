@@ -299,8 +299,17 @@ class PremiumCog(commands.Cog):
 
     @premium.command(name="status", description="Check this server's premium status")
     async def status(self, interaction: discord.Interaction):
+        if interaction.guild_id is None:
+            await interaction.response.send_message(
+                "This command can only be used in a server.", ephemeral=True,
+            )
+            return
         await interaction.response.defer(ephemeral=True)
         gid = str(interaction.guild_id)
+        # is_premium re-checks the expiry and refreshes the stored state when a
+        # time-limited grant has lapsed; reading the stored state alone kept showing
+        # "Premium Active" with an expiry in the past.
+        await self.premium_manager.is_premium_guild(gid)
         state = await self.premium_manager.get_guild_state(gid)
         limits = await self.guild_manager.get_guild_limits(gid) if self.guild_manager else {}
 
@@ -320,8 +329,8 @@ class PremiumCog(commands.Cog):
         else:
             embed.add_field(name="Status", value="Free Tier", inline=True)
             embed.description = (
-                "Upgrade to Premium to unlock more forwarding rules, higher daily limits, and "
-                "ad-free forwards."
+                "Premium raises the rule and daily limits and removes the credit line from "
+                "forwarded copies. It is not on sale yet."
             )
         if limits:
             embed.add_field(name="Max Rules", value=str(limits.get("max_rules", "-")), inline=True)
@@ -423,8 +432,16 @@ class PremiumCog(commands.Cog):
         tier = tier or (self.settings.tier_priority[0] if self.settings.tier_priority else "premium")
         duration = days if (days and days > 0) else None
 
+        old_state = await self.premium_manager.get_state(SCOPE_GUILD, target)
         record = await self.premium_manager.grant_manual(
             SCOPE_GUILD, target, tier, duration_days=duration, actor_id=str(interaction.user.id),
+        )
+        # The same side effects as a Discord entitlement: the server's log channel is told,
+        # premium roles sync and the bot-internal premium event fires. Manual grants are the
+        # only premium there is until SKUs exist, so without this nothing ever posted.
+        new_state = await self.premium_manager.get_state(SCOPE_GUILD, target)
+        await self._apply_side_effects(
+            SCOPE_GUILD, target, old_state, new_state, source=SOURCE_MANUAL, lapsed=False,
         )
         if self.audit_log:
             await self.audit_log.log(
@@ -444,7 +461,12 @@ class PremiumCog(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
         target = str(guild_id).strip() if guild_id else str(interaction.guild_id)
+        old_state = await self.premium_manager.get_state(SCOPE_GUILD, target)
         count = await self.premium_manager.revoke_manual(SCOPE_GUILD, target)
+        new_state = await self.premium_manager.get_state(SCOPE_GUILD, target)
+        await self._apply_side_effects(
+            SCOPE_GUILD, target, old_state, new_state, source=SOURCE_MANUAL, lapsed=False,
+        )
         if self.audit_log:
             await self.audit_log.log(
                 category="premium", guild_id=target, actor_id=str(interaction.user.id),

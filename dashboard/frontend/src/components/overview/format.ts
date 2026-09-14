@@ -21,7 +21,7 @@
 const REASON_META: Record<string, { label: string; help: string; color: string }> = {
   perm_failure: {
     label: "Could not deliver",
-    help: "The destination channel is missing, or the bot cannot post there.",
+    help: "The destination channel is missing, the bot cannot post there, or the destination server no longer allows forwards from here.",
     color: "var(--danger)",
   },
   daily_limit_hit: {
@@ -31,7 +31,7 @@ const REASON_META: Record<string, { label: string; help: string; color: string }
   },
   rate_limited: {
     label: "Slowed down",
-    help: "Bursts throttled so forwarding stays smooth.",
+    help: "More than about ten messages a second arrived, and the extra ones were not copied.",
     color: "var(--warning)",
   },
 };

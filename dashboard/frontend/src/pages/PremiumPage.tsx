@@ -18,17 +18,11 @@ import { planLabel, reasonLabel } from "../components/overview/format";
  * are actually in use against the cap, how close today's traffic is to the daily cap, and
  * how many messages the cap has actually cost this server.
  *
- * The free and premium figures are the REAL limits the backend enforces
- * (dashboard/services/premium.py's fallbacks, which mirror the bot's own
- * GuildManager.get_guild_limits), not marketing copy - so the table cannot drift away
- * from what a purchase actually buys.
+ * The free and premium figures come from the API (`plans`), read from the same bot
+ * settings the bot enforces, so the table cannot drift away from what the plans really
+ * give. They used to be constants here (3/100 and 20/5,000) that matched nothing the bot
+ * had configured.
  */
-
-/** The fallbacks in dashboard/services/premium.py::get_guild_limits. */
-const FREE_MAX_RULES = 3;
-const FREE_DAILY_LIMIT = 100;
-const PREMIUM_MAX_RULES = 20;
-const PREMIUM_DAILY_LIMIT = 5000;
 
 export function PremiumPage() {
   const { guildId } = useParams<{ guildId: string }>();
@@ -124,8 +118,8 @@ export function PremiumPage() {
             <Divider />
             <p className="ov-muted">
               {premium.is_premium
-                ? "Premium is managed through Discord. Changes there appear here on their own, usually within a minute or two."
-                : "Premium is bought through Discord, from the bot's profile. Once it is active it shows up here on its own - there is nothing to enter."}
+                ? "This server has Premium. Any change to it shows up here on its own, usually within a minute."
+                : "Premium is not on sale yet. When this server has it, it shows up here on its own - there is nothing to enter."}
             </p>
           </Tile>
 
@@ -199,14 +193,14 @@ export function PremiumPage() {
             <div className="ov-cols ov-cols--2">
               <div>
                 <span className="ov-card__title">Free</span>
-                <KeyValue k="Rules" v={String(FREE_MAX_RULES)} />
-                <KeyValue k="Messages per day" v={formatCount(FREE_DAILY_LIMIT)} />
+                <KeyValue k="Rules" v={String(premium.plans.free.max_rules)} />
+                <KeyValue k="Messages per day" v={formatCount(premium.plans.free.daily_limit)} />
                 <KeyValue k="Forwarded messages" v="carry a small footer" />
               </div>
               <div>
                 <span className="ov-card__title">Premium</span>
-                <KeyValue k="Rules" v={String(PREMIUM_MAX_RULES)} />
-                <KeyValue k="Messages per day" v={formatCount(PREMIUM_DAILY_LIMIT)} />
+                <KeyValue k="Rules" v={String(premium.plans.premium.max_rules)} />
+                <KeyValue k="Messages per day" v={formatCount(premium.plans.premium.daily_limit)} />
                 <KeyValue k="Forwarded messages" v="no footer" />
               </div>
             </div>
@@ -248,7 +242,7 @@ export function PremiumPage() {
                   in a day, nothing more is copied until midnight UTC.
                   {premium.is_premium
                     ? " That is the premium allowance, so a higher one is not available."
-                    : ` Premium raises the allowance to ${formatCount(PREMIUM_DAILY_LIMIT)} a day.`}
+                    : ` Premium raises the allowance to ${formatCount(premium.plans.premium.daily_limit)} a day.`}
                 </p>
                 <Link className="ov-link" to={`/settings/guilds/${guildId}/stats`}>
                   See the full breakdown

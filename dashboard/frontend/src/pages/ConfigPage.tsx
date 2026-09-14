@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
-import type { Channel, GuildConfig, GuildOverview, Role } from "../api/types";
+import type { Channel, ConfigPatch, GuildConfig, GuildOverview, Role } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import {
   ChannelField,
@@ -39,14 +39,14 @@ type Slug = "forwarding" | "cross_server" | "logging" | "access";
 
 /** The draft fields each rail entry owns. Save and dirty-checking both use it. */
 type DraftField =
-  | "is_enabled"
+  | "forwarding_enabled"
   | "notify_on_error"
   | "inbound_text"
   | "master_log_channel_id"
   | "manager_role_id";
 
 interface Draft {
-  is_enabled: boolean;
+  forwarding_enabled: boolean;
   notify_on_error: boolean;
   master_log_channel_id: string | null;
   manager_role_id: string | null;
@@ -73,15 +73,15 @@ const RAIL_GROUPS: { name: string; items: RailItem[] }[] = [
         label: "Forwarding",
         title: "Forwarding",
         blurb:
-          "The master switch for this server. With it off, no rule fires and nothing is copied anywhere, however many rules you have. Error notices are the short in-channel message the bot posts when it has to stop forwarding.",
-        fields: ["is_enabled", "notify_on_error"],
+          "The master switch for this server, the same one as Message Forwarding in the Discord panel. With it off, no rule fires and nothing is copied anywhere, however many rules you have. The daily limit notice is the short in-channel message the bot posts when the daily cap is reached.",
+        fields: ["forwarding_enabled", "notify_on_error"],
         search: [
           "Forwarding enabled",
           "Master switch",
           "Turn the bot on or off",
-          "Error notices",
+          "Daily limit notice",
           "Notify on error",
-          "Rate limit warning",
+          "Daily cap warning",
         ],
       },
       {
@@ -103,7 +103,7 @@ const RAIL_GROUPS: { name: string; items: RailItem[] }[] = [
         label: "Activity log",
         title: "Activity log",
         blurb:
-          "A channel where the bot writes what it is doing - premium changes, errors, and rules it had to switch off. Leave it unset and the bot simply keeps quiet.",
+          "A channel where the bot posts the rules it had to switch off after repeated delivery failures, and premium changes. Leave it unset and the bot simply keeps quiet.",
         fields: ["master_log_channel_id"],
         search: ["Log channel", "Master log channel", "Activity log", "Where errors are posted"],
       },
@@ -117,7 +117,7 @@ const RAIL_GROUPS: { name: string; items: RailItem[] }[] = [
         label: "Who can manage",
         title: "Who can manage",
         blurb:
-          "Members with this role get the same access to the admin panel and this dashboard as someone with Manage Server. It is full access, not a limited tier. Everyone else sees nothing here.",
+          "Members with this role get the same access to the admin panel and this dashboard as someone with Manage Server. It is full access, not a limited tier. Only members with Manage Server can change it. Everyone else sees nothing here.",
         fields: ["manager_role_id"],
         search: [
           "Manager role",
@@ -154,13 +154,12 @@ export function parseGuildIds(raw: string): string[] {
 }
 
 function toDraft(config: GuildConfig): Draft {
-  const features = config.features ?? {};
-  const notify = features["notify_on_error"];
+  const features = config.features;
   return {
-    is_enabled: config.is_enabled ?? true,
-    // Matches the bot's own default (DEFAULT_GUILD_SETTINGS_TEMPLATE), so a
-    // config written before this switch existed reads as on, not off.
-    notify_on_error: notify === undefined ? true : Boolean(notify),
+    // The forwarder's own switch - the one the Discord panel writes. The API reads a
+    // missing switch as on, matching the bot.
+    forwarding_enabled: features?.forwarding_enabled ?? true,
+    notify_on_error: features?.notify_on_error ?? true,
     master_log_channel_id: config.master_log_channel_id ?? null,
     manager_role_id: config.manager_role_id ?? null,
     inbound_text: (config.inbound_allowed_guilds ?? []).join(", "),
@@ -328,17 +327,14 @@ export function ConfigPage() {
   };
 
   /** Build the wire patch for one rail entry - only the fields that changed. */
-  const patchFor = (item: RailItem): Partial<GuildConfig> => {
-    const patch: Partial<GuildConfig> = {};
+  const patchFor = (item: RailItem): ConfigPatch => {
+    const patch: ConfigPatch = {};
     for (const field of item.fields) {
       if (!fieldDirty(field, draft, saved)) continue;
-      if (field === "is_enabled") {
-        patch.is_enabled = draft.is_enabled;
-      } else if (field === "notify_on_error") {
-        // Sent as a features patch, which the API expands to a dotted
-        // `features.notify_on_error` write. It deliberately does not carry
-        // `forwarding_enabled`, so the API's is_enabled mirroring still runs.
-        patch.features = { ...(patch.features ?? {}), notify_on_error: draft.notify_on_error };
+      if (field === "forwarding_enabled" || field === "notify_on_error") {
+        // Sent as a features patch, which the API expands to dotted
+        // `features.<switch>` writes - only the switches that changed.
+        patch.features = { ...(patch.features ?? {}), [field]: draft[field] };
       } else if (field === "master_log_channel_id") {
         patch.master_log_channel_id = draft.master_log_channel_id || null;
       } else if (field === "manager_role_id") {
@@ -488,12 +484,12 @@ export function ConfigPage() {
                 <FRow full>
                   <ToggleField
                     label="Forward messages in this server"
-                    value={draft.is_enabled}
-                    onChange={(v) => update({ is_enabled: v })}
+                    value={draft.forwarding_enabled}
+                    onChange={(v) => update({ forwarding_enabled: v })}
                     description="Off means no rule fires, whatever it is set to."
                   />
                   <ToggleField
-                    label="Post a notice when forwarding is blocked"
+                    label="Post a notice when the daily cap is reached"
                     value={draft.notify_on_error}
                     onChange={(v) => update({ notify_on_error: v })}
                     description="A short message in the source channel when the daily cap is hit, so nobody wonders where their message went. It deletes itself after a minute."
@@ -545,7 +541,7 @@ export function ConfigPage() {
                     value={draft.manager_role_id}
                     roles={roleOptions}
                     onChange={(v) => update({ manager_role_id: v })}
-                    description="One role only. Holding it is the same as having Manage Server as far as this bot is concerned."
+                    description="One role only. Holding it is the same as having Manage Server as far as this bot is concerned. Changing it needs Manage Server itself."
                   />
                 </FRow>
               </Fieldset>
@@ -616,7 +612,7 @@ function railBadge(
 ): { text: string; tone: string } {
   switch (slug) {
     case "forwarding": {
-      if (!draft.is_enabled) return { text: "Off", tone: "" };
+      if (!draft.forwarding_enabled) return { text: "Off", tone: "" };
       const active = overview?.rules?.active;
       if (typeof active === "number" && active === 0) {
         return { text: "Set up", tone: "warn" };

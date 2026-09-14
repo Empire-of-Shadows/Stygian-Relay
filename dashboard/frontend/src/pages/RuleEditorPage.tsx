@@ -183,8 +183,8 @@ export function RuleEditorPage() {
 
   const carried = useMemo(() => {
     if (isNew || !ruleId) return null;
-    const route = overview?.rules?.routes.find((r) => r.rule_id === ruleId);
-    return route ? route.forwarded_30d : null;
+    const count = overview?.rules?.carried_30d?.[ruleId];
+    return count === undefined ? null : count;
   }, [overview, ruleId, isNew]);
 
   const channelName = (id: string | null): string | null => {
@@ -396,7 +396,7 @@ export function RuleEditorPage() {
                   label="Match whole words only"
                   value={advanced.whole_word_only}
                   onChange={(v) => setAdvanced({ ...advanced, whole_word_only: v })}
-                  description="On means 'art' no longer matches inside 'start'."
+                  description="On means 'art' no longer matches inside 'start'. Punctuation next to a word still matches, and a phrase matches as a whole."
                 />
               </FRow>
             </Fieldset>
@@ -447,7 +447,7 @@ export function RuleEditorPage() {
                   label="Copy embeds"
                   value={formatting.forward_embeds}
                   onChange={(v) => setFormatting({ ...formatting, forward_embeds: v })}
-                  description="Keeps link previews and rich embeds on the copy."
+                  description="Keeps link previews on the copy. Off posts the copy with its link previews hidden."
                 />
               </FRow>
               <FRow full>
@@ -752,7 +752,11 @@ function NumberField({
   );
 }
 
-/** Member IDs as a comma or space separated list. IDs never contain either. */
+/** Member IDs as a comma or space separated list. IDs never contain either.
+ *
+ * The box keeps what was typed as raw text and hands the parsed list up on every change.
+ * It used to display the parsed list re-joined, which erased a comma or space the moment
+ * it was typed, so a second ID could only be pasted. */
 function IdListField({
   label,
   values,
@@ -764,6 +768,15 @@ function IdListField({
   onChange: (v: string[]) => void;
   description?: string;
 }) {
+  const [text, setText] = useState(values.join(", "));
+  // Follow a value set from outside (the rule loading) without fighting the typing.
+  useEffect(() => {
+    if (JSON.stringify(parseIds(text)) !== JSON.stringify(values)) {
+      setText(values.join(", "));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values]);
+
   return (
     <div className="eos-field">
       <label>{label}</label>
@@ -772,9 +785,12 @@ function IdListField({
       )}
       <input
         type="text"
-        value={values.join(", ")}
+        value={text}
         placeholder="123456789012345678"
-        onChange={(e) => onChange(parseIds(e.target.value))}
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(parseIds(e.target.value));
+        }}
       />
       <p className="eos-muted" style={{ marginTop: 6, marginBottom: 0 }}>
         {values.length === 0 ? "None set" : `${values.length} listed`}

@@ -19,7 +19,10 @@ logger = logging.getLogger("idle")
 # You can tweak these to your taste
 ROTATE_MIN_SECONDS = 120  # 2 minutes
 ROTATE_MAX_SECONDS = 140  # ~2.3 minutes
-NO_REPEAT_WINDOW = 15  # avoid repeating the same type within last N rotations
+# Avoid repeating a type used within the last N rotations. Must stay below the number of
+# activity types (5): at 15 every type was "recent" after five rotations, so the fallback
+# picked "playing" about three times in four.
+NO_REPEAT_WINDOW = 2
 
 # Heuristic weights per activity type (higher = more likely).
 # Types with no available phrases (or no streaming URL) are ignored at runtime.
@@ -40,28 +43,26 @@ status_options: Dict[str, List[str] | Dict[str, List[str] | str]] = {
         "ping pong with {latency_ms}ms 🏓",
         "forwarding messages across {guilds} servers 🌐",
         "crafting custom rule logic 🧠",
-        "in development: expect updates! ✨",
-        "use `/admin` to get started! ⚙️",
+        "use `/admin panel` to get started! ⚙️",
     ],
     "watching": [
-        "for `/admin` to manage rules 💬",
+        "for `/admin panel` to manage rules 💬",
         "new rule creations 🆕",
-        "development logs scroll 📜",
+        "messages hop between servers 📜",
         "over {users} users 🧮",
         "for incoming messages to relay 📬",
         "the web dashboard 🖥️",
     ],
     "listening": [
-        "for `/admin` commands 🆘",
+        "for `/help` requests 🆘",
         "for feedback 🗣️",
         "for commands on {guilds} servers 🌐",
-        "for `/admin` to manage rules ⚙️",
-        "bot developer' discussions 💬",
+        "for `/admin panel` to manage rules ⚙️",
     ],
     "competing": [
         "with other bots to be helpful 🏆",
         "to assist {users} users efficiently 🏁",
-        "in an ongoing development sprint 🚀",
+        "to deliver every message on time 🚀",
         "to make forwarding seamless 🎯",
     ],
     "streaming": {
@@ -78,6 +79,10 @@ status_options: Dict[str, List[str] | Dict[str, List[str] | str]] = {
 }
 
 _last_types = deque(maxlen=NO_REPEAT_WINDOW)
+
+# The activity most recently shown, so a gateway reconnect can put it back: Discord does not
+# keep a bot's presence across a new session and discord.py does not re-send it.
+last_activity: Optional[discord.BaseActivity] = None
 
 
 def _stream_url_ok(url: Optional[str]) -> bool:
@@ -424,6 +429,8 @@ async def rotate_status():
 
             logger.debug("Step 3: Updating bot presence")
             await bot.change_presence(status=discord.Status.online, activity=activity)
+            global last_activity
+            last_activity = activity
             logger.info("✅ Bot presence updated successfully")
 
             # Track last types to reduce repetition
@@ -446,6 +453,11 @@ async def rotate_status():
     except Exception as e:
         logger.error(f"Unexpected error during status rotation: {e}", exc_info=True)
         logger.debug("Status rotation failed, but loop will continue")
+
+
+async def restore_presence() -> None:
+    """Re-send Online plus the last activity after a reconnect (nothing until one was set)."""
+    await bot.change_presence(status=discord.Status.online, activity=last_activity)
 
 
 @rotate_status.before_loop

@@ -20,7 +20,12 @@ import { Link } from "react-router-dom";
 //   - Section 8 now points at the member's own controls, which did not exist before.
 //
 // Renumbering: the new section 3 pushed every later heading down by one.
-const EFFECTIVE_DATE = "August 13, 2026";
+//
+// Corrected 2026-09-13: section 7 said removing the bot deletes nothing and that a
+// server's configuration and rules stay until someone deletes them. The bot deletes both
+// the moment it is removed (GuildManager.remove_guild_data); only the records listed
+// there run out their lifetime.
+const EFFECTIVE_DATE = "September 13, 2026";
 
 export function PrivacyPolicyPage() {
   return (
@@ -159,9 +164,9 @@ export function PrivacyPolicyPage() {
             in your server. Login sessions expire automatically after about 30 days.
           </p>
           <p>
-            <strong>If the bot is removed from a server, this is exactly what survives and for how
-            long.</strong> Removal does not trigger a deletion; the records already written simply
-            run out their normal lifetime:
+            <strong>If the bot is removed from a server,</strong> that server's configuration
+            and every one of its forwarding rules are deleted straight away. This is exactly
+            what survives, and for how long:
           </p>
           <ul>
             <li>
@@ -189,9 +194,9 @@ export function PrivacyPolicyPage() {
             </li>
           </ul>
           <p>
-            Everything else - the server's configuration and its forwarding rules - stays until it
-            is deleted from the dashboard or the bot's admin panel, or until an administrator asks
-            us to remove it.
+            While the bot stays in a server, its configuration and forwarding rules stay until they
+            are changed or deleted from the dashboard or the bot's admin panel, or until an
+            administrator asks us to remove them.
           </p>
         </section>
 

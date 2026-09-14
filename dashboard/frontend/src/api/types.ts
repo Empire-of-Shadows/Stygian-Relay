@@ -186,6 +186,17 @@ export interface StatsResponse {
   blocked_by_reason: BlockedReason[];
 }
 
+/** One plan's limits, as the bot enforces them. */
+export interface PlanLimit {
+  max_rules: number;
+  daily_limit: number;
+}
+
+export interface PlanLimits {
+  free: PlanLimit;
+  premium: PlanLimit;
+}
+
 export interface PremiumStatus {
   guild_id: string;
   tier: string;
@@ -194,17 +205,31 @@ export interface PremiumStatus {
   expires_at: string | null;
   max_rules: number;
   daily_limit: number;
+  plans: PlanLimits;
+}
+
+/** The two switches. A missing one reads as on, the way the bot reads it. */
+export interface GuildFeatures {
+  forwarding_enabled: boolean;
+  notify_on_error: boolean;
 }
 
 export interface GuildConfig {
   guild_id: string;
   master_log_channel_id: string | null;
   manager_role_id: string | null;
-  is_enabled: boolean;
   premium_tier: string | null;
-  features: Record<string, unknown>;
+  features: GuildFeatures;
   limits: Record<string, unknown>;
   inbound_allowed_guilds: string[];
+}
+
+/** A settings save: only the fields being changed. */
+export interface ConfigPatch {
+  master_log_channel_id?: string | null;
+  manager_role_id?: string | null;
+  features?: Partial<GuildFeatures>;
+  inbound_allowed_guilds?: string[];
 }
 
 export interface AuditLogEntry {
@@ -268,6 +293,8 @@ export interface RulesOverview {
   idle_active: number;
   newest_at: string | null;
   routes: OverviewRoute[];
+  /** Every rule's 30-day count, keyed by rule id (routes above are only the top six). */
+  carried_30d: Record<string, number>;
 }
 
 export interface DeliveryReason {
@@ -293,7 +320,6 @@ export interface PlanOverview {
 
 export interface ConfigOverview {
   has_config: boolean;
-  is_enabled: boolean;
   forwarding_enabled: boolean;
   notify_on_error: boolean;
   log_channel_id: string | null;

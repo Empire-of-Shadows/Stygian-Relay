@@ -44,22 +44,26 @@ SETUP_GUIDE_TEXT = (
     "across servers. Work through the sections below to go live:\n"
     "\n"
     "**1\\. Core** - Set a **Manager Role** to give trusted members the same full "
-    "panel access an admin has without granting them Manage Server, and a "
-    "**Log Channel** where the bot posts activity and errors.\n"
-    "**2\\. Feature Toggles** - Turn on **Message Forwarding** (the master "
-    "switch; while it is off, no rules fire). Optionally enable **Error "
-    "Notifications** for in-channel alerts, and use the **Inbound Forward "
-    "Allowlist** to choose which other servers may forward messages into this "
-    "one.\n"
+    "panel access an admin has without granting them Manage Server (only Manage "
+    "Server can change it), and a **Log Channel** where the bot posts rules it had "
+    "to switch off and premium changes.\n"
+    "**2\\. Feature Toggles** - **Message Forwarding** is the master switch and "
+    "starts on; turn it off to pause every rule. **Daily Limit Notice** posts a "
+    "short message when the daily cap is reached, and the **Inbound Forward "
+    "Allowlist** chooses which other servers may forward messages into this one.\n"
     "**3\\. Forwarding Rules** - Add a rule for each source to destination pair "
     "you want mirrored. This section also shows your active rules and how many "
     "messages have been forwarded today.\n"
-    "**4\\. Premium** - Check your subscription status and per-server limits "
-    "(rules and daily forwards). Run `/premium status` for full details.\n"
+    "**4\\. Premium** - Your plan and per-server limits (rules and daily "
+    "forwards). Run `/premium status` for full details.\n"
     "\n"
     "You can hide this guide any time with the button below."
 )
 OVERVIEW_FOOTER = ""
+
+# How the /admin panel refusal names relay's delegated access role (engine default:
+# "a configured Panel Access role", a setting relay does not have).
+PANEL_ACCESS_ROLE_PHRASE = "the Manager Role"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────────
@@ -121,8 +125,10 @@ def invalidate_caches(guild_id: int) -> None:
     """Drop this guild's cached settings + premium status (writes already invalidate the
     settings cache; this also covers out-of-band edits)."""
     try:
-        guild_manager.settings_cache.invalidate(str(guild_id))
-        guild_manager.premium_cache.invalidate(str(guild_id))
+        # The settings cache is the engine GuildConfigStore behind guild_manager (it
+        # replaced the old settings_cache, whose name here raised and skipped the rest).
+        guild_manager._settings_store.invalidate(str(guild_id))
+        guild_manager._invalidate_premium(str(guild_id))
     except Exception as e:  # best-effort: never block a save
         logger.debug(f"invalidate_caches skipped for {guild_id}: {e}")
 
@@ -141,9 +147,13 @@ async def audit_log_entry(
     action: str,
 ) -> None:
     """Record an admin-driven mutation via the bot's audit log
-    (``log(category, guild_id, actor_id, action, payload)``)."""
+    (``log(category, guild_id, actor_id, action, payload)``).
+
+    A change to the Forwarding Rules list (a panel delete) is filed under "rules", the
+    category the dashboard's "Forwarding rules" filter reads; everything else is "settings".
+    """
     await audit_log.log(
-        "settings",
+        "rules" if section == "forwarding_rules" else "settings",
         str(guild_id),
         str(actor_id),
         f"{action}:{section}.{key}",

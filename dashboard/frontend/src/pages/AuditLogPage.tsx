@@ -75,10 +75,77 @@ function describe(entry: AuditLogEntry): string {
         : "Changed the server settings.";
     case "set_manager_role":
       return "Changed which role can manage the relay.";
-    default:
+    case "remove_manager_role":
+      return "Removed the Manager Role.";
+    case "set_log_channel":
+      return "Changed the log channel.";
+    case "remove_log_channel":
+      return "Cleared the log channel.";
+    case "set_inbound_allowed":
+      return "Changed the cross-server allowlist.";
+    case "clear_inbound_allowed":
+      return "Cleared the cross-server allowlist.";
+    case "toggle_forwarding_enabled":
+      return `Turned forwarding ${p.new_value ? "on" : "off"}.`;
+    case "toggle_notify_on_error":
+      return `Turned the daily limit notice ${p.new_value ? "on" : "off"}.`;
+    case "auto_clear_manager_role":
+      return "The Manager Role was deleted in Discord, so it was cleared.";
+    case "auto_clear_log_channel":
+      return "The log channel was deleted in Discord, so it was cleared.";
+    case "auto_deactivate_rule":
+      return str("reason")
+        ? `Paused the forwarding rule "${ruleName}" automatically (${str("reason")}).`
+        : `Paused the forwarding rule "${ruleName}" automatically.`;
+    case "grant": {
+      const days = str("days");
+      return days ? `Granted premium for ${days} days.` : "Granted premium with no end date.";
+    }
+    case "revoke":
+      return "Removed the manually granted premium.";
+    default: {
+      // The Discord panel's own entries: "<action>:<section>.<setting>".
+      const panel = /^(\w+):([\w-]+)\.([\w-]+)$/.exec(entry.action);
+      if (panel) return describePanel(panel[1], panel[2], panel[3], p);
       // Unknown action: say what the raw name was rather than inventing a sentence, so a
       // new action is visible here the day it ships.
       return entry.action ? entry.action.replace(/_/g, " ") : "Made a change.";
+    }
+  }
+}
+
+/** A change made in the Discord admin panel, as a sentence. */
+function describePanel(
+  action: string,
+  section: string,
+  key: string,
+  p: Record<string, unknown>,
+): string {
+  const cleared = action === "clear";
+  if (action === "create" && (key === "manager_role" || key === "log_channel")) {
+    return key === "manager_role"
+      ? "Created a new role in the Discord panel and made it the Manager Role."
+      : "Created a new channel in the Discord panel and made it the log channel.";
+  }
+  // Older entries name the list's previous key (manage_rules); the section is stable.
+  if (section === "forwarding_rules") {
+    return action === "delete"
+      ? "Deleted a forwarding rule in the Discord panel."
+      : "Changed the forwarding rules in the Discord panel.";
+  }
+  switch (key) {
+    case "manager_role":
+      return cleared ? "Removed the Manager Role." : "Changed which role can manage the relay.";
+    case "log_channel":
+      return cleared ? "Cleared the log channel." : "Changed the log channel.";
+    case "inbound_allowlist":
+      return cleared ? "Cleared the cross-server allowlist." : "Changed the cross-server allowlist.";
+    case "forwarding":
+      return `Turned forwarding ${p.new_value ? "on" : "off"} in the Discord panel.`;
+    case "notify_on_error":
+      return `Turned the daily limit notice ${p.new_value ? "on" : "off"} in the Discord panel.`;
+    default:
+      return `Changed ${key.replace(/_/g, " ")} in the Discord panel.`;
   }
 }
 
@@ -101,6 +168,9 @@ function humanFields(fields: string[]): string {
 function actorLabel(entry: AuditLogEntry): string {
   const name = entry.payload?.actor_name;
   if (typeof name === "string" && name.trim()) return name;
+  // The bot's own events, and the panel's older duplicate entries, carry a word, not an id.
+  if (entry.actor_id === "system") return "Stygian Relay";
+  if (entry.actor_id === "panel") return "Discord panel";
   return entry.actor_id || "unknown";
 }
 

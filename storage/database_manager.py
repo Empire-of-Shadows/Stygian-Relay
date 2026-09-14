@@ -30,6 +30,7 @@ file. Both resolve through :meth:`get_collection_manager`.
 
 import os
 import json
+import time
 import asyncio
 from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional
@@ -51,6 +52,15 @@ from .logging_compat import get_logger
 
 load_dotenv()
 logger = get_logger("DatabaseManager")
+
+# Background database health probe (see ``DatabaseManagerBase.is_healthy``). The bot's /health
+# endpoint answers from its own thread and must answer at once, so it cannot wait on MongoDB;
+# a small task pings every pool on this cadence and ``is_healthy`` reads the last answer.
+HEALTH_PING_INTERVAL_SECONDS = 20.0
+HEALTH_PING_TIMEOUT_SECONDS = 3.0
+# An answer older than this counts as a failure: the probe stopped reporting, which means the
+# event loop is wedged or the task is gone - neither is a healthy service.
+HEALTH_RESULT_MAX_AGE_SECONDS = 90.0
 
 
 class DatabaseManagerBase:
@@ -99,6 +109,11 @@ class DatabaseManagerBase:
         self._collection_configs: Dict[str, CollectionConfig] = {}
         self._initialized = False
         self._lock = asyncio.Lock()
+        # Last answer from the background health probe, and when it was recorded
+        # (time.monotonic). Only ever read through ``is_healthy``.
+        self._health_ok = False
+        self._health_checked_at = 0.0
+        self._health_task: Optional[asyncio.Task] = None
 
         # Collection registry must be supplied directly at construction.
         if collection_configs is None:
@@ -174,6 +189,96 @@ class DatabaseManagerBase:
         """Check if the database manager is initialized and connected."""
         return self._initialized
 
+    @property
+    def is_healthy(self) -> bool:
+        """Whether MongoDB answered the most recent health ping. Cheap, sync, any thread.
+
+        This is what a /health endpoint should read (the vendored runtime ``health_endpoint``
+        prefers it over ``is_connected``). ``is_connected`` only says ``initialize()`` once
+        succeeded, so a database that dies after boot kept reporting healthy.
+
+        The answer comes from the background probe that :meth:`initialize` starts: an
+        ``admin ping`` on every connection pool every ``HEALTH_PING_INTERVAL_SECONDS``, each
+        bounded by ``HEALTH_PING_TIMEOUT_SECONDS``. Never a collection scan or a count, unlike
+        :meth:`health_check`. False before initialization, after :meth:`close`, when the last
+        ping failed, and when the probe is running but its last answer is older than
+        ``HEALTH_RESULT_MAX_AGE_SECONDS``. A manager initialized where no probe could start
+        reports the last answer it recorded.
+        """
+        if not self._initialized or not self._health_ok:
+            return False
+        if (self._health_task is not None
+                and time.monotonic() - self._health_checked_at > HEALTH_RESULT_MAX_AGE_SECONDS):
+            return False
+        return True
+
+    def _record_health(self, ok: bool) -> None:
+        self._health_ok = bool(ok)
+        self._health_checked_at = time.monotonic()
+
+    async def _ping_pools(self, timeout: float = HEALTH_PING_TIMEOUT_SECONDS) -> bool:
+        """Ping every connection pool once. True only when every one answers in time.
+
+        Reads each pool's existing client rather than ``pool.get_client()``, which runs its own
+        health check and raises. Logs only the error type: the raw message can carry host or
+        connection-string detail.
+        """
+        if not self.connection_pools:
+            return False
+        for name, pool in self.connection_pools.items():
+            client = pool.client
+            if client is None:
+                return False
+            try:
+                await asyncio.wait_for(client.admin.command("ping"), timeout)
+            except Exception as e:
+                logger.debug(f"Health ping failed for connection {name}: {type(e).__name__}")
+                return False
+        return True
+
+    async def _refresh_health(self) -> bool:
+        """Run one probe and record the answer; logs only when the answer changes."""
+        ok = await self._ping_pools()
+        if ok != self._health_ok:
+            if ok:
+                logger.info("Database health probe: MongoDB is answering again.")
+            else:
+                logger.warning("Database health probe: MongoDB did not answer a ping.")
+        self._record_health(ok)
+        return ok
+
+    async def _health_probe_loop(self) -> None:
+        while True:
+            await asyncio.sleep(HEALTH_PING_INTERVAL_SECONDS)
+            try:
+                await self._refresh_health()
+            except Exception as e:  # the probe must outlive any single failure
+                logger.warning(f"Database health probe error: {type(e).__name__}")
+                self._record_health(False)
+
+    def _start_health_probe(self) -> None:
+        """Start the background probe on the running loop. A no-op without one."""
+        if self._health_task is not None and not self._health_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("No running event loop; database health probe not started.")
+            return
+        self._health_task = loop.create_task(self._health_probe_loop(), name="db_health_probe")
+
+    async def _stop_health_probe(self) -> None:
+        task, self._health_task = self._health_task, None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"Database health probe ended with {type(e).__name__}")
+
     async def initialize(self):
         """Initialize the database manager with connection pooling and collection setup."""
         if self._initialized:
@@ -219,6 +324,9 @@ class DatabaseManagerBase:
                 await self._start_coherency()
 
                 self._initialized = True
+                # Every pool was pinged while initializing, so the first answer is known.
+                self._record_health(True)
+                self._start_health_probe()
                 logger.info(f"DatabaseManager initialized successfully with {len(self.databases)} databases")
 
             except Exception as e:
@@ -458,6 +566,11 @@ class DatabaseManagerBase:
         """Close all database connections and cleanup resources."""
         try:
             logger.info("Closing DatabaseManager...")
+
+            # Stop the health probe first so it never pings a pool that is being torn down,
+            # and so is_healthy reads False from here on.
+            await self._stop_health_probe()
+            self._health_ok = False
 
             # Flush buffered writes BEFORE tearing down collections/pools so no queued
             # counter updates are lost on shutdown.

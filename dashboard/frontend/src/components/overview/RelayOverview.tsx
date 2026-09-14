@@ -484,7 +484,7 @@ function ServerSetup({
     >
       <div>
         <KeyValue k="Forwarding" v={config.forwarding_enabled ? "On" : "Off"} />
-        <KeyValue k="Error notices" v={config.notify_on_error ? "On" : "Off"} />
+        <KeyValue k="Daily limit notice" v={config.notify_on_error ? "On" : "Off"} />
         <KeyValue
           k="Log channel"
           v={config.log_channel_id ? channelName(config.log_channel_id) : "Not set"}
@@ -559,7 +559,7 @@ function Plan({
           ? plan.expires_at
             ? `Premium runs until ${formatDate(plan.expires_at)}.`
             : "Premium is active with no end date."
-          : "Premium raises the rule limit and the daily message allowance. It is managed through Discord and appears here automatically."}
+          : "Premium raises the rule limit and the daily message allowance, and removes the credit line from copies. It is not on sale yet."}
       </p>
     </Tile>
   );
