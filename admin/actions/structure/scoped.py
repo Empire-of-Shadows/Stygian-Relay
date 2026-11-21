@@ -32,7 +32,7 @@ import discord
 from ...views.panel_engine import PanelNode, ActionContext, PanelInputModal, build_confirm_view
 from ...views.base import (
     AdminLayoutBuilder, readonly_container, editable_container, notice_container,
-    build_notice_layout, cid,
+    build_notice_layout, build_failure_notice_layout, cid,
 )
 from ..collections.scoped import mutate_scoped
 
@@ -74,7 +74,7 @@ def _make_runner(cog, guild, ctx, *, key, label, specs, scope, require,
             return
         except Exception:
             await ci.followup.send(
-                view=build_notice_layout("Failed", f"Could not complete **{label}**."),
+                view=build_failure_notice_layout("Failed", f"Could not complete **{label}**."),
                 ephemeral=True,
             )
             return

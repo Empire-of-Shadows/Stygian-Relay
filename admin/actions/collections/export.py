@@ -15,7 +15,7 @@ from typing import Optional, Callable
 import discord
 
 from ...views.panel_engine import PanelNode, ActionContext
-from ...views.base import build_notice_layout
+from ...views.base import build_failure_notice_layout
 from .documents import list_documents
 
 
@@ -71,7 +71,7 @@ def export_action(key, *, collection, label, fmt="json", filename="export",
             await interaction.followup.send(file=file, ephemeral=True)
         except Exception:
             await interaction.followup.send(
-                view=build_notice_layout("Export failed", f"Could not export **{label}**."),
+                view=build_failure_notice_layout("Export failed", f"Could not export **{label}**."),
                 ephemeral=True,
             )
 

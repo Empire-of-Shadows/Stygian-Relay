@@ -6,13 +6,15 @@ from typing import Callable, List, Any, Awaitable, Union
 import discord
 from discord import ui
 
+from commands.common.interaction_errors import SupportAwareViewMixin
+
 
 # A render callback can be sync or async; it gets the page slice + page metadata
 # and returns a fully built Embed.
 RenderFn = Callable[[List[Any], int, int], Union[discord.Embed, Awaitable[discord.Embed]]]
 
 
-class PaginatedEmbedView(ui.View):
+class PaginatedEmbedView(SupportAwareViewMixin, ui.View):
     """Buttons: ⏮ ◀ Page X/Y ▶ ⏭"""
 
     def __init__(

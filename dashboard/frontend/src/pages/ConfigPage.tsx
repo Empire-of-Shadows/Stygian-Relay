@@ -14,7 +14,7 @@ import {
 } from "../_engine/components/settings/fields";
 import ContextColumn from "../components/settings/ContextColumn";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { AdminNav } from "../components/AdminNav";
+import { AdminNav, useAdminHref } from "../components/AdminNav";
 
 /*
  * Server settings.
@@ -202,6 +202,7 @@ function withSavedOption<T extends { id: string; name: string }>(
 export function ConfigPage() {
   const { guildId } = useParams<{ guildId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const adminHref = useAdminHref();
 
   const [config, setConfig] = useState<GuildConfig | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -454,12 +455,12 @@ export function ConfigPage() {
                     );
                   })}
                   {showRules && (
-                    <Link className="set-rail__item" to={`/settings/guilds/${guildId}/rules`}>
+                    <Link className="set-rail__item" to={adminHref(`/settings/guilds/${guildId}/rules`)}>
                       <span>Forwarding rules</span>
                     </Link>
                   )}
                   {showAudit && (
-                    <Link className="set-rail__item" to={`/settings/guilds/${guildId}/audit-log`}>
+                    <Link className="set-rail__item" to={adminHref(`/settings/guilds/${guildId}/audit-log`)}>
                       <span>Audit log</span>
                     </Link>
                   )}

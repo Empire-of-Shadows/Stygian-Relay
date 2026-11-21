@@ -13,6 +13,7 @@ It is intentionally a *superset*: helpers that only some bots use still live her
 so the engine file stays byte-identical everywhere.
 """
 
+import re
 import time
 import logging
 from typing import Optional, Callable, Awaitable
@@ -86,6 +87,153 @@ def build_premium_layout(title: str, body: str = "") -> discord.ui.LayoutView:
     text = f"## {title}" + (f"\n{body}" if body else "")
     layout.add_item(premium_container(discord.ui.TextDisplay(text)))
     return layout
+
+
+# -- Support-server pointer for unexpected failures ------------------------------
+# Opt-in per bot: define SUPPORT_INVITE_URL in admin/settings/bindings.py. Unset or ""
+# leaves every failure message exactly as it was. Only UNEXPECTED failures (a crash or
+# exception path) carry the line; expected refusals (validation, permissions, cooldowns,
+# premium gates) never do.
+
+SUPPORT_LINE_TEMPLATE = "If this keeps happening, report it in the [support server](<{url}>)."
+
+# A markdown block Discord already gives a bottom margin: a heading or a list item.
+_MARGIN_BLOCK_RE = re.compile(r"^(#{1,3} |[-*] |\d+\. )")
+
+
+def support_invite_url() -> str:
+    """The bot's support-server invite from the bindings seam, or "" when unset.
+
+    Read lazily so a bot whose bindings predate the name keeps working, and so
+    bindings can import this module without a cycle. Never raises: it runs inside
+    error paths, where raising would hide the original failure.
+    """
+    try:
+        from ..settings import bindings  # lazy: optional seam value
+        url = getattr(bindings, "SUPPORT_INVITE_URL", "")
+    except Exception:
+        return ""
+    return url.strip() if isinstance(url, str) else ""
+
+
+def support_line(url: Optional[str] = None) -> str:
+    """Member-facing support pointer for an unexpected failure, or "" when no URL.
+
+    ``url`` overrides the seam lookup; None reads ``SUPPORT_INVITE_URL``.
+    """
+    if url is None:
+        url = support_invite_url()
+    url = url.strip() if isinstance(url, str) else ""
+    if not url:
+        return ""
+    return SUPPORT_LINE_TEMPLATE.format(url=url)
+
+
+def with_support_line(body: str, url: Optional[str] = None) -> str:
+    """``body`` with the support line appended; ``body`` unchanged when no URL is set.
+
+    Discord spacing: a body ending in a heading or list already carries a bottom
+    margin, so the line joins with a single newline; after a plain paragraph it is
+    separated by a blank line.
+    """
+    line = support_line(url)
+    if not line:
+        return body
+    trimmed = (body or "").rstrip("\n")
+    if not trimmed:
+        return line
+    last = trimmed.rsplit("\n", 1)[-1].lstrip()
+    sep = "\n" if _MARGIN_BLOCK_RE.match(last) else "\n\n"
+    return f"{trimmed}{sep}{line}"
+
+
+def build_failure_notice_layout(title: str, body: str = "") -> discord.ui.LayoutView:
+    """``build_notice_layout`` for an UNEXPECTED failure: the same notice, plus the
+    support-server line when the bot has set ``SUPPORT_INVITE_URL``."""
+    return build_notice_layout(title, with_support_line(body))
+
+
+async def send_unhandled_failure_notice(
+    interaction: discord.Interaction, error: BaseException, where: str
+) -> None:
+    """Log an exception nothing else caught, then tell the member it failed.
+
+    Used as the on_error of panel views and modals, but ONLY when the bot has set
+    SUPPORT_INVITE_URL - callers check support_invite_url() first and otherwise keep
+    discord.py's default handler, so a bot without a URL behaves exactly as before.
+    Never raises: a failure here must not mask the original error in the log.
+    """
+    logger.error("unhandled error in %s", where, exc_info=(type(error), error, error.__traceback__))
+    try:
+        notice = build_failure_notice_layout(
+            "Something went wrong", "That did not go through. Please try again."
+        )
+        if interaction.response.is_done():
+            await interaction.followup.send(view=notice, ephemeral=True)
+        else:
+            await interaction.response.send_message(view=notice, ephemeral=True)
+    except Exception:
+        logger.exception("failed to send unhandled-failure notice for %s", where)
+
+
+class SupportAwareModal(discord.ui.Modal):
+    """Modal base whose uncaught submit errors point the member at the support server.
+
+    Without SUPPORT_INVITE_URL it falls through to discord.py's default on_error,
+    so the behaviour is unchanged for a bot that has not set one.
+    """
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        if not support_invite_url():
+            await super().on_error(interaction, error)
+            return
+        await send_unhandled_failure_notice(
+            interaction, error, f"admin panel modal {type(self).__name__}"
+        )
+
+
+class SupportAwareView(discord.ui.View):
+    """``discord.ui.View`` base for a bot seam's own panel view classes.
+
+    Same contract as ``SupportAwareModal``: with SUPPORT_INVITE_URL set, an uncaught
+    callback error gets the failure notice; without it, discord.py's default runs.
+    """
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item, /) -> None:
+        if not support_invite_url():
+            await super().on_error(interaction, error, item)
+            return
+        await send_unhandled_failure_notice(
+            interaction, error, f"admin panel view {type(self).__name__} item {item!r}"
+        )
+
+
+class SupportAwareLayoutView(discord.ui.LayoutView):
+    """``discord.ui.LayoutView`` with the support-aware ``on_error``.
+
+    ``AdminLayoutBuilder.build()`` returns one, so every panel screen built with the
+    builder - by the engine or by a bot seam - is covered without registering it.
+    """
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item, /) -> None:
+        if not support_invite_url():
+            await super().on_error(interaction, error, item)
+            return
+        await send_unhandled_failure_notice(
+            interaction, error, f"admin panel layout item {item!r}"
+        )
+
+
+def support_aware(view: discord.ui.LayoutView, where: str = "admin panel view") -> discord.ui.LayoutView:
+    """Give an already-built view the support-aware ``on_error`` (as
+    ``PanelSession.register_view`` does). No-op without SUPPORT_INVITE_URL. Returns
+    the same view for inline use."""
+    if support_invite_url():
+        async def _on_error(interaction: discord.Interaction, error: Exception, item) -> None:
+            await send_unhandled_failure_notice(interaction, error, f"{where} item {item!r}")
+
+        view.on_error = _on_error
+    return view
 
 
 async def safe_edit(target, **kwargs) -> bool:
@@ -316,8 +464,8 @@ class AdminLayoutBuilder:
         return self
 
     def build(self) -> discord.ui.LayoutView:
-        """Build and return the LayoutView."""
-        layout = discord.ui.LayoutView(timeout=self.timeout)
+        """Build and return the LayoutView (support-aware: see SupportAwareLayoutView)."""
+        layout = SupportAwareLayoutView(timeout=self.timeout)
         for item in self.items:
             layout.add_item(item)
         return layout

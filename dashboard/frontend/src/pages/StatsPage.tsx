@@ -7,7 +7,7 @@ import { Alert } from "../_engine/components/Alert";
 import SignalStrip, { type Signal } from "../_engine/components/overview/SignalStrip";
 import { KeyValue, Rule as Divider, Stat, Tile } from "../_engine/components/overview/Tile";
 import { formatCount } from "../_engine/format";
-import { AdminNav } from "../components/AdminNav";
+import { AdminNav, useAdminHref } from "../components/AdminNav";
 import { reasonColor, reasonHelp, reasonLabel } from "../components/overview/format";
 
 /*
@@ -226,6 +226,7 @@ function RouteCards({
   guildId: string;
   channelName: (id: string) => string;
 }) {
+  const adminHref = useAdminHref();
   return (
     <div className="route-grid">
       {rules.slice(0, 9).map((r, i) => {
@@ -273,7 +274,7 @@ function RouteCards({
         ) : (
           <Link
             key={r.rule_id}
-            to={`/settings/guilds/${guildId}/rules/${r.rule_id}`}
+            to={adminHref(`/settings/guilds/${guildId}/rules/${r.rule_id}`)}
             className={`route-card${r.is_active ? "" : " route-card--muted"}`}
             style={{ "--share": `${share}%`, textDecoration: "none", color: "inherit" } as CSSProperties}
           >
@@ -287,6 +288,7 @@ function RouteCards({
 
 export function StatsPage() {
   const { guildId } = useParams<{ guildId: string }>();
+  const adminHref = useAdminHref();
   const [days, setDays] = useState<number>(30);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [channels, setChannels] = useState<Map<string, string>>(new Map());
@@ -446,7 +448,7 @@ export function StatsPage() {
               here on their own.
             </p>
             <div className="admin-actions">
-              <Link className="btn btn-secondary" to={`/settings/guilds/${guildId}/rules`}>
+              <Link className="btn btn-secondary" to={adminHref(`/settings/guilds/${guildId}/rules`)}>
                 Check your rules
               </Link>
             </div>
@@ -502,7 +504,7 @@ export function StatsPage() {
             <Divider />
             <KeyValue k="Plan" v={stats.is_premium ? "Premium" : "Free"} />
             <KeyValue k="All time" v={formatCount(t.lifetime)} />
-            <Link className="ov-link" to={`/settings/guilds/${guildId}/premium`}>
+            <Link className="ov-link" to={adminHref(`/settings/guilds/${guildId}/premium`)}>
               Plan details
             </Link>
           </Tile>
@@ -624,7 +626,7 @@ export function StatsPage() {
               span={12}
               title="Which rules carried the traffic"
               action={
-                <Link className="ov-link" to={`/settings/guilds/${guildId}/rules`}>
+                <Link className="ov-link" to={adminHref(`/settings/guilds/${guildId}/rules`)}>
                   Manage rules
                 </Link>
               }

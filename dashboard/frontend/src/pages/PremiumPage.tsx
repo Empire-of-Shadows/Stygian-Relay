@@ -6,7 +6,7 @@ import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
 import { KeyValue, Rule as Divider, Stat, Tile } from "../_engine/components/overview/Tile";
 import { formatCount, formatDate } from "../_engine/format";
-import { AdminNav } from "../components/AdminNav";
+import { AdminNav, useAdminHref } from "../components/AdminNav";
 import { planLabel, reasonLabel } from "../components/overview/format";
 
 /*
@@ -26,6 +26,7 @@ import { planLabel, reasonLabel } from "../components/overview/format";
 
 export function PremiumPage() {
   const { guildId } = useParams<{ guildId: string }>();
+  const adminHref = useAdminHref();
   const [premium, setPremium] = useState<PremiumStatus | null>(null);
   const [overview, setOverview] = useState<GuildOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -244,7 +245,7 @@ export function PremiumPage() {
                     ? " That is the premium allowance, so a higher one is not available."
                     : ` Premium raises the allowance to ${formatCount(premium.plans.premium.daily_limit)} a day.`}
                 </p>
-                <Link className="ov-link" to={`/settings/guilds/${guildId}/stats`}>
+                <Link className="ov-link" to={adminHref(`/settings/guilds/${guildId}/stats`)}>
                   See the full breakdown
                 </Link>
               </>

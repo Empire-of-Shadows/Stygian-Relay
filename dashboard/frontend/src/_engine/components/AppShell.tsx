@@ -6,7 +6,7 @@
 import type { ReactNode } from "react";
 import "./styles/AppShell.css";
 import { EcosystemNav } from "./EcosystemNav";
-import { logoutUrl } from "../api/http";
+import { logout } from "../api/http";
 import type { SessionUser } from "../api/types";
 
 /**
@@ -52,13 +52,14 @@ export function AppShell({ user, brand, nav, left, right, hideUser, loggedOut }:
           <div className="user-info">
             {avatarUrl && <img src={avatarUrl} alt="" />}
             <span>{displayName}</span>
-            <a
-              href={logoutUrl()}
+            <button
+              type="button"
               className="btn btn-secondary"
               style={{ fontSize: 12, padding: "4px 10px" }}
+              onClick={() => void logout()}
             >
               Log out
-            </a>
+            </button>
           </div>
         ) : loggedOut)}
       </div>

@@ -21,6 +21,7 @@ from typing import Any
 
 import discord
 
+from commands.help.help_content import SUPPORT_INVITE_URL as _SUPPORT_INVITE_URL
 from storage.bot_specific.relay import guild_manager, audit_log
 
 import logging
@@ -31,6 +32,12 @@ logger = logging.getLogger("AdminBindings")
 # ── Static configuration the engine reads ───────────────────────────────────────
 
 BOT_NAME = "Stygian-Relay"
+
+# This bot's support-server invite (defined once in commands/help/help_content.py).
+# With it set, the engine ends every panel crash notice with "If this keeps
+# happening, report it in the [support server](<url>)." and gives panel views and
+# modals a support-aware on_error. Expected refusals never carry it.
+SUPPORT_INVITE_URL: str = _SUPPORT_INVITE_URL
 
 # The Relay panel is admin-only. resolve_panel_role below returns exactly
 # "admin" or "none". The engine's mod machinery (`PanelNode.mod_allowed`, the

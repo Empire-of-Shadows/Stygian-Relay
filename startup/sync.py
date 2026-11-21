@@ -4,13 +4,12 @@ Startup sync seam for Stygian-Relay (bot-owned, NOT vendored).
 The generic cog-loading machinery (discovery, priority/parallel loading, attribute
 attachment, command-table logging - including the guild-scoped command tables) lives in
 the vendored runtime engine at ``startup/loader.py``. This file supplies only what is
-relay-specific: the cog discovery roots, the owner-only ``load_cogs`` reload command,
-and ``attach_databases()`` (which managers exist and how they wire onto the bot).
+relay-specific: the cog discovery roots and ``attach_databases()`` (which managers exist
+and how they wire onto the bot). There are no prefix commands: the owner-only
+``load_cogs`` mention command was removed 2026-11-08 (fleet rule: slash commands only).
 ``Relay.py`` keeps importing ``load_cogs`` / ``attach_databases`` /
 ``log_all_commands`` from here.
 """
-
-from discord.ext import commands
 
 from startup.bot import bot, s
 from startup.loader import (  # noqa: F401 - log_all_commands is re-exported for Relay.py
@@ -32,15 +31,6 @@ PRIORITY_COG_DIRECTORIES: list[str] = []
 async def load_cogs():
     """Load all cogs from the configured directories (engine loader)."""
     await _engine_load_cogs(bot, COG_DIRECTORIES, PRIORITY_COG_DIRECTORIES)
-
-
-@bot.command(name="load_cogs", help="Loads all cogs in the COG_DIRECTORIES list.")
-@commands.is_owner()
-async def load_cogs_command(ctx):
-    """Owner-only runtime cog (re)load."""
-    await ctx.send("Loading cogs...")
-    await load_cogs()
-    await ctx.send("Cogs loaded successfully.")
 
 
 async def attach_databases():

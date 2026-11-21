@@ -21,7 +21,7 @@ import discord
 from ...views.panel_engine import PanelNode, ActionContext, PanelInputModal
 from ...views.base import (
     AdminLayoutBuilder, readonly_container, editable_container, notice_container,
-    build_notice_layout, cid,
+    build_notice_layout, cid, with_support_line,
 )
 
 
@@ -104,7 +104,7 @@ def modal_action(
                 result = await on_submit(guild, value)
             except Exception:
                 await mi.followup.send(
-                    view=_retry_layout(f"Could not complete **{label}**.", raw),
+                    view=_retry_layout(with_support_line(f"Could not complete **{label}**."), raw),
                     ephemeral=True,
                 )
                 return

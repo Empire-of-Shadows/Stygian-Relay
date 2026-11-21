@@ -12,9 +12,13 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
  * Note: React error boundaries do NOT catch errors thrown in async event handlers
  * (a failed fetch in an onClick) - those still surface through formatError / <Alert>.
  * This is the safety net for a component that throws while rendering.
+ *
+ * `supportUrl` (optional): the bot's Discord support-server invite. When set, the
+ * default fallback adds a line pointing there; unset renders the fallback unchanged.
+ * Ignored when a custom `fallback` is passed.
  */
 export class ErrorBoundary extends Component<
-  { children: ReactNode; fallback?: ReactNode },
+  { children: ReactNode; fallback?: ReactNode; supportUrl?: string },
   { hasError: boolean }
 > {
   state = { hasError: false };
@@ -31,6 +35,7 @@ export class ErrorBoundary extends Component<
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
     if (this.props.fallback !== undefined) return this.props.fallback;
+    const supportUrl = this.props.supportUrl?.trim();
     return (
       <div
         className="empty-state"
@@ -40,6 +45,15 @@ export class ErrorBoundary extends Component<
         <p className="eos-muted" style={{ marginBottom: "1.25rem" }}>
           This page hit an unexpected error. Reloading usually fixes it.
         </p>
+        {supportUrl ? (
+          <p className="eos-muted" style={{ marginBottom: "1.25rem" }}>
+            If this keeps happening, report it in the{" "}
+            <a href={supportUrl} target="_blank" rel="noopener noreferrer">
+              support server
+            </a>
+            .
+          </p>
+        ) : null}
         <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
           Reload
         </button>

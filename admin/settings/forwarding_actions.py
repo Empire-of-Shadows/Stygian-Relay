@@ -30,6 +30,7 @@ from storage.bot_specific.relay import audit_log, guild_manager
 
 from ..views.base import (
     AdminLayoutBuilder,
+    build_failure_notice_layout,
     build_notice_layout,
     cid,
     editable_container,
@@ -697,8 +698,10 @@ class AddRuleFlow:
                 ephemeral=True,
             )
         else:
+            # An unexpected failure (add_rule raised or reported "error"), so the notice
+            # ends with the support-server line; the limit refusal above does not.
             await interaction.followup.send(
-                view=build_notice_layout(
+                view=build_failure_notice_layout(
                     "Could not save",
                     "Something went wrong saving the rule. Please try again.",
                 ),

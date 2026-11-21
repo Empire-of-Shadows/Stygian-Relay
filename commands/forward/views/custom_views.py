@@ -3,9 +3,11 @@
 import discord
 import logging
 
+from commands.common.interaction_errors import SupportAwareViewMixin
+
 logger = logging.getLogger("Forward.View")
 
-class CustomView(discord.ui.View):
+class CustomView(SupportAwareViewMixin, discord.ui.View):
     """
     A custom view that handles timeouts gracefully by disabling components
     and logging the timeout event without trying to edit the original message

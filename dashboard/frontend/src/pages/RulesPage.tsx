@@ -5,7 +5,7 @@ import type { Channel, GuildOverview, Rule } from "../api/types";
 import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
 import ConfirmDialog from "../components/ConfirmDialog";
-import { AdminNav } from "../components/AdminNav";
+import { AdminNav, useAdminHref } from "../components/AdminNav";
 import SignalStrip, { type Signal } from "../_engine/components/overview/SignalStrip";
 import { KeyValue, Rule as Divider, Tile } from "../_engine/components/overview/Tile";
 import { formatCount, formatDate, formatRelative } from "../_engine/format";
@@ -29,6 +29,7 @@ import { formatCount, formatDate, formatRelative } from "../_engine/format";
 
 export function RulesPage() {
   const { guildId } = useParams<{ guildId: string }>();
+  const adminHref = useAdminHref();
   const [rules, setRules] = useState<Rule[] | null>(null);
   const [overview, setOverview] = useState<GuildOverview | null>(null);
   const [channels, setChannels] = useState<Map<string, string>>(new Map());
@@ -149,7 +150,7 @@ export function RulesPage() {
         <div>
           <h1 style={{ marginTop: 4 }}>Forwarding rules</h1>
         </div>
-        <Link to={`/settings/guilds/${guildId}/rules/new`} className="btn btn-primary">
+        <Link to={adminHref(`/settings/guilds/${guildId}/rules/new`)} className="btn btn-primary">
           New rule
         </Link>
       </div>
@@ -179,7 +180,7 @@ export function RulesPage() {
               first into the second.
             </p>
             <div className="admin-actions">
-              <Link to={`/settings/guilds/${guildId}/rules/new`} className="btn btn-primary">
+              <Link to={adminHref(`/settings/guilds/${guildId}/rules/new`)} className="btn btn-primary">
                 Create your first rule
               </Link>
             </div>
@@ -236,7 +237,7 @@ export function RulesPage() {
                     : "Only active rules count towards the limit. A paused rule keeps its settings and costs nothing."}
                 </p>
                 <div className="admin-actions">
-                  <Link className="btn btn-secondary" to={`/settings/guilds/${guildId}/premium`}>
+                  <Link className="btn btn-secondary" to={adminHref(`/settings/guilds/${guildId}/premium`)}>
                     Plan details
                   </Link>
                 </div>
@@ -297,6 +298,7 @@ function RuleCard({
   onToggle: () => void;
   onDelete: () => void;
 }) {
+  const adminHref = useAdminHref();
   const crossServer =
     String(rule.destination_guild_id ?? "") !== "" &&
     String(rule.destination_guild_id) !== guildId;
@@ -355,7 +357,7 @@ function RuleCard({
 
       <div className="admin-actions" style={{ marginTop: "auto" }}>
         <Link
-          to={`/settings/guilds/${guildId}/rules/${rule.rule_id}`}
+          to={adminHref(`/settings/guilds/${guildId}/rules/${rule.rule_id}`)}
           className="btn btn-secondary small"
         >
           Edit

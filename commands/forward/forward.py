@@ -553,6 +553,16 @@ class Forwarding(commands.Cog):
         channel = self.bot.get_channel(int(log_channel_id))
         if channel is None:
             return
+        # get_channel finds a channel in ANY server the bot is in, so a stored id from
+        # another server must not be posted to (security fix 2026-11-21; the dashboard
+        # now refuses such an id, this guards anything already stored).
+        owner_guild = getattr(channel, "guild", None)
+        if owner_guild is None or str(owner_guild.id) != str(guild_settings.get("guild_id")):
+            logger.warning(
+                f"Refused auto-deactivate notice: log channel {log_channel_id} is not in "
+                f"guild {guild_settings.get('guild_id')}"
+            )
+            return
         try:
             embed = discord.Embed(
                 title="Forwarding rule auto-deactivated",
@@ -814,9 +824,10 @@ class Forwarding(commands.Cog):
         source_gid = message.guild.id if message.guild else destination.guild.id
         is_premium = await guild_manager.is_premium_guild(str(source_gid))
         if not is_premium and await self._should_show_branding(source_gid):
-            # Canonical no-expiry support invite, same one the site and the
-            # other bots use. The previous link here had expired, so the
-            # branding line on every free forward pointed nowhere.
+            # The no-expiry invite to the Empire of Shadows COMMUNITY server,
+            # deliberately not the support server (that invite lives in
+            # commands/help/help_content.py). The previous link here had
+            # expired, so the branding line on every free forward pointed nowhere.
             server_invite_link = "https://discord.gg/xx86YEhaYF"
             quoted_content += f"\n-# Powered by Empire of Shadows\n-# Gaming Community • <{server_invite_link}>"
             await guild_manager.touch_runtime_state(str(source_gid), "branding")

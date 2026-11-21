@@ -21,6 +21,7 @@ import discord
 from ...views.panel_engine import PanelNode, ActionContext, build_confirm_view
 from ...views.base import (
     AdminLayoutBuilder, readonly_container, editable_container, build_notice_layout, cid,
+    build_failure_notice_layout,
 )
 
 
@@ -60,7 +61,7 @@ def member_action(
                 result = await run(guild.id, member.id)
             except Exception:
                 await ci.followup.send(
-                    view=build_notice_layout("Failed", f"Could not complete **{label}**."),
+                    view=build_failure_notice_layout("Failed", f"Could not complete **{label}**."),
                     ephemeral=True,
                 )
                 return

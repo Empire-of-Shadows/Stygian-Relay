@@ -188,6 +188,20 @@ export function discordLoginUrl(redirectTo?: string): string {
   return `/auth/discord${qs}`;
 }
 
-export function logoutUrl(): string {
-  return "/auth/logout";
+/**
+ * Sign out, then go to the login page (2026-11-20).
+ *
+ * Logout used to be a plain link to `GET /auth/logout`, which any other website
+ * could trigger to sign a visitor out of every dashboard at once. It is now a
+ * POST carrying the session's CSRF token (apiFetch adds it). The login page is
+ * opened whatever the answer: a session that already ended is just as signed out.
+ */
+export async function logout(): Promise<void> {
+  try {
+    await apiFetch<{ ok: boolean }>("/auth/logout", { method: "POST", suppressAuthHandler: true });
+  } catch {
+    // Expired session, network blip: the login page is still the right place.
+  }
+  _csrfToken = null;
+  if (typeof window !== "undefined") window.location.href = "/login";
 }

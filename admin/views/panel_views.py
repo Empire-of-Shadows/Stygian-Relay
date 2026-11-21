@@ -16,7 +16,12 @@ import asyncio
 
 import discord
 
-from .base import notice_container, build_notice_layout
+from .base import (
+    build_notice_layout,
+    notice_container,
+    send_unhandled_failure_notice,
+    support_invite_url,
+)
 
 
 def _build_expired_layout() -> discord.ui.LayoutView:
@@ -85,6 +90,18 @@ class PanelSession:
             return True
 
         view.interaction_check = synced_check
+
+        # An exception no handler caught would otherwise reach the member only as
+        # Discord's bare "This interaction failed". When the bot has a support server
+        # set, show a failure notice that points there instead. Without one, keep
+        # discord.py's default on_error untouched.
+        if support_invite_url():
+            async def panel_on_error(interaction: discord.Interaction, error: Exception, item) -> None:
+                await send_unhandled_failure_notice(
+                    interaction, error, f"admin panel view item {item!r}"
+                )
+
+            view.on_error = panel_on_error
         return view
 
     def set_msg2(self, view: discord.ui.LayoutView, message: discord.Message) -> None:

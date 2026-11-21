@@ -89,7 +89,9 @@ async def csrf_endpoint(request: Request) -> dict:
 
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_EXEMPT_PATH_PREFIXES = ("/auth/discord", "/auth/logout")
+# /auth/logout is NOT exempt any more (2026-11-20): it is a POST that must carry
+# the token, so another website cannot sign a visitor out.
+_EXEMPT_PATH_PREFIXES = ("/auth/discord",)
 
 
 async def csrf_middleware(request: Request, call_next):

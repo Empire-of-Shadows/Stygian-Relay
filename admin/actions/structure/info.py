@@ -18,7 +18,7 @@ from typing import Callable, Optional
 import discord
 
 from ...views.panel_engine import PanelNode, ActionContext
-from ...views.base import AdminLayoutBuilder, readonly_container, cid
+from ...views.base import AdminLayoutBuilder, readonly_container, cid, with_support_line
 
 
 def info_action(
@@ -33,7 +33,7 @@ def info_action(
         try:
             body = await render(cog, guild, ctx)
         except Exception:
-            body = "Could not load this information."
+            body = with_support_line("Could not load this information.")
 
         builder = AdminLayoutBuilder()
         builder.add_header(f"## {label}")

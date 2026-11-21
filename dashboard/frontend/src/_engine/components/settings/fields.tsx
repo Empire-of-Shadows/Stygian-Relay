@@ -5,6 +5,8 @@
      python EmpireSystems/tools/sync_dashboard_engine.py --check */
 import { createContext, useContext, type ReactNode } from "react";
 import type { Channel, Role } from "../../api/types";
+import { CreateEntityControl } from "./create";
+import { creatableKinds } from "./names";
 
 /*
  * Field renderers for the admin settings form.
@@ -75,6 +77,21 @@ function FieldNote({ text }: { text: string }) {
   );
 }
 
+/*
+ * Required-field errors (added 2026-11-20, opt-in). A field given `error` draws
+ * its control with a red border and the message under it in red, so a switched-on
+ * feature that is missing what it needs is obvious before Save is pressed. The
+ * page decides what is required and blocks the save; the field only shows it.
+ */
+function fieldClass(error?: string | null): string {
+  return error ? "eos-field eos-field--invalid" : "eos-field";
+}
+
+function FieldError({ text }: { text?: string | null }) {
+  if (!text) return null;
+  return <p className="eos-field__error">{text}</p>;
+}
+
 // ---------------------------------------------------------------------------
 // Layout helpers
 // ---------------------------------------------------------------------------
@@ -111,7 +128,10 @@ export function ChannelField({
   onChange,
   disabled,
   filterType,
+  channelTypes,
   description,
+  error,
+  allowCreate = true,
 }: {
   label: string;
   value: string | null;
@@ -119,11 +139,19 @@ export function ChannelField({
   onChange: (v: string | null) => void;
   disabled?: boolean;
   filterType?: number;
+  /** The channel types this setting accepts, when it takes more than one.
+   *  Wins over filterType. Also decides what the Create button can make. */
+  channelTypes?: number[];
   description?: string;
+  /** Shown in red under the picker, which gets a red border. */
+  error?: string | null;
+  /** Inside an EntityCreatorProvider, set false to hide the Create button. */
+  allowCreate?: boolean;
 }) {
   const { channelsFailed } = useContext(PickerStatusContext);
-  const options = filterType !== undefined
-    ? channels.filter((c) => c.type === filterType)
+  const types = channelTypes ?? (filterType !== undefined ? [filterType] : undefined);
+  const options = types !== undefined
+    ? channels.filter((c) => types.includes(c.type))
     : channels;
   const note = channelsFailed
     ? CHANNELS_UNAVAILABLE
@@ -131,7 +159,7 @@ export function ChannelField({
       ? "No channels this setting can use were found in this server."
       : null;
   return (
-    <div className="eos-field">
+    <div className={fieldClass(error)}>
       <label>{label}</label>
       {description && (
         <p className="eos-muted" style={{ marginTop: 0, marginBottom: 6 }}>
@@ -141,6 +169,7 @@ export function ChannelField({
       <select
         value={value ?? ""}
         disabled={disabled || channelsFailed}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => onChange(e.target.value || null)}
       >
         <option value="">-- not set --</option>
@@ -151,7 +180,15 @@ export function ChannelField({
           </option>
         ))}
       </select>
+      <FieldError text={error} />
       {note && <FieldNote text={note} />}
+      {allowCreate && !disabled && !channelsFailed && (
+        <CreateEntityControl
+          target="channel"
+          kinds={creatableKinds(types)}
+          onCreated={(id) => onChange(id)}
+        />
+      )}
     </div>
   );
 }
@@ -163,6 +200,8 @@ export function RoleField({
   onChange,
   disabled,
   description,
+  error,
+  allowCreate = true,
 }: {
   label: string;
   value: string | null;
@@ -170,6 +209,10 @@ export function RoleField({
   onChange: (v: string | null) => void;
   disabled?: boolean;
   description?: string;
+  /** Shown in red under the picker, which gets a red border. */
+  error?: string | null;
+  /** Inside an EntityCreatorProvider, set false to hide the Create button. */
+  allowCreate?: boolean;
 }) {
   const { rolesFailed } = useContext(PickerStatusContext);
   const sorted = [...roles].sort((a, b) => b.position - a.position);
@@ -179,7 +222,7 @@ export function RoleField({
       ? "No roles were found in this server."
       : null;
   return (
-    <div className="eos-field">
+    <div className={fieldClass(error)}>
       <label>{label}</label>
       {description && (
         <p className="eos-muted" style={{ marginTop: 0, marginBottom: 6 }}>
@@ -189,6 +232,7 @@ export function RoleField({
       <select
         value={value ?? ""}
         disabled={disabled || rolesFailed}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => onChange(e.target.value || null)}
       >
         <option value="">-- not set --</option>
@@ -199,7 +243,11 @@ export function RoleField({
           </option>
         ))}
       </select>
+      <FieldError text={error} />
       {note && <FieldNote text={note} />}
+      {allowCreate && !disabled && !rolesFailed && (
+        <CreateEntityControl target="role" onCreated={(id) => onChange(id)} />
+      )}
     </div>
   );
 }
@@ -212,6 +260,7 @@ export function MultiRoleField({
   max,
   onChange,
   disabled,
+  allowCreate = true,
 }: {
   label: string;
   description?: string;
@@ -220,6 +269,8 @@ export function MultiRoleField({
   max?: number;
   onChange: (v: string[]) => void;
   disabled?: boolean;
+  /** Inside an EntityCreatorProvider, set false to hide the Create button. */
+  allowCreate?: boolean;
 }) {
   const { rolesFailed } = useContext(PickerStatusContext);
   const selected = new Set(value);
@@ -290,6 +341,12 @@ export function MultiRoleField({
       <p className="eos-muted" style={{ marginTop: 6, marginBottom: 0 }}>
         {selected.size} selected{max !== undefined ? ` / ${max} max` : ""}
       </p>
+      {allowCreate && !disabled && !rolesFailed && !limitReached && (
+        <CreateEntityControl
+          target="role"
+          onCreated={(id) => onChange([...value.filter((v) => v !== id), id])}
+        />
+      )}
     </div>
   );
 }
@@ -464,6 +521,7 @@ export function TextField({
   description,
   placeholder,
   maxLength,
+  error,
 }: {
   label: string;
   value: string;
@@ -472,9 +530,11 @@ export function TextField({
   description?: string;
   placeholder?: string;
   maxLength?: number;
+  /** Shown in red under the input, which gets a red border. */
+  error?: string | null;
 }) {
   return (
-    <div className="eos-field">
+    <div className={fieldClass(error)}>
       <label>{label}</label>
       {description && (
         <p className="eos-muted" style={{ marginTop: 0, marginBottom: 6 }}>
@@ -487,8 +547,10 @@ export function TextField({
         disabled={disabled}
         placeholder={placeholder}
         maxLength={maxLength}
+        aria-invalid={error ? true : undefined}
         onChange={(e) => onChange(e.target.value)}
       />
+      <FieldError text={error} />
     </div>
   );
 }

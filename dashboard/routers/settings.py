@@ -147,10 +147,28 @@ async def update_config(
                 detail="Only members with Manage Server can change who can manage the relay.",
             )
 
-    # The Discord panel refuses a log channel the bot cannot post embeds in; so does this.
-    # Checked only when the channel changes, and it fails open when Discord cannot answer.
     new_log = set_fields.get("master_log_channel_id")
     if new_log and new_log != str(before.get("master_log_channel_id") or ""):
+        # The log channel must be one of THIS server's channels (security fix 2026-11-21).
+        # The bot finds it with the global bot.get_channel, so a channel id from another
+        # server would have the bot post there; the permission check below cannot catch
+        # that, because it reads "no data" for a foreign channel as nothing missing.
+        # Fails CLOSED: an unreadable channel list refuses, since this is a boundary.
+        channels = await discord_cache.guild_channels_raw(gid)
+        if not channels:
+            raise HTTPException(
+                status_code=503,
+                detail="Could not check that channel against this server's channel list. "
+                       "Try again in a moment.",
+            )
+        if new_log not in {str(c.get("id")) for c in channels}:
+            raise HTTPException(
+                status_code=422,
+                detail="That channel is not in this server. Pick one of this server's channels.",
+            )
+
+        # The Discord panel refuses a log channel the bot cannot post embeds in; so does
+        # this. It fails open when Discord cannot answer.
         perms = await discord_cache.bot_channel_permissions(gid, new_log)
         missing = missing_permissions(perms, LOG_CHANNEL_PERMS)
         if missing:

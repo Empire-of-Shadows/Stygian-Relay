@@ -27,6 +27,7 @@ from .base import (
     readonly_container,
     editable_container,
     notice_container,
+    SupportAwareModal,
 )
 
 
@@ -869,7 +870,7 @@ def build_select_view(
 
 # -- Modal input support -------------------------------------------------------
 
-class PanelInputModal(discord.ui.Modal):
+class PanelInputModal(SupportAwareModal):
     """Generic single-field modal used by build_modal_trigger_view.
 
     ``category_picker=True`` (channel-create flows) adds an optional
@@ -1035,7 +1036,7 @@ def build_modal_trigger_view(
 
 # -- Dual-field modal input support --------------------------------------------
 
-class _PanelDualInputModal(discord.ui.Modal):
+class _PanelDualInputModal(SupportAwareModal):
     """Two-field modal used by build_dual_modal_trigger_view."""
 
     def __init__(
@@ -1742,7 +1743,7 @@ def build_dict_value_role_view(
 
 # -- File Upload --------------------------------------------------------------
 
-class PanelFileUploadModal(discord.ui.Modal):
+class PanelFileUploadModal(SupportAwareModal):
     """Modal with a single file upload field for panel file_upload nodes."""
 
     upload_label = discord.ui.Label(

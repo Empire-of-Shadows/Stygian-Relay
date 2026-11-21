@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from dashboard._engine.activity import record_actor
 from dashboard._engine.auth.session import (
@@ -62,6 +62,43 @@ def _validate_redirect(url: str | None) -> str:
     return OAUTH_DEFAULT_REDIRECT
 
 
+# Login CSRF (security review 2026-11-20). The state used to live only in the
+# database, so a callback link for a login an ATTACKER started (their own Discord
+# account, last step not followed) worked in anyone's browser and signed the
+# victim in as the attacker, on every dashboard at once through the shared
+# cookie. The state is now also put in a short-lived cookie in the browser that
+# starts the login, and the callback refuses unless the two match. A link from
+# someone else carries their state, which this browser has no cookie for.
+OAUTH_STATE_COOKIE = "eos_oauth_state"
+_OAUTH_STATE_MAX_AGE = 600  # seconds; a login takes well under a minute
+
+
+def _set_state_cookie(response, state: str) -> None:
+    response.set_cookie(
+        key=OAUTH_STATE_COOKIE,
+        value=sign_token(state),
+        max_age=_OAUTH_STATE_MAX_AGE,
+        httponly=True,
+        # Lax still sends it on the top-level redirect back from Discord.
+        samesite="lax",
+        secure=IS_PRODUCTION,
+        domain=COOKIE_DOMAIN,
+        path="/auth",
+    )
+
+
+def _clear_state_cookie(response) -> None:
+    response.delete_cookie(OAUTH_STATE_COOKIE, domain=COOKIE_DOMAIN, path="/auth")
+
+
+def _state_matches_browser(request: Request, state: str) -> bool:
+    signed = request.cookies.get(OAUTH_STATE_COOKIE)
+    if not signed:
+        return False
+    mine = unsign_token(signed)
+    return bool(mine) and secrets.compare_digest(mine, state)
+
+
 @router.get("/discord")
 async def discord_login(redirect_to: str | None = None):
     state = secrets.token_urlsafe(16)
@@ -73,17 +110,30 @@ async def discord_login(redirect_to: str | None = None):
         "scope": _SCOPES,
         "state": state,
     }
-    return RedirectResponse(f"{_AUTHORIZE_URL}?{urlencode(params)}")
+    response = RedirectResponse(f"{_AUTHORIZE_URL}?{urlencode(params)}")
+    _set_state_cookie(response, state)
+    return response
+
+
+def _back_to_login() -> RedirectResponse:
+    response = RedirectResponse(url="/login", status_code=302)
+    _clear_state_cookie(response)
+    return response
 
 
 @router.get("/discord/callback")
 async def discord_callback(request: Request, code: str, state: str | None = None):
     if not state:
-        return RedirectResponse(url="/login", status_code=302)
+        return _back_to_login()
+    if not _state_matches_browser(request, state):
+        # Not the browser that started this login: someone else's link. Checked
+        # BEFORE consuming, so a forged link cannot even burn the real state.
+        logger.warning("OAuth callback refused: state not issued to this browser")
+        return _back_to_login()
     redirect_url = await consume_oauth_state(state)
     if redirect_url is None:
         # Invalid, expired, or already-used state - reject (CSRF protection).
-        return RedirectResponse(url="/login", status_code=302)
+        return _back_to_login()
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
@@ -126,6 +176,7 @@ async def discord_callback(request: Request, code: str, state: str | None = None
     record_actor(request, {"user_data": user_data})
 
     redirect = RedirectResponse(url=redirect_url, status_code=302)
+    _clear_state_cookie(redirect)
     redirect.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=sign_token(session_token),
@@ -138,13 +189,16 @@ async def discord_callback(request: Request, code: str, state: str | None = None
     return redirect
 
 
-@router.get("/logout")
+@router.post("/logout")
 async def logout(request: Request):
+    """End the session. POST only, with the CSRF token (security review 2026-11-20):
+    as a GET link any website could sign a visitor out of every dashboard at once.
+    The csrf middleware checks the token; the page then goes to /login itself."""
     signed = request.cookies.get(SESSION_COOKIE_NAME)
     if signed:
         raw = unsign_token(signed)
         if raw:
             await delete_session(raw)
-    response = RedirectResponse(url="/login", status_code=302)
+    response = JSONResponse({"ok": True})
     response.delete_cookie(SESSION_COOKIE_NAME, domain=COOKIE_DOMAIN)
     return response

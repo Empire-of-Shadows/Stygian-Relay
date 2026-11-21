@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] - 2026-11-21 (support server link, sign-in security)
+
+### Fixed
+- **The log channel has to be in your own server.** The dashboard accepted a channel from another
+  server as the log channel, and the bot would then post rule and premium notices there. It now
+  refuses such a channel, and the bot never posts a notice outside the server it belongs to.
+- **Nobody can sign you in to the dashboard as someone else.** A login link started by another
+  person could finish in your browser and sign you in on their account. A login now only finishes
+  in the browser that started it.
+- **Other websites can no longer sign you out.** Logging out of the dashboard now only happens when
+  you press Log out.
+- **The support server link works again.** The link on the Support Server button in `/help` and in the
+  "report it in the support server" line of an error message pointed at an invite that has been
+  replaced. It now takes you to the support server, with the Stygian Relay role, as before.
+
+## [Unreleased] - 2026-11-19 (support button in /help)
+
+### Added
+- **`/help` now has a Support Server button.** It sits next to the Dashboard button on every
+  help page and takes you straight into our support server.
+
+## [Unreleased] - 2026-11-07 (support server links)
+
+### Changed
+- **Error messages now link straight to our support server.** When something breaks
+  unexpectedly in a command, the help menu, the admin panel or the dashboard, the message now
+  ends with a link to the Empires Support server, so you know where to report it. Joining
+  through that link gives you the Stygian Relay role, so the team knows which bot you mean.
+  Ordinary refusals (a missing permission, a rule limit, a cooldown) do not carry the link.
+
+### Fixed
+- **A command that fails now always answers you.** If something went wrong inside a command
+  such as `/premium status`, you used to get no reply at all. You now get a short private
+  message saying it did not go through.
+- **The support server link in our README works again.** It pointed at an old invite that
+  no longer exists.
+
+## [Unreleased] - 2026-09-26 (invite link)
+
+### Changed
+- **The dashboard's "add the bot" button asks for exactly the permissions the bot needs.**
+  It now uses the bot's own install settings from Discord, so it always matches what is set there.
+
+## [Unreleased] - 2026-09-21 (back link returns where you came from)
+
+### Changed
+- **The back link on the dashboard's admin pages now takes you back to where you came
+  from.** Open Settings, Forwarding rules, Analytics, Plan or Change history from a server's
+  overview and the link reads "Overview" and returns you to that server's overview, even
+  after moving between the admin tabs or opening and saving a rule. Open them from Manage
+  and it still returns you to your servers.
+
 ## [Unreleased] - 2026-09-13 (walk review fixes)
 
 ### Fixed

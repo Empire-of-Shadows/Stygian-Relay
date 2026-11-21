@@ -19,6 +19,18 @@ import discord
 DASHBOARD_URL = "https://relay.eosofficial.club"
 PRIVACY_URL = "https://relay.eosofficial.club/privacy"
 
+# This bot's own invite into the Empires Support server. Joining through it gives
+# the member the Stygian-Relay role, so staff know which bot the question is about.
+# The admin engine reads it through admin/settings/bindings.py (SUPPORT_INVITE_URL).
+SUPPORT_INVITE_URL = "https://discord.gg/jxDQrYqcVv"
+
+# The line every UNEXPECTED failure ends with (a crash or exception path, never an
+# expected refusal). Same wording as the admin engine's SUPPORT_LINE_TEMPLATE in
+# admin/views/base.py; the <url> form stops Discord unfurling an invite card.
+SUPPORT_LINE = (
+    f"If this keeps happening, report it in the [support server](<{SUPPORT_INVITE_URL}>)."
+)
+
 
 @dataclass(frozen=True)
 class HelpCategory:

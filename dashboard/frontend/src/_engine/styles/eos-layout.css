@@ -660,3 +660,123 @@ a.ov-qrow:hover, button.ov-qrow:hover { background: var(--eos-glass-heavy); }
 }
 
 .set-ctx { position: sticky; top: 76px; display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Required-field errors (fields.tsx `error`, added 2026-11-20) ──────
+   A switched-on feature missing what it needs: red border plus the reason in
+   red words under the control. The word always ships with the colour. */
+
+/* Child combinators: the Create form nested in the same field keeps its own look. */
+.eos-field--invalid > select,
+.eos-field--invalid > input[type="text"],
+.eos-field--invalid > textarea {
+  border-color: var(--eos-danger);
+}
+.eos-field--invalid > select:focus,
+.eos-field--invalid > input[type="text"]:focus,
+.eos-field--invalid > textarea:focus {
+  border-color: var(--eos-danger);
+  box-shadow: 0 0 0 3px rgba(255, 107, 107, 0.25);
+}
+.eos-field__error {
+  color: var(--eos-danger);
+  font-size: var(--eos-fs-label);
+  margin: 6px 0 0;
+}
+/* The save bar's "Cannot save yet" line, beside a Save button held off. */
+.savebar__problems {
+  color: var(--eos-danger);
+  font-size: var(--eos-fs-label);
+  font-weight: var(--eos-fw-medium);
+}
+
+/* ── Timezone picker (timezone.tsx, added 2026-11-20) ────────────────
+   Region and zone side by side; stacked on a narrow screen. */
+
+.eos-tz {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .eos-tz { grid-template-columns: minmax(0, 1fr); }
+}
+.eos-tz__note { font-size: var(--eos-fs-label); margin: 6px 0 0; }
+
+/* ── Create role / channel (create.tsx, added 2026-11-20) ───────────── */
+
+.eos-create { margin-top: 8px; }
+.eos-create__row { display: flex; flex-wrap: wrap; gap: 8px; }
+.eos-create__btn { padding: 5px 12px; font-size: var(--eos-fs-label); }
+.eos-create__note { font-size: var(--eos-fs-label); margin: 6px 0 0; }
+
+/* Greyed out with aria-disabled (not disabled) so the reason stays reachable by
+   hover AND keyboard focus. The hover guards in the .btn block test :disabled,
+   so they are neutralised here for this state. */
+.eos-create__btn[aria-disabled="true"],
+.eos-create__btn[aria-disabled="true"]:hover {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+  background: var(--eos-glass-heavy);
+}
+
+.eos-create__tipwrap { position: relative; display: inline-flex; }
+.eos-create__tipwrap.has-tip::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 8px 10px;
+  border-radius: var(--eos-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  background: var(--eos-bg-0);
+  color: var(--eos-fg-2);
+  font-size: var(--eos-fs-small);
+  line-height: 1.4;
+  white-space: normal;
+  box-shadow: var(--eos-shadow-md);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.12s, transform 0.12s;
+}
+.eos-create__tipwrap.has-tip:hover::after,
+.eos-create__tipwrap.has-tip:focus-within::after {
+  opacity: 1;
+  transform: none;
+}
+
+.eos-create__form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--eos-border-subtle);
+  border-radius: var(--eos-radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+}
+.eos-create__form > label {
+  font-size: var(--eos-fs-small);
+  font-weight: 700;
+  color: var(--eos-fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.eos-create__form input[type="text"],
+.eos-create__form select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--eos-border-subtle);
+  background: rgba(20, 15, 38, 0.6);
+  color: var(--eos-fg-1);
+  font: inherit;
+  font-size: 14px;
+}
+.eos-create__form input[aria-invalid="true"] { border-color: var(--eos-danger); }
+.eos-create__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }

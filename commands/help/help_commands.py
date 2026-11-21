@@ -15,11 +15,14 @@ import discord
 from discord import ui, app_commands
 from discord.ext import commands
 
+from commands.common.interaction_errors import SupportAwareViewMixin
 from commands.help.help_content import (
     CATEGORIES,
     CATEGORY_ORDER,
     DASHBOARD_URL,
     DEFAULT_CATEGORY,
+    SUPPORT_INVITE_URL,
+    SUPPORT_LINE,
 )
 
 logger = logging.getLogger("Help")
@@ -29,7 +32,26 @@ logger = logging.getLogger("Help")
 ASSETS_DIR = Path(__file__).parent.parent.parent / "assets"
 
 
-class RelayHelpView(ui.LayoutView):
+# Shown under a page whose picture had to be dropped. Discord checks Attach Files even
+# on an ephemeral reply, so without it the whole reply would be refused.
+MISSING_ATTACH_NOTE = (
+    "-# This page's picture is hidden because I am missing the **Attach Files** "
+    "permission here. An admin can grant it to my role."
+)
+
+
+def can_attach_files(interaction: discord.Interaction) -> bool:
+    """May a reply to this interaction carry a file?
+
+    ``app_permissions`` is what the bot holds where the interaction happened (Discord
+    grants Attach Files automatically in DMs). Missing data counts as allowed, which
+    is how /help behaved before this check existed.
+    """
+    perms = getattr(interaction, "app_permissions", None)
+    return perms is None or bool(perms.attach_files)
+
+
+class RelayHelpView(SupportAwareViewMixin, ui.LayoutView):
     """Ephemeral help panel with a category-selector dropdown."""
 
     def __init__(
@@ -37,6 +59,7 @@ class RelayHelpView(ui.LayoutView):
         bot: commands.Bot,
         is_admin: bool,
         current_key: str = DEFAULT_CATEGORY,
+        can_attach: bool = True,
         timeout: float = 300.0,
     ):
         super().__init__(timeout=timeout)
@@ -46,6 +69,8 @@ class RelayHelpView(ui.LayoutView):
         if category is None or (category.admin_only and not is_admin):
             current_key = DEFAULT_CATEGORY
         self.current_key = current_key
+        # False when the bot lacks Attach Files here: pictures are dropped.
+        self.can_attach = can_attach
         # Files the sender must attach alongside this view (page thumbnail).
         self.files: list[discord.File] = []
         self._populate()
@@ -59,7 +84,7 @@ class RelayHelpView(ui.LayoutView):
     def _populate(self) -> None:
         category = CATEGORIES[self.current_key]
 
-        if category.thumbnail:
+        if category.thumbnail and self.can_attach:
             media = f"attachment://{category.thumbnail}"
             self.files = [
                 discord.File(ASSETS_DIR / category.thumbnail, filename=category.thumbnail)
@@ -77,6 +102,8 @@ class RelayHelpView(ui.LayoutView):
         container.add_item(header)
         container.add_item(ui.Separator())
         container.add_item(ui.TextDisplay(category.body))
+        if category.thumbnail and not self.can_attach:
+            container.add_item(ui.TextDisplay(MISSING_ATTACH_NOTE))
         self.add_item(container)
 
         select = ui.Select(
@@ -96,9 +123,11 @@ class RelayHelpView(ui.LayoutView):
         self.add_item(ui.ActionRow(select))
 
         dashboard_btn = ui.Button(label="Dashboard", url=DASHBOARD_URL)
+        # This bot's own invite, so joining through it gives the member this bot's role.
+        support_btn = ui.Button(label="Support Server", url=SUPPORT_INVITE_URL)
         close_btn = ui.Button(label="Close", style=discord.ButtonStyle.secondary)
         close_btn.callback = self._on_close
-        self.add_item(ui.ActionRow(dashboard_btn, close_btn))
+        self.add_item(ui.ActionRow(dashboard_btn, support_btn, close_btn))
 
     async def _on_select(self, interaction: discord.Interaction) -> None:
         selected = (interaction.data or {}).get("values", [DEFAULT_CATEGORY])[0]
@@ -106,6 +135,7 @@ class RelayHelpView(ui.LayoutView):
             self.bot,
             self.is_admin,
             current_key=selected,
+            can_attach=can_attach_files(interaction),
             timeout=self.timeout or 300.0,
         )
         await interaction.response.edit_message(
@@ -150,7 +180,7 @@ class HelpCommands(commands.Cog):
     async def help(self, interaction: discord.Interaction):
         try:
             is_admin = await self._is_admin(interaction)
-            view = RelayHelpView(self.bot, is_admin)
+            view = RelayHelpView(self.bot, is_admin, can_attach=can_attach_files(interaction))
             await interaction.response.send_message(
                 view=view, files=view.files, ephemeral=True
             )
@@ -161,7 +191,8 @@ class HelpCommands(commands.Cog):
             logger.error(f"Error in help command: {e}", exc_info=True)
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    "An error occurred while loading the help menu. Please try again later.",
+                    "An error occurred while loading the help menu. Please try again later."
+                    f"\n\n{SUPPORT_LINE}",
                     ephemeral=True,
                 )
 

@@ -78,8 +78,8 @@ def pretty_zone(tz: str) -> str:
 
 
 def offset_label(tz: str) -> str:
-    """Current UTC offset for ``tz`` as ``UTC+02:00`` / ``UTC-05:00`` (uses a
-    proper minus-sign glyph). DST-accurate - evaluated at call time."""
+    """Current UTC offset for ``tz`` as ``UTC+02:00`` / ``UTC-05:00`` (plain
+    hyphen-minus for negative offsets). DST-accurate - evaluated at call time."""
     try:
         off = datetime.now(pytz.timezone(tz)).utcoffset()
     except Exception:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Optional, Callable
 
 from ...views.panel_engine import PanelNode, ActionContext, build_confirm_view
-from ...views.base import build_notice_layout, create_empty_layout
+from ...views.base import build_failure_notice_layout, build_notice_layout, create_empty_layout
 from ..collections.documents import purge_collection
 from ..config.fields import safe_invalidate
 
@@ -47,7 +47,7 @@ def confirm_action(
                 result = await run(guild.id)
             except Exception:
                 await ci.followup.send(
-                    view=build_notice_layout("Failed", f"Could not complete **{label}**."),
+                    view=build_failure_notice_layout("Failed", f"Could not complete **{label}**."),
                     ephemeral=True,
                 )
                 return

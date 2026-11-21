@@ -80,11 +80,13 @@ from .views.panel_engine import (
     _get_default_option_value,
 )
 from .views.base import (
+    build_failure_notice_layout,
     build_notice_layout,
     build_premium_layout,
     cid,
     create_empty_layout,
     notice_container,
+    with_support_line,
 )
 from .views.panel_views import PanelSession
 from .setup_notice import panel_access_role_phrase
@@ -674,7 +676,7 @@ class AdminCog(commands.Cog):
         except Exception:
             logger.exception("action handler failed for %s", node.key)
             try:
-                notice = build_notice_layout("Something went wrong", f"Could not open **{node.label}**.")
+                notice = build_failure_notice_layout("Something went wrong", f"Could not open **{node.label}**.")
                 if interaction.response.is_done():
                     await interaction.followup.send(view=notice, ephemeral=True)
                 else:
@@ -954,9 +956,9 @@ class AdminCog(commands.Cog):
                 success = await node.set_values(guild.id, values)
             except Exception as save_exc:
                 logger.exception("Select save failed for node=%s", node.key)
-                await _refuse(build_notice_layout(
+                await _refuse(build_failure_notice_layout(
                     "Failed to save",
-                    f"Could not save **{node.label}**. {save_exc.__class__.__name__}",
+                    f"Could not save **{node.label}**.",
                 ))
                 return
             if success:
@@ -1136,17 +1138,19 @@ class AdminCog(commands.Cog):
                     # Bot-specific creator: owns creation AND persistence
                     # (e.g. create-and-configure flows). Contract:
                     # async (guild, name, actor) -> (entity | None, error | None).
+                    create_crashed = False
                     try:
                         entity, create_err = await node.create_entity(guild, name, mi.user)
                     except Exception:
                         logger.exception("create_entity failed for node=%s", node.key)
                         entity, create_err = None, None
+                        create_crashed = True
                     if entity is None:
+                        create_body = create_err or f"Could not create the {_create_noun.lower()}."
+                        if create_crashed:
+                            create_body = with_support_line(create_body)
                         await mi.followup.send(
-                            view=_create_retry_layout(
-                                create_err or f"Could not create the {_create_noun.lower()}.",
-                                raw,
-                            ),
+                            view=_create_retry_layout(create_body, raw),
                             ephemeral=True,
                         )
                         return
@@ -1196,19 +1200,22 @@ class AdminCog(commands.Cog):
                         return
                     try:
                         success = await node.set_values(guild.id, new_vals)
-                    except Exception as save_exc:
+                    except Exception:
                         logger.exception("Create save failed for node=%s", node.key)
                         success = False
-                        save_detail = f" {save_exc.__class__.__name__}"
+                        save_crashed = True
                     else:
-                        save_detail = ""
+                        save_crashed = False
                     if not success:
+                        not_saved_body = (
+                            f"{_entity_display(entity)} was created, but saving "
+                            f"**{node.label}** failed."
+                        )
+                        if save_crashed:
+                            # set_values raised: an unexpected failure, not a refusal.
+                            not_saved_body = with_support_line(not_saved_body)
                         await mi.followup.send(
-                            view=build_notice_layout(
-                                "Created but not saved",
-                                f"{_entity_display(entity)} was created, but saving "
-                                f"**{node.label}** failed.{save_detail}",
-                            ),
+                            view=build_notice_layout("Created but not saved", not_saved_body),
                             ephemeral=True,
                         )
                         return
@@ -1367,9 +1374,9 @@ class AdminCog(commands.Cog):
             except Exception as save_exc:
                 logger.exception("Save failed for node=%s", node.key)
                 await modal_interaction.followup.send(
-                    view=build_notice_layout(
+                    view=build_failure_notice_layout(
                         "Failed to save",
-                        f"Could not save **{node.label}**. {save_exc.__class__.__name__}",
+                        f"Could not save **{node.label}**.",
                     ),
                     ephemeral=True,
                 )
@@ -1558,8 +1565,8 @@ class AdminCog(commands.Cog):
             except Exception as read_exc:
                 logger.exception("Failed to read upload for node=%s", node.key)
                 await modal_interaction.followup.send(
-                    view=build_notice_layout(
-                        "Upload failed", f"Could not read the file. {read_exc.__class__.__name__}",
+                    view=build_failure_notice_layout(
+                        "Upload failed", "Could not read the file.",
                     ),
                     ephemeral=True,
                 )
@@ -1587,8 +1594,8 @@ class AdminCog(commands.Cog):
             except Exception as save_exc:
                 logger.exception("Upload save failed for node=%s", node.key)
                 await modal_interaction.followup.send(
-                    view=build_notice_layout(
-                        "Failed to upload", f"Could not save **{node.label}**. {save_exc.__class__.__name__}",
+                    view=build_failure_notice_layout(
+                        "Failed to upload", f"Could not save **{node.label}**.",
                     ),
                     ephemeral=True,
                 )
@@ -2244,7 +2251,7 @@ class AdminCog(commands.Cog):
             except Exception:
                 logger.exception("list extra action failed for %s", node.key)
                 try:
-                    notice = build_notice_layout(
+                    notice = build_failure_notice_layout(
                         "Something went wrong",
                         f"Could not open **{node.list_extra_action_label or node.label}**.",
                     )
@@ -2305,11 +2312,13 @@ class AdminCog(commands.Cog):
                     )
                     return
                 await confirm_interaction.response.defer(ephemeral=True)
+                action_crashed = False
                 try:
                     success = await node.list_action(guild.id, value)
                 except Exception as e:
                     logger.exception(f"List action failed for {node.key} ({value}): {e}")
                     success = False
+                    action_crashed = True
 
                 if success:
                     self._invalidate_guild_caches(guild.id)
@@ -2329,11 +2338,11 @@ class AdminCog(commands.Cog):
                     if refresh_parent:
                         await refresh_parent()
                 else:
+                    failed_body = f"Failed to {action_label.lower()} the selected item."
+                    if action_crashed:
+                        failed_body = with_support_line(failed_body)
                     await confirm_interaction.followup.send(
-                        view=build_notice_layout(
-                            "Failed",
-                            f"Failed to {action_label.lower()} the selected item.",
-                        ),
+                        view=build_notice_layout("Failed", failed_body),
                         ephemeral=True,
                     )
 
@@ -2442,11 +2451,13 @@ class AdminCog(commands.Cog):
                 return
             await pick_interaction.response.defer(ephemeral=True)
             old_vals = list(await node.get_values(guild.id)) if node.get_values else []
+            save_crashed = False
             try:
                 success = await node.set_values(guild.id, [value])
             except Exception as e:
                 logger.exception(f"grouped_paginated_select save failed for {node.key} ({value}): {e}")
                 success = False
+                save_crashed = True
 
             if success:
                 self._invalidate_guild_caches(guild.id)
@@ -2477,8 +2488,11 @@ class AdminCog(commands.Cog):
                 if refresh_parent:
                     await refresh_parent()
             else:
+                pick_body = f"Failed to save **{node.label}**."
+                if save_crashed:
+                    pick_body = with_support_line(pick_body)
                 await pick_interaction.followup.send(
-                    view=build_notice_layout("Failed to save", f"Failed to save **{node.label}**."),
+                    view=build_notice_layout("Failed to save", pick_body),
                     ephemeral=True,
                 )
 
@@ -2549,9 +2563,9 @@ class AdminCog(commands.Cog):
                 except Exception as save_exc:
                     logger.exception("Inline modal save failed for %s", child.key)
                     await modal_interaction.followup.send(
-                        view=build_notice_layout(
+                        view=build_failure_notice_layout(
                             "Failed to save",
-                            f"Could not save **{child.label}**. {save_exc.__class__.__name__}",
+                            f"Could not save **{child.label}**.",
                         ),
                         ephemeral=True,
                     )

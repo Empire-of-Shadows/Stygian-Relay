@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { ErrorBoundary } from "./_engine/components/ErrorBoundary";
+import { SUPPORT_INVITE_URL } from "./links";
 // Order matters: tokens define every --eos-* custom property, the engine layout
 // layer reads them, and relay's own theme sits last so it can override.
 import "./_engine/styles/eos-tokens.css";
@@ -15,7 +16,7 @@ if (!container) throw new Error("root element not found");
 createRoot(container).render(
   <React.StrictMode>
     <BrowserRouter>
-      <ErrorBoundary>
+      <ErrorBoundary supportUrl={SUPPORT_INVITE_URL}>
         <App />
       </ErrorBoundary>
     </BrowserRouter>

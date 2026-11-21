@@ -232,16 +232,30 @@ class PremiumCog(commands.Cog):
                     logger.warning("Failed to remove role %s in guild %s: %s", role.id, guild_id, e)
 
     async def _resolve_log_channel(self, guild_id) -> Optional[discord.abc.Messageable]:
+        # The operator's own LOG_CHANNEL_ID, when set, is deliberately one channel for
+        # every server. Only the per-server fallback below is scoped to the server.
         channel_id = self.settings.log_channel_id
-        if not channel_id and self.guild_manager:
-            try:
-                gs = await self.guild_manager.get_guild_settings(str(guild_id))
-                channel_id = gs.get("master_log_channel_id")
-            except Exception:
-                channel_id = None
+        if channel_id:
+            return self.bot.get_channel(int(channel_id))
+        if not self.guild_manager:
+            return None
+        try:
+            gs = await self.guild_manager.get_guild_settings(str(guild_id))
+            channel_id = gs.get("master_log_channel_id")
+        except Exception:
+            channel_id = None
         if not channel_id:
             return None
-        return self.bot.get_channel(int(channel_id))
+        channel = self.bot.get_channel(int(channel_id))
+        # get_channel searches every server the bot is in: a server's own log channel
+        # setting must never resolve to another server's channel (security fix 2026-11-21).
+        owner_guild = getattr(channel, "guild", None)
+        if channel is not None and (owner_guild is None or str(owner_guild.id) != str(guild_id)):
+            logger.warning(
+                "Refused premium log post: channel %s is not in guild %s", channel_id, guild_id
+            )
+            return None
+        return channel
 
     async def _post_change(self, scope, scope_id, state, event_name, source):
         if scope != SCOPE_GUILD:

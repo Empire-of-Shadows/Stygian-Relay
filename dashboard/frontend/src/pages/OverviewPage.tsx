@@ -5,6 +5,7 @@ import type { Channel, Guild, GuildOverview, RelayViewResponse } from "../api/ty
 import { formatError } from "../_engine/api/formatError";
 import { Alert } from "../_engine/components/Alert";
 import SignalStrip from "../_engine/components/overview/SignalStrip";
+import { fromOverview } from "../components/AdminNav";
 import { GuildNav } from "../components/GuildNav";
 import MemberRelayView from "../components/overview/MemberRelayView";
 import RelayOverview from "../components/overview/RelayOverview";
@@ -287,21 +288,21 @@ export function OverviewPage() {
       {canShowOverview && overview && (
         <p className="ov-muted" style={{ paddingBottom: 32 }}>
           Looking for something else?{" "}
-          <Link className="ov-link" to={`/settings/guilds/${overview.guild_id}/stats`}>
+          <Link className="ov-link" to={fromOverview(`/settings/guilds/${overview.guild_id}/stats`)}>
             Analytics
           </Link>
           {" - "}
-          <Link className="ov-link" to={`/settings/guilds/${overview.guild_id}/rules`}>Rules</Link>
+          <Link className="ov-link" to={fromOverview(`/settings/guilds/${overview.guild_id}/rules`)}>Rules</Link>
           {" - "}
-          <Link className="ov-link" to={`/settings/guilds/${overview.guild_id}/settings`}>
+          <Link className="ov-link" to={fromOverview(`/settings/guilds/${overview.guild_id}/settings`)}>
             Settings
           </Link>
           {" - "}
-          <Link className="ov-link" to={`/settings/guilds/${overview.guild_id}/premium`}>
+          <Link className="ov-link" to={fromOverview(`/settings/guilds/${overview.guild_id}/premium`)}>
             Premium
           </Link>
           {" - "}
-          <Link className="ov-link" to={`/settings/guilds/${overview.guild_id}/audit-log`}>
+          <Link className="ov-link" to={fromOverview(`/settings/guilds/${overview.guild_id}/audit-log`)}>
             Audit log
           </Link>
         </p>

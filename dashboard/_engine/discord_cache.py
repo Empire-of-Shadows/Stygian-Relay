@@ -32,6 +32,12 @@ unchanged)::
     role = await discord_cache.guild_role(guild_id, role_id)      # managed / mentionable
     perms = await discord_cache.bot_channel_permissions(guild_id, channel_id)
     missing = missing_permissions(perms, ["view_channel", "send_messages"])
+
+Create support (added 2026-11-20, additive; used by ``discord_objects.py``)::
+
+    perms = await discord_cache.bot_guild_permissions(guild_id)
+    raw = await discord_cache.guild_channels_raw(guild_id)   # with overwrites
+    discord_cache.invalidate_guild(guild_id)                 # after a create
 """
 
 from __future__ import annotations
@@ -59,8 +65,11 @@ _MAX_GUILD_ENTRIES = 512  # bound on the per-guild caches (oldest evicted)
 
 # Discord permission bits used by settings validation (discord.com/developers/docs/topics/permissions).
 PERMISSION_BITS: Dict[str, int] = {
+    "kick_members": 1 << 1,
+    "ban_members": 1 << 2,
     "administrator": 1 << 3,
     "manage_channels": 1 << 4,
+    "manage_guild": 1 << 5,
     "add_reactions": 1 << 6,
     "view_channel": 1 << 10,
     "send_messages": 1 << 11,
@@ -79,7 +88,32 @@ _ALL_PERMISSIONS = (1 << 53) - 1
 
 def permission_label(name: str) -> str:
     """'read_message_history' -> 'Read Message History'."""
+    if name == "manage_guild":
+        return "Manage Server"  # Discord's own name for it
     return " ".join(part.capitalize() for part in name.split("_"))
+
+
+# Permissions a role the bot hands out must not carry (owner ruling 2026-11-20).
+# The same list as admin_engine/permission_checks.py DANGEROUS_ROLE_PERMISSIONS,
+# which explains why; a test pins the two together.
+DANGEROUS_ROLE_PERMISSIONS: tuple = (
+    "administrator",
+    "manage_guild",
+    "manage_roles",
+    "manage_channels",
+    "ban_members",
+    "kick_members",
+)
+
+
+def dangerous_role_permissions(role_perms: Optional[int]) -> List[str]:
+    """Readable names of the dangerous permissions in a role's permission bits."""
+    if not role_perms:
+        return []
+    return [
+        permission_label(p) for p in DANGEROUS_ROLE_PERMISSIONS
+        if int(role_perms) & PERMISSION_BITS[p]
+    ]
 
 
 def compute_channel_permissions(
@@ -172,6 +206,9 @@ class _BoundedTTLMap:
             return entry["data"]
         return None
 
+    def pop(self, key: str) -> None:
+        self._map.pop(key, None)
+
     def set(self, key: str, data: Any) -> None:
         if key not in self._map and len(self._map) >= self._max:
             oldest = min(self._map, key=lambda k: self._map[k]["ts"])
@@ -197,6 +234,8 @@ class DiscordApiCache:
         # resources; a miss (left the guild, bad id) is cached too so a page that shows
         # many names does not re-ask Discord for the same absent member on every render.
         self._members = _BoundedTTLMap(_MAX_MEMBER_ENTRIES, _RESOURCE_TTL)
+        # Guild feature flags (guild_features, 2026-11-20); change only with boosts.
+        self._features = _BoundedTTLMap(_MAX_GUILD_ENTRIES, _GUILDS_TTL)
         # Per-guild single-flight locks; pruned alongside the caches by virtue of
         # being recreated rarely (a lock per active guild, bounded in practice by
         # the caches above - stale locks are just idle asyncio.Lock objects).
@@ -406,6 +445,29 @@ class DiscordApiCache:
         roles.sort(key=lambda r: r["position"])
         return roles
 
+    async def guild_roles_all(self, guild_id: str) -> List[dict]:
+        """Every role except @everyone, managed ones INCLUDED, sorted by position.
+
+        For pickers that name a role a member already holds rather than one the bot
+        hands out - a reward paid to whoever has Server Booster, say. ``guild_roles``
+        drops managed roles because the bot cannot assign them; here that is not the
+        question. Each entry carries ``managed`` so the page can say which is which.
+        Empty list on failure."""
+        raw = await self._guild_roles_raw(guild_id)
+        roles = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "color": r["color"],
+                "position": r["position"],
+                "managed": r["managed"],
+            }
+            for r in raw
+            if str(r["id"]) != str(guild_id)
+        ]
+        roles.sort(key=lambda r: r["position"])
+        return roles
+
     async def guild_role(self, guild_id: str, role_id: str) -> Optional[dict]:
         """One role with ``managed``/``mentionable``/``permissions``, or None when it is
         not in the guild or the roles could not be fetched."""
@@ -436,6 +498,83 @@ class DiscordApiCache:
             guild_id, roles, bot_id, member.get("roles") or [],
             channel.get("permission_overwrites") or [],
         )
+
+    # -- create support (added 2026-11-20, additive) ------------------------------
+    #
+    # Used by discord_objects.py, which lets a dashboard create a role or a channel
+    # the way the admin panel's inline Create button does. Nothing above changes.
+
+    async def guild_channels_raw(self, guild_id: str) -> List[dict]:
+        """Every channel of every type, WITH ``permission_overwrites``. A copy, so
+        callers cannot mutate the cache. Empty list on failure."""
+        guild_id = str(guild_id)
+        await self.guild_channels(guild_id, types=())  # warm the raw cache
+        return [dict(c) for c in (self._channels.get(guild_id) or [])]
+
+    async def guild_roles_raw(self, guild_id: str) -> List[dict]:
+        """Every role, @everyone included, with ``managed`` / ``permissions``. A copy.
+        Empty list on failure."""
+        return [dict(r) for r in await self._guild_roles_raw(guild_id)]
+
+    async def bot_guild_permissions(self, guild_id: str) -> Optional[int]:
+        """The bot's server-wide permission bits (@everyone plus its roles; all bits
+        under Administrator), or None when the bot id, roles or the bot's member
+        record could not be fetched."""
+        guild_id = str(guild_id)
+        bot_id = await self.bot_id()
+        if not bot_id:
+            return None
+        roles = await self._guild_roles_raw(guild_id)
+        if not roles:
+            return None
+        member = await self.guild_member(guild_id, bot_id)
+        if member is None:
+            return None
+        # No overwrites: the server-wide value is the channel formula with none.
+        return compute_channel_permissions(
+            guild_id, roles, bot_id, member.get("roles") or [], [],
+        )
+
+    async def bot_member_role_ids(self, guild_id: str) -> Optional[List[str]]:
+        """The bot's own role ids in a guild, or None when they could not be read."""
+        bot_id = await self.bot_id()
+        if not bot_id:
+            return None
+        member = await self.guild_member(str(guild_id), bot_id)
+        if member is None:
+            return None
+        return list(member.get("roles") or [])
+
+    async def guild_features(self, guild_id: str) -> Optional[List[str]]:
+        """The guild's Discord feature flags (``GET /guilds/{id}`` ``features``), or
+        None when they could not be read. Cached like the bot guild list (300 s):
+        features change only with boosts or Community settings. Added 2026-11-20
+        so a dashboard can tell whether a server may have a server tag
+        (``GUILD_TAGS``); additive."""
+        guild_id = str(guild_id)
+        hit = self._features.get(guild_id)
+        if hit is not None:
+            return list(hit)
+        async with self._resource_locks[f"f:{guild_id}"]:
+            hit = self._features.get(guild_id)
+            if hit is not None:
+                return list(hit)
+            if not _token():
+                return None
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                resp = await _get_with_retry(client, f"{_api_base()}/guilds/{guild_id}")
+            if resp is None:
+                return None
+            features = [str(f) for f in (resp.json().get("features") or [])]
+            self._features.set(guild_id, features)
+            return list(features)
+
+    def invalidate_guild(self, guild_id: str) -> None:
+        """Drop a guild's cached channels and roles, so the next picker read sees
+        something the dashboard just created instead of a list up to 60 s old."""
+        guild_id = str(guild_id)
+        self._channels.pop(guild_id)
+        self._roles.pop(guild_id)
 
 
 # Module-level singleton - one cache per dashboard process.

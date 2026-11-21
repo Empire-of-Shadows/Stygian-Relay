@@ -28,7 +28,7 @@ import {
 } from "../_engine/components/settings/fields";
 import { KeyValue, Rule as Divider } from "../_engine/components/overview/Tile";
 import { formatCount } from "../_engine/format";
-import { AdminNav } from "../components/AdminNav";
+import { AdminNav, useAdminHref } from "../components/AdminNav";
 
 /*
  * The rule editor.
@@ -104,6 +104,7 @@ function parseIds(raw: string): string[] {
 export function RuleEditorPage() {
   const { guildId, ruleId } = useParams<{ guildId: string; ruleId: string }>();
   const navigate = useNavigate();
+  const adminHref = useAdminHref();
   const isNew = ruleId === "new";
 
   const [loading, setLoading] = useState(!isNew);
@@ -229,7 +230,7 @@ export function RuleEditorPage() {
       } else {
         await api.updateRule(guildId, ruleId!, body);
       }
-      navigate(`/settings/guilds/${guildId}/rules`);
+      navigate(adminHref(`/settings/guilds/${guildId}/rules`));
     } catch (e) {
       setError(formatError(e));
     } finally {
@@ -261,7 +262,7 @@ export function RuleEditorPage() {
       <div className="page-header">
         <div>
           <Link
-            to={`/settings/guilds/${guildId}/rules`}
+            to={adminHref(`/settings/guilds/${guildId}/rules`)}
             className="muted"
             style={{ fontSize: 13 }}
           >
@@ -521,7 +522,7 @@ export function RuleEditorPage() {
               <button type="submit" className="btn btn-primary" disabled={saving || !canSave}>
                 {saving ? "Saving..." : isNew ? "Create rule" : "Save changes"}
               </button>
-              <Link to={`/settings/guilds/${guildId}/rules`} className="btn ghost">
+              <Link to={adminHref(`/settings/guilds/${guildId}/rules`)} className="btn ghost">
                 Cancel
               </Link>
               <span className="muted" style={{ fontSize: 13 }}>
