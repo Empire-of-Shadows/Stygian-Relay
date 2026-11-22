@@ -73,8 +73,13 @@ DEFAULT_MESSAGE_TYPES = {
     "text": True, "media": True, "links": True,
     "embeds": True, "files": True, "stickers": False,
 }
+# 4000 is the longest message Discord lets anyone send (Nitro); the forwarder splits a long
+# copy into parts, so this default copies everything. It was 2000 until 2026-11-22, which
+# silently dropped Nitro members' longer messages.
+MAX_MESSAGE_LENGTH = 4000
 DEFAULT_FILTERS = {
-    "require_keywords": [], "block_keywords": [], "min_length": 0, "max_length": 2000,
+    "require_keywords": [], "block_keywords": [], "min_length": 0,
+    "max_length": MAX_MESSAGE_LENGTH,
 }
 DEFAULT_FORMATTING = {
     "include_author": True, "add_prefix": "", "add_suffix": "",

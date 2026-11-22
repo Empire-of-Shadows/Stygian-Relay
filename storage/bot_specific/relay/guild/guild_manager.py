@@ -4,6 +4,7 @@
 #     python tools/sync_storage_engine.py
 # Drift is enforced by:  python tools/sync_storage_engine.py --check
 # ---------------------------------------------------------------------------
+import copy
 import os
 import asyncio
 import time
@@ -396,7 +397,10 @@ class GuildManager:
                 )
                 return await collection.find_one({"guild_id": gid})
             else:
-                default_settings = DEFAULT_GUILD_SETTINGS_TEMPLATE.copy()
+                # A deep copy: a shallow one shared the template's nested features,
+                # limits, rules and inbound_allowed_guilds objects with every new server's
+                # document, so one in-memory mutation would leak into all of them.
+                default_settings = copy.deepcopy(DEFAULT_GUILD_SETTINGS_TEMPLATE)
                 default_settings.update({
                     "guild_id": gid,
                     "guild_name": guild_name,

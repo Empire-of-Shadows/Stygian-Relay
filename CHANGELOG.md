@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased] - 2026-11-22 (long messages)
+
+### Fixed
+- **Long messages are copied again.** A rule on its default settings skipped any message longer
+  than 2000 characters, so a Nitro member's longer message (up to 4000) was quietly never
+  copied. New rules now copy up to 4000 characters, the most Discord allows, and the dashboard's
+  "Longest message to copy" goes up to 4000. Existing rules on the old default are moved to 4000
+  as well; rules where you set a lower limit keep it.
+
 ## [Unreleased] - 2026-11-21 (status page, safer dashboard rules and settings)
 
 ### Added

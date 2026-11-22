@@ -68,7 +68,7 @@ const DEFAULT_CONTENT_FILTERS: RuleFilters = {
   require_keywords: [],
   block_keywords: [],
   min_length: 0,
-  max_length: 2000,
+  max_length: 4000,
 };
 
 const DEFAULT_FORMATTING: RuleFormatting = {
@@ -426,7 +426,7 @@ export function RuleEditorPage() {
                   label="Shortest message to copy"
                   value={contentFilters.min_length}
                   min={0}
-                  max={2000}
+                  max={4000}
                   onChange={(v) => setContentFilters({ ...contentFilters, min_length: v })}
                   description="In characters. 0 copies even an empty message with only an attachment on it."
                 />
@@ -434,9 +434,9 @@ export function RuleEditorPage() {
                   label="Longest message to copy"
                   value={contentFilters.max_length}
                   min={0}
-                  max={2000}
+                  max={4000}
                   onChange={(v) => setContentFilters({ ...contentFilters, max_length: v })}
-                  description="In characters. 2000 is Discord's own limit, so it copies anything."
+                  description="In characters. 4000 is the longest message Discord allows (with Nitro), so it copies anything."
                 />
               </FRow>
               {lengthInvalid && (

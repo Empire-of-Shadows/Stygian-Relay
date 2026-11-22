@@ -7,6 +7,7 @@ from collections import Counter
 from discord.ext import commands
 from commands.help.help_content import DASHBOARD_URL
 from storage.bot_specific.relay import audit_log, guild_manager
+from storage.bot_specific.relay.forwarding.rule_schema import MAX_MESSAGE_LENGTH
 from storage.bot_specific.relay.utils import normalize_channel_id
 from storage.settings.user_preferences import (
     FLAG_RELAY_MESSAGES,
@@ -615,7 +616,7 @@ class Forwarding(commands.Cog):
             content = content.lower()
 
         min_len = filters.get("min_length", 0)
-        max_len = filters.get("max_length", 2000)
+        max_len = filters.get("max_length", MAX_MESSAGE_LENGTH)
         if not (min_len <= len(message.content) <= max_len):
             return False
 

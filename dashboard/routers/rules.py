@@ -42,8 +42,11 @@ router = APIRouter(tags=["rules"])
 MAX_KEYWORDS = 50
 MAX_KEYWORD_LENGTH = 100
 
-# Discord's own message-content ceiling. A max_length above it can never reject anything.
-MAX_MESSAGE_LENGTH = 2000
+# The longest message Discord lets anyone send (4000 with Nitro; the forwarder splits a
+# long copy into parts). A max_length of this never rejects anything. It was 2000 until
+# 2026-11-22, which made the default silently drop Nitro members' longer messages. Kept
+# equal to rule_schema.MAX_MESSAGE_LENGTH (the dashboard does not import the bot's storage).
+MAX_MESSAGE_LENGTH = 4000
 
 # The one forwarding style implemented today (forward_message always renders the quoted
 # native style). Kept as a validated set so a future style is a one-line addition rather

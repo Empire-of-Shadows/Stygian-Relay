@@ -1,7 +1,10 @@
 from typing import Dict, Any, List, Tuple
 import discord
 
-from storage.bot_specific.relay.forwarding.rule_schema import CURRENT_RULE_SCHEMA_VERSION
+from storage.bot_specific.relay.forwarding.rule_schema import (
+    CURRENT_RULE_SCHEMA_VERSION,
+    MAX_MESSAGE_LENGTH,
+)
 
 
 class RuleSetupHelper:
@@ -44,7 +47,7 @@ class RuleSetupHelper:
                 "require_keywords": [],
                 "block_keywords": [],
                 "min_length": 0,
-                "max_length": 2000
+                "max_length": MAX_MESSAGE_LENGTH
             },
             "formatting": {
                 "include_author": True,
