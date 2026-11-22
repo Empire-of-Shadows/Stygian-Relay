@@ -28,6 +28,7 @@ from dashboard.routers.premium import router as premium_router
 from dashboard.routers.audit_log import router as audit_log_router
 from dashboard.routers.settings import router as settings_router
 from dashboard.routers.user_data import router as user_data_router
+from status_push import start_status_push, stop_status_push
 
 from storage.log import get_logger
 
@@ -65,7 +66,13 @@ async def lifespan(app: FastAPI):
     await db.connect()
     await ensure_oauth_state_ttl_index()
     await ensure_session_ttl_index()
+    # The dashboard's own Uptime Kuma push monitor (the bot pushes its own). Off when unset.
+    push_task = start_status_push(
+        os.getenv("KUMA_PUSH_URL_DASHBOARD"), _status_verdict, label="Stygian-Relay dashboard",
+    )
     yield
+    # Before the databases close, so a redeploy never pushes "Database unavailable".
+    await stop_status_push(push_task)
     await db.close()
 
 
@@ -120,30 +127,58 @@ app.include_router(user_data_router, prefix="/api")
 _PING_TIMEOUT_SECONDS = 3.0
 
 
-async def _ping(get_client, label: str) -> bool:
-    """One bounded Mongo ping. The failure is logged here, never returned in the body."""
+async def _ping(get_client, label: str) -> float | None:
+    """One bounded Mongo ping: its round trip in ms, or None when it failed.
+
+    The failure is logged here, never returned in the body.
+    """
+    started = time.perf_counter()
     try:
         await asyncio.wait_for(get_client().admin.command("ping"), timeout=_PING_TIMEOUT_SECONDS)
-        return True
+        return round((time.perf_counter() - started) * 1000, 1)
     except Exception:
         health_logger.warning("%s Mongo health ping failed", label, exc_info=True)
-        return False
+        return None
+
+
+async def _check() -> tuple[str, bool, bool, float | None]:
+    """``(status, relay_ok, sessions_ok, relay_ping_ms)``, shared by /health and the Kuma push.
+
+    The relay database is the dashboard's own data: without it no page can read or save
+    anything, so a failure is ``unhealthy``. The shared sessions store is sign-in only:
+    without it the public pages still load, so on its own it is ``degraded``.
+    """
+    relay_ms, sessions_ms = await asyncio.gather(
+        _ping(db.relay_client, "Relay"),
+        _ping(db.shared_client, "Shared-sessions"),
+    )
+    relay_ok, sessions_ok = relay_ms is not None, sessions_ms is not None
+    status = "unhealthy" if not relay_ok else ("degraded" if not sessions_ok else "healthy")
+    return status, relay_ok, sessions_ok, relay_ms
+
+
+async def _status_verdict() -> tuple[str, str, float | None]:
+    """``(status, message, ping_ms)`` for the dashboard's Uptime Kuma push monitor.
+
+    The message is shown on the PUBLIC status page: plain words naming each failing check,
+    "Online" when none fail. The ping is the round trip to the relay database.
+    """
+    status, relay_ok, sessions_ok, relay_ms = await _check()
+    problems = []
+    if not relay_ok:
+        problems.append("Database unavailable")
+    if not sessions_ok:
+        problems.append("Sign-in unavailable")
+    return status, ", ".join(problems) or "Online", relay_ms
 
 
 @app.get("/health")
 async def health():
-    """Liveness plus both databases, per the fleet health contract.
+    """Liveness plus both databases, per the fleet health contract (see ``_check``).
 
-    The relay database is the dashboard's own data: without it no page can read or save
-    anything, so a failure is ``unhealthy`` with HTTP 503. The shared sessions store is
-    sign-in only: without it the public pages still load, so on its own it is ``degraded``
-    with HTTP 200. The body carries statuses only.
+    ``unhealthy`` answers HTTP 503; ``degraded`` stays 200. The body carries statuses only.
     """
-    relay_ok, sessions_ok = await asyncio.gather(
-        _ping(db.relay_client, "Relay"),
-        _ping(db.shared_client, "Shared-sessions"),
-    )
-    status = "unhealthy" if not relay_ok else ("degraded" if not sessions_ok else "healthy")
+    status, relay_ok, sessions_ok, _ = await _check()
     response = {
         "status": status,
         "timestamp": time.time(),

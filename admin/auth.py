@@ -39,6 +39,10 @@ async def resolve_panel_role_from_config(
     from .settings.bindings import config_get  # lazy: avoid bindings<->auth import cycle
 
     admin_ids = {int(r) for r in (await config_get(guild_id, admin_path, default=[]) or [])}
+    # @everyone's role id is the guild id, and every member holds it (discord.py puts it
+    # in Member.roles). A stored @everyone would make the whole server an admin, so it
+    # never grants access, whoever saved it (found 2026-11-21; the pickers refuse it).
+    admin_ids.discard(int(guild_id))
     member_ids = {r.id for r in getattr(user, "roles", [])}
 
     if admin_ids & member_ids:

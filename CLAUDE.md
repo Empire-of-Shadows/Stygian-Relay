@@ -12,7 +12,8 @@ Empire of Shadows ecosystem (see the monorepo root `../../CLAUDE.md` and the eng
 
 - **Entry point:** `Relay.py` - loads `docker/.env` (+ `.env.local` override) → `storage.log`
   setup (+ email ErrorReporter on root) → signal handlers → `db_manager` init → health
-  endpoint (**port 50013**) → `on_ready` (Database Attachment via `attach_databases` +
+  endpoint (**port 50013**) → Uptime Kuma status push (off unless `KUMA_PUSH_URL_BOT` is set)
+  → `on_ready` (Database Attachment via `attach_databases` +
   `initialize_existing_guilds`, cog load, command sync, status).
 - **Run locally:** `python Relay.py`  ·  **Docker:** `docker/stygian.sh` (joins `obsidian_grid`).
 - **Console log colors** (engine feature, opt-in in `docker/.env`, fleet pass 2026-09-01):
@@ -35,7 +36,7 @@ fetch at build. This is deliberate - see the note at the bottom of this file.
 |---|---|---|
 | `../../EmpireSystems/storage_engine/` | `storage/` (imported as `storage`) | master |
 | `../../EmpireSystems/admin_engine/` | `admin/` (at the repo root) | master |
-| `../../EmpireSystems/runtime_engine/` | `health_endpoint.py`, `startup/{phases,loader,presence}.py`, `utils/env.py` | master |
+| `../../EmpireSystems/runtime_engine/` | `health_endpoint.py`, `status_push.py`, `startup/{phases,loader,presence}.py`, `utils/env.py` | master |
 | `../../EmpireSystems/dashboard_engine/` | `dashboard/_engine/`, `dashboard/frontend/src/_engine/` | master |
 | `../../EmpireSystems/storage_engine/bot_specific/relay/` | `storage/bot_specific/relay/` | master, relay only |
 | - | `admin/settings/`, `storage/settings/`, `startup/{bot,sync}.py`, `dashboard/{config,db,app}.py` + `auth/`, `routers/`, `services/` | **relay** (the seam) |
@@ -122,6 +123,35 @@ the fleet is vendored; relay matches it.
 - Async/await throughout; structured logging (`storage.log` - loguru engine); graceful shutdown (signal handlers).
 - MongoDB via the vendored `storage_engine` (`db_manager`); relay's domain logic lives in `storage/bot_specific/relay/`.
 - Health endpoint on `:50013`. All services share the external `obsidian_grid` Docker network.
+- **Uptime Kuma push monitors** (wired 2026-11-21, copied from TheCodex). Each process pushes its
+  OWN monitor every 30 s through the vendored `status_push.py`: the bot from `Relay.py` with
+  `KUMA_PUSH_URL_BOT` (verdict = `health_endpoint.status_verdict`, ping = gateway latency), the
+  dashboard from its lifespan with `KUMA_PUSH_URL_DASHBOARD` (verdict = `_status_verdict` in
+  `dashboard/app.py`, same `_check()` as its `/health`, ping = relay DB round trip). Both vars
+  live in `docker/.env`; unset means off. Both processes stop the pusher BEFORE closing the
+  databases, or every redeploy would push "Database unavailable" to the public page. Push
+  messages are public: plain words only.
+- **Dashboard saves check against the server being configured** (2026-11-21, fleet rule). A
+  CHANGED rule source, same-server rule destination or log channel must be in this server's
+  channel list (`discord_cache.guild_channels_raw`), failing CLOSED when the list cannot be read;
+  it must also be a kind the panel offers (rules: text + announcement, `_TEXTLIKE_TYPES`; log
+  channel: text). Changed roles (manager role, author-filter roles) must be in this server, but
+  that lookup fails OPEN. A cross-server destination is by design and is authorized by the
+  destination server's `inbound_allowed_guilds` (dashboard at save time, `forward.py` on every
+  message against the channel's real server); the bot's global `bot.get_channel` for rule
+  destinations is deliberate for that reason. Whether the destination channel is in that
+  server ALSO fails closed (owner ruling 2026-11-21): an unreadable listing of that server is a
+  503 "try again". The Manager Role refuses @everyone (always, no lookup needed) and
+  integration-managed roles (fails open), on the dashboard and in the panel; the panel side is
+  the engine's `value_validator` hook on the node, calling the vendored
+  `check_delegation_role`. The inbound allowlist is capped at the panel text
+  box (`INBOUND_TEXT_MAX`, 2000 characters joined) so the panel screen always opens.
+- **No role is handed out to members.** The only role the bot assigns is the premium role,
+  synced to the guild OWNER only (`commands/premium/cog.py::_sync_roles`), which the owner ruled
+  out of the fleet's dangerous-role rule (2026-11-21). The Manager Role is a gating role. So the
+  engine's dangerous-permission refusal (`admin/permission_checks.py`) has no relay node to apply
+  to; a future role the bot hands out must set `requires_role_manage=True` and check again at
+  the moment of giving.
 
 ## Forwarding switch, audit categories, migrations (2026-09-13)
 

@@ -105,7 +105,9 @@ async def resolve_panel_role(user: discord.Member, guild_id: int) -> str:
             mrid = int(raw)
         except (TypeError, ValueError):
             mrid = None
-        if mrid and any(r.id == mrid for r in getattr(user, "roles", [])):
+        # @everyone's id is the guild id and every member holds it, so a stored
+        # @everyone must never grant the panel (found 2026-11-21; pickers refuse it).
+        if mrid and mrid != int(guild_id) and any(r.id == mrid for r in getattr(user, "roles", [])):
             return "admin"
     return "none"
 

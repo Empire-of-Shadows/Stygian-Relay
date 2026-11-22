@@ -81,6 +81,9 @@ PERMISSION_BITS: Dict[str, int] = {
     "manage_roles": 1 << 28,
     "manage_threads": 1 << 34,
     "create_public_threads": 1 << 35,
+    # TheHost's Game Category needs it (private game threads); added 2026-11-21 so a
+    # dashboard can check it like any other permission instead of raising a KeyError.
+    "create_private_threads": 1 << 36,
     "send_messages_in_threads": 1 << 38,
 }
 _ALL_PERMISSIONS = (1 << 53) - 1

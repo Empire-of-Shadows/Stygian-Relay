@@ -170,9 +170,74 @@ class UpdateRuleRequest(BaseModel):
 SOURCE_PERMS = ["view_channel", "read_message_history"]
 DESTINATION_PERMS = ["send_messages", "attach_files", "embed_links", "read_message_history"]
 
+#: The channel kinds the Discord wizard offers for both ends of a rule: text and
+#: announcement channels (``_TEXTLIKE_TYPES`` in admin/settings/forwarding_actions.py).
+RULE_CHANNEL_TYPES = (0, 5)
+
+_CHANNEL_LIST_UNREADABLE = (
+    "Could not check that channel against this server's channel list. Try again in a moment."
+)
+
+_DEST_CHANNEL_LIST_UNREADABLE = (
+    "Could not check that channel against that server's channel list. Try again in a moment."
+)
+
 
 def _labels(names: list[str]) -> str:
     return ", ".join(permission_label(n) for n in names)
+
+
+async def _refuse_foreign_channel(guild_id: str, channel_id: int, what: str) -> None:
+    """Refuse a channel that is not one of THIS server's text or announcement channels.
+
+    Fails CLOSED (security boundary, same rule as TheCodex and the rest of the fleet): when
+    the server's channel list cannot be read, the save is refused with a "try again". Used
+    for the channel a rule watches and for a destination in the same server; a destination
+    in another server is authorized by that server's inbound allowlist instead.
+    """
+    channels = await discord_cache.guild_channels_raw(str(guild_id))
+    if not channels:
+        raise HTTPException(status_code=503, detail=_CHANNEL_LIST_UNREADABLE)
+    picked = next((c for c in channels if str(c.get("id")) == str(channel_id)), None)
+    if picked is None:
+        raise HTTPException(
+            status_code=422,
+            detail="That channel is not in this server. Pick one of this server's channels.",
+        )
+    if picked.get("type") not in RULE_CHANNEL_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"The {what} must be a text or announcement channel, the same kinds the "
+                   f"Discord admin panel offers.",
+        )
+
+
+async def _refuse_foreign_roles(guild_id: str, new_ids: list[str], old_ids: list[str]) -> None:
+    """Refuse an author-filter role that is not in this server. Only roles this save adds
+    are checked, and the lookup fails OPEN (owner decision): when Discord cannot list the
+    roles, the save goes through."""
+    added = [str(r) for r in new_ids if str(r) not in {str(o) for o in old_ids}]
+    if not added:
+        return
+    roles = await discord_cache.guild_roles_raw(str(guild_id))
+    if not roles:
+        return
+    ids = {str(r.get("id")) for r in roles}
+    if any(r not in ids for r in added):
+        raise HTTPException(
+            status_code=422,
+            detail="One of those roles is not in this server. Pick this server's roles only.",
+        )
+
+
+async def _validate_author_roles(
+    guild_id: str, new: AuthorFiltersModel | None, old: dict | None,
+) -> None:
+    if new is None:
+        return
+    old = old or {}
+    for key in ("allow_role_ids", "deny_role_ids"):
+        await _refuse_foreign_roles(guild_id, getattr(new, key), old.get(key) or [])
 
 
 async def _validate_route(
@@ -189,8 +254,14 @@ async def _validate_route(
     The dashboard used to save anything: the same channel twice, a channel the bot cannot
     see or post in, a server that has not allowed this one in. Each saved and then forwarded
     nothing (or collected strikes until it paused itself). Only the parts this save
-    changes are checked, and Discord lookups fail open, so an unreachable API never blocks a
-    save.
+    changes are checked. Whether a changed channel is in this server fails CLOSED (an
+    unreadable channel list refuses); the permission lookups fail open, so an unreachable
+    API never blocks a save on those alone.
+
+    A destination in ANOTHER server is by design (cross-server rules). It is authorized by
+    that server's own inbound allowlist, checked here and again by the forwarder on every
+    message against the server the channel actually belongs to. The check that the channel
+    is in that server fails closed too (owner ruling 2026-11-21).
     """
     gid = str(guild_id)
     dgid = str(destination_guild_id)
@@ -198,6 +269,11 @@ async def _validate_route(
 
     if not cross and source_id == destination_id:
         raise HTTPException(status_code=400, detail="Source and destination channels must be different.")
+
+    if check_source:
+        await _refuse_foreign_channel(gid, source_id, "channel to watch")
+    if check_destination and not cross:
+        await _refuse_foreign_channel(gid, destination_id, "destination channel")
 
     if check_destination and cross:
         bot_guilds = await _fetch_bot_guild_ids()
@@ -215,7 +291,13 @@ async def _validate_route(
                        "to add this server's ID to their cross-server allowlist first.",
             )
         listing = await discord_cache.guild_channels(dgid, types=(0, 5))
-        if listing and not any(str(c["id"]) == str(destination_id) for c in listing):
+        # Fails CLOSED (owner ruling 2026-11-21), like the same-server check: when that
+        # server's channel list cannot be read, the save is refused with a "try again".
+        # An empty text/announcement listing alone is not proof of that (the server may
+        # simply have none), so the full listing decides which refusal it is.
+        if not listing and not await discord_cache.guild_channels_raw(dgid):
+            raise HTTPException(status_code=503, detail=_DEST_CHANNEL_LIST_UNREADABLE)
+        if not any(str(c["id"]) == str(destination_id) for c in listing):
             raise HTTPException(
                 status_code=422,
                 detail="That destination channel ID is not a text channel in the destination server.",
@@ -304,6 +386,7 @@ async def create_rule(
         check_source=True,
         check_destination=True,
     )
+    await _validate_author_roles(guild_id, body.author_filters, None)
 
     ok, reason, rule = await rule_service.create_rule(
         guild_id,
@@ -399,6 +482,14 @@ async def update_rule(
             destination_guild_id=new_dest_guild,
             check_source=new_source != old_source,
             check_destination=(new_dest != old_dest or new_dest_guild != old_dest_guild),
+        )
+
+    if body.author_filters is not None:
+        stored = await rule_service.get_rule(guild_id, rule_id)
+        if stored is None:
+            raise HTTPException(status_code=404, detail="Rule not found.")
+        await _validate_author_roles(
+            guild_id, body.author_filters, (stored.get("settings") or {}).get("author_filters"),
         )
 
     updates: dict[str, Any] = {}

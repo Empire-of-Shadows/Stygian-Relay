@@ -7,10 +7,11 @@ Unified startup sequence (mirrors Ecom / TheHost / TheCodex / ImperialReminder):
     3. main(): banner + Python/discord.py versions
     4. _async_main(): install signal handlers → init database (db_manager) → start error
        notifier loop → start health endpoint (50013)
+       → start the Uptime Kuma status push (only when KUMA_PUSH_URL_BOT is set)
     5. start_services(): bot.start raced against shutdown_event
     6. on_ready (idempotent via _init_done):
        Database Attachment → Cog Loading → Command Sync → Status Setup
-    7. shutdown_handler(): health → error notifier → database → bot
+    7. shutdown_handler(): status push → health → error notifier → database → bot
 """
 
 import asyncio
@@ -40,12 +41,16 @@ from storage.log import setup_application_logging
 from logger.error_reporter import ErrorReporter, ReportingHandler
 from status.idle import restore_presence, rotate_status
 from storage.settings.collections import db_manager
-from health_endpoint import initialize_health_server, stop_health_server
+from health_endpoint import initialize_health_server, status_verdict, stop_health_server
+from status_push import start_status_push, stop_status_push
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 APPLICATION_NAME = "discord-bot-relay"
 HEALTH_PORT = 50013
+
+# The bot's Uptime Kuma push monitor. The dashboard pushes its own (KUMA_PUSH_URL_DASHBOARD).
+_status_push_task = None
 
 bot = get_bot()
 
@@ -164,9 +169,16 @@ bot.event(on_ready)
 
 
 async def shutdown_handler():
-    """Graceful shutdown: health → error notifier → database → bot."""
+    """Graceful shutdown: status push → health → error notifier → database → bot."""
     shutdown_start = time.perf_counter()
     logger.info("🛑 Initiating graceful shutdown...")
+
+    # First, before the database closes: a push sent after that would report
+    # "Database unavailable" on the public status page for every redeploy.
+    try:
+        await stop_status_push(_status_push_task)
+    except Exception as e:
+        logger.error(f"❌ Error stopping status push: {e}")
 
     try:
         stop_health_server()
@@ -258,8 +270,8 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop, shutdown_event: as
 
 
 async def _async_main(shutdown_event: asyncio.Event):
-    """Async entry: install signals, init DB, start error loop + health, start services."""
-    global _error_task
+    """Async entry: install signals, init DB, start error loop + health + status push, start services."""
+    global _error_task, _status_push_task
 
     loop = asyncio.get_running_loop()
     _install_signal_handlers(loop, shutdown_event)
@@ -284,6 +296,14 @@ async def _async_main(shutdown_event: asyncio.Event):
         logger.info("✅ Health check endpoint initialized")
     except Exception as e:
         logger.error(f"❌ Failed to start health endpoint: {e}")
+
+    # Same verdict as /health, pushed every 30 s. Off (one log line) when the URL is unset.
+    try:
+        _status_push_task = start_status_push(
+            os.getenv("KUMA_PUSH_URL_BOT"), status_verdict, label="Stygian-Relay bot",
+        )
+    except Exception as e:
+        logger.error(f"❌ Failed to start status push: {e}")
 
     await start_services(shutdown_event)
 

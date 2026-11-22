@@ -85,6 +85,10 @@ const DEFAULT_ADVANCED: AdvancedOptions = {
   whole_word_only: false,
 };
 
+/** The channel kinds both ends of a rule may be: text (0) and announcement (5). Exactly
+ *  what the Discord panel's Add Rule wizard offers, and what the API accepts. */
+const RULE_CHANNEL_TYPES = [0, 5];
+
 type MessageTypeKey = keyof MessageTypes;
 
 /** Human labels for the message-type switches. Order is the order they render in. */
@@ -176,6 +180,20 @@ export function RuleEditorPage() {
     }
     return extras.length > 0 ? [...channels, ...extras] : channels;
   }, [channels, sourceChannelId, destChannelId, crossServer]);
+
+  /** The role options, guaranteeing every saved author-filter role is one of them. The
+   *  role list leaves out managed roles and any role that has since gone, and the role
+   *  picker rebuilds its value from the listed roles, so without these a tick on any other
+   *  box would silently drop a saved role nobody touched. */
+  const roleOptions = useMemo(() => {
+    const extras: Role[] = [];
+    for (const id of [...filters.allow_role_ids, ...filters.deny_role_ids]) {
+      if (!roles.some((r) => r.id === id) && !extras.some((r) => r.id === id)) {
+        extras.push({ id, name: `Role ${id}`, color: 0, position: -1 });
+      }
+    }
+    return extras.length > 0 ? [...roles, ...extras] : roles;
+  }, [roles, filters]);
 
   const selectedTypes = useMemo(
     () => MESSAGE_TYPE_OPTIONS.map(([k]) => k).filter((k) => messageTypes[k]),
@@ -293,7 +311,7 @@ export function RuleEditorPage() {
                   label="Watch this channel"
                   value={sourceChannelId}
                   channels={channelOptions}
-                  filterType={0}
+                  channelTypes={RULE_CHANNEL_TYPES}
                   onChange={setSourceChannelId}
                   description="Every message posted here is considered for copying."
                 />
@@ -310,7 +328,7 @@ export function RuleEditorPage() {
                     label="Copy into this channel"
                     value={destChannelId}
                     channels={channelOptions}
-                    filterType={0}
+                    channelTypes={RULE_CHANNEL_TYPES}
                     onChange={setDestChannelId}
                     description="Messages that pass the rule are posted here."
                   />
@@ -488,7 +506,7 @@ export function RuleEditorPage() {
                 <MultiRoleField
                   label="Only copy messages from these roles"
                   value={filters.allow_role_ids}
-                  roles={roles}
+                  roles={roleOptions}
                   onChange={(v) => setFilters({ ...filters, allow_role_ids: v })}
                   description="Leave every box unticked to copy everyone. With roles ticked, only members holding one of them are copied."
                 />
@@ -497,7 +515,7 @@ export function RuleEditorPage() {
                 <MultiRoleField
                   label="Never copy messages from these roles"
                   value={filters.deny_role_ids}
-                  roles={roles}
+                  roles={roleOptions}
                   onChange={(v) => setFilters({ ...filters, deny_role_ids: v })}
                   description="A member holding one of these is skipped, even if another role would have allowed them."
                 />

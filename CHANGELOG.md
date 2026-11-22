@@ -1,5 +1,49 @@
 # Changelog
 
+## [Unreleased] - 2026-11-21 (status page, safer dashboard rules and settings)
+
+### Added
+- **Stygian Relay and its dashboard can report their status to the public status page.** Each one
+  checks itself every 30 seconds and reports whether it is online, how fast it is responding, and
+  in plain words what is wrong when something is: not connected to Discord, database unavailable,
+  or sign-in unavailable on the dashboard. If either one stops reporting, the page marks it down.
+  The bot and the dashboard report separately, so a problem with one never makes the other look
+  down.
+
+### Fixed
+- **@everyone can never open the admin panel.** If @everyone had been saved as the Manager
+  Role before it was refused, every member of the server could open the full admin panel. It
+  now grants nothing; members with Manage Server or Administrator and a real Manager Role are
+  not affected.
+- **Announcement channels can be used in rules on the dashboard.** The Discord admin panel let you
+  forward from and into announcement channels, but the dashboard rule editor only listed text
+  channels, so a rule set up in Discord showed its announcement channel as "not set". Both ends of
+  a rule now offer text and announcement channels, exactly like the panel.
+- **A rule can only watch, and copy into, your own server's channels.** The dashboard now checks a
+  newly picked channel to watch, and a newly picked destination in your own server, against your
+  server's channel list. If it cannot read that list from Discord right now, it asks you to try
+  again in a moment instead of saving a channel it could not check. A channel that is not a text or
+  announcement channel is refused too. Rules that copy into another server work as before: that
+  server still has to allow yours in its cross-server allowlist. The dashboard now also always
+  checks that the destination channel really is in that other server, and asks you to try again
+  in a moment when it cannot read that server's channel list, instead of saving it unchecked.
+- **@everyone and integration roles can no longer be the Manager Role.** The Manager Role gives
+  full access to the bot's settings, so @everyone would have handed that to every member, and a
+  role an integration gives out (a bot role, Server Booster, a subscription role) would have
+  handed it to whoever the integration picks. Both the dashboard and the Discord admin panel now
+  refuse them and say why.
+- **A role from another server is refused.** The dashboard now checks a newly picked manager role,
+  and newly added roles in a rule's "whose messages" lists, against your server's roles, and says
+  plainly when one is not yours.
+- **Roles saved on a rule are no longer dropped by accident.** If a rule listed a role the
+  dashboard could not show, ticking any other role box quietly removed it. It now stays in the list
+  until you untick it.
+- **The log channel on the dashboard takes text channels only, the same as in Discord.**
+- **The cross-server allowlist can no longer grow too long for the Discord admin panel.** A very
+  long list saved on the dashboard stopped the Inbound Forward Allowlist screen in Discord from
+  opening. The dashboard now refuses a list longer than that screen can hold. A list you saved
+  earlier that is already longer still saves, and you can always remove servers from it.
+
 ## [Unreleased] - 2026-11-21 (support server link, sign-in security)
 
 ### Fixed

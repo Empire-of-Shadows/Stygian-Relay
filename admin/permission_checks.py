@@ -103,6 +103,55 @@ def check_bot_guild_permission(
     )
 
 
+# -- Dangerous role permissions (owner ruling 2026-11-20) -------------------
+#
+# A role the bot hands out reaches members without an admin choosing each one:
+# a member presses a button (a guide or board role toggle, a ping opt-in), joins
+# the server (a starter role), or earns it. If that role carries one of these, the
+# bot would be handing out moderator power. So a role carrying any of them is
+# refused when it is picked for a bot-assigned setting, AND the bot refuses to
+# give it out at the moment of assigning (a role can gain a permission after it
+# was picked). Removing such a role is always allowed. The dashboard engine keeps
+# the same list as bit values (discord_cache.DANGEROUS_ROLE_PERMISSIONS); a test
+# pins the two together.
+
+DANGEROUS_ROLE_PERMISSIONS: tuple[str, ...] = (
+    "administrator",
+    "manage_guild",
+    "manage_roles",
+    "manage_channels",
+    "ban_members",
+    "kick_members",
+)
+
+_DANGEROUS_LABELS: dict[str, str] = {
+    "administrator": "Administrator",
+    "manage_guild": "Manage Server",
+    "manage_roles": "Manage Roles",
+    "manage_channels": "Manage Channels",
+    "ban_members": "Ban Members",
+    "kick_members": "Kick Members",
+}
+
+
+def dangerous_role_permissions(role: discord.Role) -> list[str]:
+    """Readable names of the dangerous permissions ``role`` carries (empty if none)."""
+    perms = role.permissions
+    return [_DANGEROUS_LABELS[p] for p in DANGEROUS_ROLE_PERMISSIONS if getattr(perms, p, False)]
+
+
+def dangerous_role_message(role: discord.Role) -> str | None:
+    """The refusal for a bot-assigned role that carries dangerous permissions, or None."""
+    found = dangerous_role_permissions(role)
+    if not found:
+        return None
+    return (
+        f"**@{role.name}** has {', '.join(found)}, so the bot will not hand it out: "
+        f"members would get those powers without an admin choosing them.\n\n"
+        f"Pick a role without them, or remove them from the role in Server Settings > Roles."
+    )
+
+
 def check_assignable_role(
     guild: discord.Guild,
     role_id: int,
@@ -115,8 +164,9 @@ def check_assignable_role(
 
     Rejects, in order: no Manage Roles server permission, a role that no longer
     exists, @everyone, an integration-managed role (bot roles, the booster role -
-    Discord never lets anyone assign these), and a role that is not below the
-    bot's top role.
+    Discord never lets anyone assign these), a role that is not below the
+    bot's top role, and a role carrying a DANGEROUS_ROLE_PERMISSIONS permission
+    (added 2026-11-20).
 
     Returns (True, None) if OK, (False, error_message) otherwise.
     """
@@ -153,6 +203,10 @@ def check_assignable_role(
             f"(**@{bot_role.name}**) is at position {bot_role.position}.\n"
             f"Move the bot's role higher in Server Settings > Roles."
         )
+
+    dangerous = dangerous_role_message(role)
+    if dangerous:
+        return False, dangerous
 
     return True, None
 

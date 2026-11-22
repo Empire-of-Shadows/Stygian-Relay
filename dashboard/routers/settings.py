@@ -22,6 +22,20 @@ FEATURE_KEYS = ("forwarding_enabled", "notify_on_error")
 #: to switch off, premium changes). Same set the Discord panel refuses a channel without.
 LOG_CHANNEL_PERMS = ["view_channel", "send_messages", "embed_links"]
 
+#: The channel kinds the Discord panel's Log Channel picker offers: text channels only.
+LOG_CHANNEL_TYPES = (0,)
+
+#: The panel shows the inbound allowlist in a text box that holds at most this many
+#: characters (its ``modal_max_length``), pre-filled with the saved ids joined by ", ".
+#: Discord refuses to open a box whose saved text is longer, so a longer list saved here
+#: would stop that panel screen from opening. test_dashboard_list_caps pins this to the node.
+INBOUND_TEXT_MAX = 2000
+
+
+def _inbound_text(ids) -> str:
+    """The allowlist exactly as the panel's text box shows it."""
+    return ", ".join(str(x) for x in (ids or []))
+
 
 def _features(doc: dict) -> dict:
     """The two switches, a missing one reading ON the way the bot reads it."""
@@ -80,7 +94,8 @@ async def update_config(
     gid = str(guild_id)
 
     before = await db.guild_settings().find_one(
-        {"guild_id": gid}, {"_id": 0, "manager_role_id": 1, "master_log_channel_id": 1},
+        {"guild_id": gid},
+        {"_id": 0, "manager_role_id": 1, "master_log_channel_id": 1, "inbound_allowed_guilds": 1},
     )
     if before is None:
         raise HTTPException(status_code=404, detail="Guild configuration not found.")
@@ -146,6 +161,46 @@ async def update_config(
                 status_code=403,
                 detail="Only members with Manage Server can change who can manage the relay.",
             )
+        new_role = set_fields["manager_role_id"]
+        if new_role is not None:
+            # @everyone's id IS the server's id, so this needs no lookup and is always
+            # refused: every member would get full access (owner ruling 2026-11-21, the
+            # same refusal TheDecree and ImperialReminder make for their admin roles).
+            if new_role == gid:
+                raise HTTPException(
+                    status_code=422,
+                    detail="@everyone cannot manage this bot - that would give every member "
+                           "full access. Pick a specific role.",
+                )
+            # A role from another server, or one an integration hands out, is refused.
+            # This lookup fails OPEN (owner decision): when Discord cannot list the roles
+            # the save goes through.
+            roles = await discord_cache.guild_roles_raw(gid)
+            if roles:
+                role = next((r for r in roles if str(r.get("id")) == new_role), None)
+                if role is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="That role is not in this server. Pick one of this server's roles.",
+                    )
+                if role.get("managed"):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"@{role.get('name')} is managed by an integration, so anyone that "
+                               f"integration hands it to would get full access. Pick a normal role.",
+                    )
+
+    if "inbound_allowed_guilds" in set_fields:
+        new_text = _inbound_text(set_fields["inbound_allowed_guilds"])
+        old_text = _inbound_text(before.get("inbound_allowed_guilds"))
+        # A list may always shrink, and one already over the limit may be saved unchanged.
+        if len(new_text) > INBOUND_TEXT_MAX and len(new_text) > len(old_text):
+            raise HTTPException(
+                status_code=400,
+                detail=f"The cross-server allowlist is too long for the Discord admin panel, "
+                       f"which shows it in a box of at most {INBOUND_TEXT_MAX} characters. "
+                       f"Remove some server IDs, then save again.",
+            )
 
     new_log = set_fields.get("master_log_channel_id")
     if new_log and new_log != str(before.get("master_log_channel_id") or ""):
@@ -161,10 +216,17 @@ async def update_config(
                 detail="Could not check that channel against this server's channel list. "
                        "Try again in a moment.",
             )
-        if new_log not in {str(c.get("id")) for c in channels}:
+        picked = next((c for c in channels if str(c.get("id")) == new_log), None)
+        if picked is None:
             raise HTTPException(
                 status_code=422,
                 detail="That channel is not in this server. Pick one of this server's channels.",
+            )
+        if picked.get("type") not in LOG_CHANNEL_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail="The log channel must be a text channel, the same kind the Discord "
+                       "admin panel offers.",
             )
 
         # The Discord panel refuses a log channel the bot cannot post embeds in; so does

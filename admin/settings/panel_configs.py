@@ -14,6 +14,7 @@ import discord
 from storage.bot_specific.relay import guild_manager
 
 from ..auth import manage_guild_pre_check
+from ..permission_checks import check_delegation_role
 from ..views.panel_engine import PanelNode
 from .forwarding_actions import make_forwarding_rules_node
 
@@ -38,6 +39,22 @@ async def _set_manager_role(guild_id: int, values: list) -> bool:
 
 async def _clear_manager_role(guild_id: int) -> bool:
     return await guild_manager.update_guild_settings(str(guild_id), {"manager_role_id": None})
+
+
+async def _validate_manager_role(guild: discord.Guild, values: list) -> str | None:
+    """Refuse @everyone and integration-managed roles as the Manager Role.
+
+    The role is a full delegation of admin access, so @everyone would make every member an
+    admin, and an integration role would hand that access to whoever the integration gives
+    it to (owner ruling 2026-11-21). The engine's delegation check (no hierarchy rule: the
+    bot never assigns this role) says why, in the panel's own words. The engine runs this
+    on a pick and after the inline Create button alike.
+    """
+    for rid in values:
+        ok, err = check_delegation_role(guild, int(rid))
+        if not ok:
+            return err
+    return None
 
 
 # ─── Core: log channel ───────────────────────────────────────────────────────
@@ -192,6 +209,7 @@ CORE_NODE = PanelNode(
             # Who has access is Manage Server's call, as on every other bot: a delegated
             # member must not hand the panel to another role or take it away.
             pre_check=manage_guild_pre_check,
+            value_validator=_validate_manager_role,
         ),
         "log_channel": PanelNode(
             key="log_channel",
